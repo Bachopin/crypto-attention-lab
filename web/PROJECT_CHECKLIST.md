@@ -21,10 +21,17 @@
 - [x] `components/ui/card.tsx` - 卡片组件
 - [x] `components/ui/separator.tsx` - 分隔线组件
 
-### 业务组件 (3 个)
+### 业务组件 (5 个)
 - [x] `components/PriceChart.tsx` - TradingView 图表 (K线+成交量+注意力)
 - [x] `components/StatCards.tsx` - 统计卡片 (SummaryCard + StatCard)
 - [x] `components/NewsList.tsx` - 新闻列表组件
+- [x] `components/AttentionEvents.tsx` - 注意力事件列表与标记 🆕
+- [x] `components/BacktestPanel.tsx` - 策略回测交互面板 🆕
+
+### 页面组件 (3 个)
+- [x] `components/tabs/DashboardTab.tsx` - 仪表盘主页
+- [x] `components/tabs/NewsTab.tsx` - 新闻页
+- [x] `components/tabs/SettingsTab.tsx` - 设置页
 
 ### 工具库 (2 个)
 - [x] `lib/api.ts` - API 层 (类型定义 + Mock 数据 + API 函数)
@@ -79,6 +86,8 @@
 - [x] SummaryCard - 主资产卡片 (渐变背景)
 - [x] StatCard - 指标卡片 (支持变化百分比)
 - [x] NewsList - 新闻列表 (可滚动, 外链图标)
+- [x] AttentionEvents - 事件时间轴 (强度标记) 🆕
+- [x] BacktestPanel - 回测实验室 (参数配置 + 结果表格) 🆕
 - [x] Button - 按钮 (多种样式)
 - [x] Card - 卡片容器
 

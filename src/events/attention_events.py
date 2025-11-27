@@ -45,11 +45,11 @@ def detect_attention_events(
         # high_weighted_event
         if pd.notna(row['w_q']) and row.get('weighted_attention', 0) >= row['w_q']:
             events.append(AttentionEvent(dt, 'high_weighted_event', float(row['weighted_attention'] - row['w_q']), summ))
-        # high_bullish
-        if pd.notna(row['bull_q']) and row.get('bullish_attention', 0) >= row['bull_q']:
+        # high_bullish: bullish_attention high AND > bearish_attention
+        if pd.notna(row['bull_q']) and row.get('bullish_attention', 0) >= row['bull_q'] and row.get('bullish_attention', 0) > row.get('bearish_attention', 0):
             events.append(AttentionEvent(dt, 'high_bullish', float(row['bullish_attention'] - row['bull_q']), summ))
-        # high_bearish
-        if pd.notna(row['bear_q']) and row.get('bearish_attention', 0) >= row['bear_q']:
+        # high_bearish: bearish_attention high AND > bullish_attention
+        if pd.notna(row['bear_q']) and row.get('bearish_attention', 0) >= row['bear_q'] and row.get('bearish_attention', 0) > row.get('bullish_attention', 0):
             events.append(AttentionEvent(dt, 'high_bearish', float(row['bearish_attention'] - row['bear_q']), summ))
         # event_intensity
         if int(row.get('event_intensity', 0)) == 1:

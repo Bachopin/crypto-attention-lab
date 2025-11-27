@@ -50,7 +50,9 @@ def process_attention_features(symbol: str = 'ZEC', freq: str = 'D'):
 
     # relevance 权重: direct=1.0, related=0.5
     rel_w = df['relevance'].map({'direct': 1.0, 'related': 0.5}).fillna(0.5)
-    weighted = df['source_weight'] * rel_w
+    df['weighted_score'] = df['source_weight'] * rel_w
+    
+    weighted = df['weighted_score']
     # bullish/bearish attention（情绪分解）
     df['bullish_component'] = (df['sentiment_score'].clip(lower=0)) * weighted
     df['bearish_component'] = (-df['sentiment_score'].clip(upper=0)) * weighted
@@ -58,10 +60,10 @@ def process_attention_features(symbol: str = 'ZEC', freq: str = 'D'):
     # 聚合：news_count 与扩展特征
     grp = df.set_index('datetime').resample(freq).agg({
         'title': 'count',
-        'source_weight': 'sum',
+        'weighted_score': 'sum',
         'bullish_component': 'sum',
         'bearish_component': 'sum',
-    }).rename(columns={'title': 'news_count', 'source_weight': 'weighted_attention',
+    }).rename(columns={'title': 'news_count', 'weighted_score': 'weighted_attention',
                        'bullish_component': 'bullish_attention', 'bearish_component': 'bearish_attention'})
 
     grp = grp.fillna(0).reset_index()

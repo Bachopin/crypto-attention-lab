@@ -33,21 +33,33 @@ export default function BacktestPanel() {
     <div className="bg-card rounded-lg border p-4 space-y-4">
       <h3 className="text-lg font-semibold">Basic Attention Strategy</h3>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-        <label className="flex flex-col gap-1">Lookback
+        <label className="flex flex-col gap-1 group cursor-help">
+          <span className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit" title="回看天数：用于计算注意力分位数的历史窗口长度（例如30天）。">
+            Lookback Days
+          </span>
           <input className="px-2 py-1 bg-background border rounded" type="number" value={params.lookback_days}
                  onChange={e => setParams(p => ({...p, lookback_days: Number(e.target.value)}))}/>
         </label>
-        <label className="flex flex-col gap-1">Quantile
+        <label className="flex flex-col gap-1 group cursor-help">
+          <span className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit" title="注意力阈值（分位数）：触发买入信号的强度标准。例如0.8代表当前注意力超过过去80%的时间。">
+            Threshold (Quantile)
+          </span>
           <input className="px-2 py-1 bg-background border rounded" type="number" step="0.05" min={0} max={1}
                  value={params.attention_quantile}
                  onChange={e => setParams(p => ({...p, attention_quantile: Number(e.target.value)}))}/>
         </label>
-        <label className="flex flex-col gap-1">Max Daily Ret
+        <label className="flex flex-col gap-1 group cursor-help">
+          <span className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit" title="最大日涨幅限制：如果当日涨幅超过此值（例如0.05即5%），则不追高买入，防止高位接盘。">
+            Max Daily Return
+          </span>
           <input className="px-2 py-1 bg-background border rounded" type="number" step="0.01"
                  value={params.max_daily_return}
                  onChange={e => setParams(p => ({...p, max_daily_return: Number(e.target.value)}))}/>
         </label>
-        <label className="flex flex-col gap-1">Holding Days
+        <label className="flex flex-col gap-1 group cursor-help">
+          <span className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit" title="持仓天数：信号触发后，默认持有的交易日数量。">
+            Holding Period
+          </span>
           <input className="px-2 py-1 bg-background border rounded" type="number"
                  value={params.holding_days}
                  onChange={e => setParams(p => ({...p, holding_days: Number(e.target.value)}))}/>

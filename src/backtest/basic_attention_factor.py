@@ -40,7 +40,8 @@ def run_backtest_basic_attention(
 
     # 分位数阈值
     def rolling_q(s: pd.Series) -> pd.Series:
-        return s.rolling(lookback_days, min_periods=5).apply(lambda x: pd.Series(x).quantile(attention_quantile), raw=False)
+        min_p = min(lookback_days, 5)
+        return s.rolling(lookback_days, min_periods=min_p).apply(lambda x: pd.Series(x).quantile(attention_quantile), raw=False)
 
     df['w_q'] = rolling_q(df['weighted_attention'])
     df['prev_close'] = df['close'].shift(1)
