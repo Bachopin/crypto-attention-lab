@@ -48,10 +48,8 @@
 
 **Query Parameters:**
 
-| Parameter   | Type   | Required | Default  | Description                    |
 |-------------|--------|----------|----------|--------------------------------|
 | `symbol`    | string | No       | ZECUSDT  | 交易对符号 (e.g., ZECUSDT)     |
-| `timeframe` | string | No       | 1d       | 时间周期 (15m, 1h, 4h, 1d) |
 | `start`     | string | No       | -        | 开始时间 (ISO 8601 格式)       |
 | `end`       | string | No       | -        | 结束时间 (ISO 8601 格式)       |
 

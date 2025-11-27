@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import type { BacktestResult } from '@/lib/api';
-import { runBasicAttentionBacktest } from '@/lib/api';
+import type { BacktestResult, MultiBacktestResult } from '@/lib/api';
+import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
 
 export default function BacktestPanel() {
   const [params, setParams] = useState({
@@ -14,6 +14,7 @@ export default function BacktestPanel() {
     holding_days: 3,
   });
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [multiResult, setMultiResult] = useState<MultiBacktestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,8 +23,31 @@ export default function BacktestPanel() {
     try {
       const res = await runBasicAttentionBacktest(params);
       setResult(res);
+      setMultiResult(null);
     } catch (e: any) {
       setError(e?.message || 'Backtest failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runMulti() {
+    setLoading(true); setError(null);
+    try {
+      const baseSymbol = params.symbol || 'ZECUSDT';
+      const base = baseSymbol.replace('USDT', '');
+      const symbols = [baseSymbol, 'BTCUSDT', 'ETHUSDT'].filter((v, idx, arr) => arr.indexOf(v) === idx);
+      const res = await runMultiSymbolBacktest({
+        symbols,
+        lookback_days: params.lookback_days,
+        attention_quantile: params.attention_quantile,
+        max_daily_return: params.max_daily_return,
+        holding_days: params.holding_days,
+      });
+      setMultiResult(res);
+      setResult(null);
+    } catch (e: any) {
+      setError(e?.message || 'Multi backtest failed');
     } finally {
       setLoading(false);
     }
@@ -64,7 +88,10 @@ export default function BacktestPanel() {
                  value={params.holding_days}
                  onChange={e => setParams(p => ({...p, holding_days: Number(e.target.value)}))}/>
         </label>
-        <div className="flex items-end"><Button onClick={run} disabled={loading}>{loading ? 'Running...' : 'Run Backtest'}</Button></div>
+        <div className="flex items-end gap-2">
+          <Button onClick={run} disabled={loading}>{loading ? 'Running...' : 'Single Backtest'}</Button>
+          <Button variant="outline" onClick={runMulti} disabled={loading}>{loading ? 'Running...' : 'Multi-Asset'}</Button>
+        </div>
       </div>
 
       {error && <div className="text-red-500 text-sm">{error}</div>}
@@ -98,6 +125,42 @@ export default function BacktestPanel() {
                     <td className="text-right">{t.entry_price.toFixed(2)}</td>
                     <td className="text-right">{t.exit_price.toFixed(2)}</td>
                     <td className="text-right">{(t.return_pct*100).toFixed(2)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {multiResult && (
+        <div className="space-y-4">
+          <h4 className="text-md font-semibold">Multi-Asset Comparison</h4>
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="text-left py-2">Symbol</th>
+                  <th className="text-right py-2">Trades</th>
+                  <th className="text-right py-2">Win Rate</th>
+                  <th className="text-right py-2">Cumulative</th>
+                  <th className="text-right py-2">Max DD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(multiResult.per_symbol_summary).map(([sym, summary]) => (
+                  <tr key={sym} className="border-t border-border/50">
+                    <td className="py-1 font-medium">{sym}</td>
+                    {'error' in summary ? (
+                      <td className="py-1 text-red-500 text-xs" colSpan={4}>{summary.error}</td>
+                    ) : (
+                      <>
+                        <td className="text-right py-1">{summary.total_trades}</td>
+                        <td className="text-right py-1">{summary.win_rate.toFixed(1)}%</td>
+                        <td className="text-right py-1">{(summary.cumulative_return * 100).toFixed(2)}%</td>
+                        <td className="text-right py-1">{(summary.max_drawdown * 100).toFixed(2)}%</td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

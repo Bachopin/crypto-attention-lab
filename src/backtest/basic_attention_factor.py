@@ -20,6 +20,10 @@ def run_backtest_basic_attention(
     attention_quantile: float = 0.8,
     max_daily_return: float = 0.05,
     holding_days: int = 3,
+    stop_loss_pct: Optional[float] = None,
+    take_profit_pct: Optional[float] = None,
+    max_holding_days: Optional[int] = None,
+    position_size: float = 1.0,
     start: Optional[pd.Timestamp] = None,
     end: Optional[pd.Timestamp] = None,
 ) -> Dict:
@@ -58,10 +62,38 @@ def run_backtest_basic_attention(
         )
         if cond:
             entry_idx = i
-            exit_idx = min(i + holding_days, len(df) - 1)
             entry = df.iloc[entry_idx]
+
+            # 动态持仓天数：优先使用 max_holding_days
+            max_hold = max_holding_days if max_holding_days is not None else holding_days
+            exit_idx = entry_idx
+            max_close = entry['close']
+            max_price_since_entry = entry['close']
+            ret = 0.0
+
+            # 向前模拟持仓，直到触发止损/止盈或达到最大持仓天数
+            for step in range(1, max_hold + 1):
+                if entry_idx + step >= len(df):
+                    break
+                exit_idx = entry_idx + step
+                exit_row = df.iloc[exit_idx]
+                price_now = float(exit_row['close'])
+                ret = price_now / float(entry['close']) - 1.0
+
+                # 浮动回撤：基于入场以来的最高价
+                max_price_since_entry = max(max_price_since_entry, price_now)
+                drawdown = price_now / max_price_since_entry - 1.0
+
+                stop = False
+                if stop_loss_pct is not None and drawdown <= stop_loss_pct:
+                    stop = True
+                if take_profit_pct is not None and ret >= take_profit_pct:
+                    stop = True
+
+                if stop:
+                    break
+
             exit = df.iloc[exit_idx]
-            ret = (exit['close'] / entry['close'] - 1.0)
             trades.append(Trade(entry['datetime'], exit['datetime'], float(entry['close']), float(exit['close']), float(ret)))
             i = exit_idx + 1
         else:
@@ -71,7 +103,7 @@ def run_backtest_basic_attention(
     equity = []
     eq = 1.0
     for t in trades:
-        eq *= (1.0 + t.return_pct)
+        eq *= (1.0 + t.return_pct * position_size)
         equity.append({"datetime": t.exit_date.isoformat(), "equity": eq})
 
     if trades:
@@ -91,12 +123,31 @@ def run_backtest_basic_attention(
         dd = (peak - pt['equity']) / peak
         max_dd = max(max_dd, dd)
 
+    # 最大连续亏损笔数
+    max_consecutive_losses = 0
+    current_losses = 0
+    for t in trades:
+        if t.return_pct < 0:
+            current_losses += 1
+            max_consecutive_losses = max(max_consecutive_losses, current_losses)
+        else:
+            current_losses = 0
+
+    # 按月聚合收益
+    monthly_returns: Dict[str, float] = {}
+    for t in trades:
+        month_key = t.exit_date.strftime("%Y-%m")
+        monthly_returns.setdefault(month_key, 0.0)
+        monthly_returns[month_key] += t.return_pct * position_size
+
     summary = {
         "total_trades": len(trades),
         "win_rate": (wins / len(trades) * 100.0) if trades else 0.0,
         "avg_return": avg_ret,
         "cumulative_return": cumulative,
         "max_drawdown": max_dd,
+        "max_consecutive_losses": max_consecutive_losses,
+        "monthly_returns": monthly_returns,
     }
 
     return {

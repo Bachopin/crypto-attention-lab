@@ -66,6 +66,18 @@ export interface BacktestResult {
   equity_curve: EquityPoint[];
 }
 
+export interface MultiBacktestResult {
+  per_symbol_summary: Record<string, BacktestSummary | { error: string }>;
+  per_symbol_equity_curves: Record<string, EquityPoint[]>;
+}
+
+export type EventPerformanceTable = Record<string, Record<string, {
+  event_type: string;
+  lookahead_days: number;
+  avg_return: number;
+  sample_size: number;
+}>>
+
 // 兼容旧代码的类型别名
 export type PriceCandle = Candle;
 export type AttentionData = AttentionPoint;
@@ -253,6 +265,46 @@ export async function runBasicAttentionBacktest(params: { symbol?: string; lookb
     throw new Error(err.detail || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+export async function runMultiSymbolBacktest(params: {
+  symbols: string[];
+  lookback_days?: number;
+  attention_quantile?: number;
+  max_daily_return?: number;
+  holding_days?: number;
+  stop_loss_pct?: number | null;
+  take_profit_pct?: number | null;
+  max_holding_days?: number | null;
+  position_size?: number;
+  start?: string;
+  end?: string;
+}): Promise<MultiBacktestResult> {
+  const body = JSON.stringify({
+    symbols: params.symbols,
+    lookback_days: params.lookback_days ?? 30,
+    attention_quantile: params.attention_quantile ?? 0.8,
+    max_daily_return: params.max_daily_return ?? 0.05,
+    holding_days: params.holding_days ?? 3,
+    stop_loss_pct: params.stop_loss_pct,
+    take_profit_pct: params.take_profit_pct,
+    max_holding_days: params.max_holding_days,
+    position_size: params.position_size ?? 1.0,
+    start: params.start,
+    end: params.end,
+  });
+  const url = `${API_BASE_URL}/api/backtest/basic-attention/multi`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchAttentionEventPerformance(params: { symbol?: string; lookahead_days?: string } = {}): Promise<EventPerformanceTable> {
+  const { symbol = 'ZEC', lookahead_days = '1,3,5,10' } = params
+  return fetchAPI<EventPerformanceTable>('/api/attention-events/performance', { symbol, lookahead_days })
 }
 
 /**

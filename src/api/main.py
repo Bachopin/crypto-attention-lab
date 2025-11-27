@@ -22,6 +22,7 @@ from src.data.db_storage import (
 )
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
+from src.features.event_performance import compute_event_performance
 
 # 设置日志
 logging.basicConfig(
@@ -627,18 +628,54 @@ def get_attention_events(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/attention-events/performance")
+def get_attention_event_performance(
+    symbol: str = Query(default="ZEC"),
+    lookahead_days: str = Query(default="1,3,5,10"),
+):
+    """按事件类型与前瞻窗口统计平均收益和样本数。
+
+    lookahead_days: 逗号分隔的天数列表，例如 "1,3,5,10"。
+    """
+    try:
+        days = [int(x) for x in lookahead_days.split(",") if x.strip()]
+        perf = compute_event_performance(symbol=symbol, lookahead_days=days)
+        # 转为可 JSON 化结构
+        out: Dict[str, Dict[str, dict]] = {}
+        for etype, per_h in perf.items():
+            out[etype] = {}
+            for h, p in per_h.items():
+                out[etype][str(h)] = {
+                    "event_type": p.event_type,
+                    "lookahead_days": p.lookahead_days,
+                    "avg_return": p.avg_return,
+                    "sample_size": p.sample_size,
+                }
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_attention_event_performance: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== 基础回测 API ====================
 
 @app.post("/api/backtest/basic-attention")
 def backtest_basic_attention(
     payload: dict = Body(...)
 ):
+    """单币种基础注意力策略回测"""
     try:
         symbol = payload.get("symbol", "ZECUSDT")
         lookback_days = int(payload.get("lookback_days", 30))
         attention_quantile = float(payload.get("attention_quantile", 0.8))
         max_daily_return = float(payload.get("max_daily_return", 0.05))
         holding_days = int(payload.get("holding_days", 3))
+        stop_loss_pct = float(payload["stop_loss_pct"]) if "stop_loss_pct" in payload and payload["stop_loss_pct"] is not None else None
+        take_profit_pct = float(payload["take_profit_pct"]) if "take_profit_pct" in payload and payload["take_profit_pct"] is not None else None
+        max_holding_days = int(payload["max_holding_days"]) if "max_holding_days" in payload and payload["max_holding_days"] is not None else None
+        position_size = float(payload.get("position_size", 1.0))
         start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
         end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
         res = run_backtest_basic_attention(
@@ -647,12 +684,79 @@ def backtest_basic_attention(
             attention_quantile=attention_quantile,
             max_daily_return=max_daily_return,
             holding_days=holding_days,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            max_holding_days=max_holding_days,
+            position_size=position_size,
             start=start,
             end=end,
         )
         return res
     except Exception as e:
         logger.error(f"Error in backtest_basic_attention: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backtest/basic-attention/multi")
+def backtest_basic_attention_multi(
+    payload: dict = Body(...)
+):
+    """多币种基础注意力策略回测
+
+    Request:
+        {
+            "symbols": ["ZECUSDT", "BTCUSDT"],
+            ... 其余参数与单币种回测一致 ...
+        }
+    """
+    try:
+        symbols = payload.get("symbols") or []
+        if not symbols or not isinstance(symbols, list):
+            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
+
+        lookback_days = int(payload.get("lookback_days", 30))
+        attention_quantile = float(payload.get("attention_quantile", 0.8))
+        max_daily_return = float(payload.get("max_daily_return", 0.05))
+        holding_days = int(payload.get("holding_days", 3))
+        stop_loss_pct = float(payload["stop_loss_pct"]) if "stop_loss_pct" in payload and payload["stop_loss_pct"] is not None else None
+        take_profit_pct = float(payload["take_profit_pct"]) if "take_profit_pct" in payload and payload["take_profit_pct"] is not None else None
+        max_holding_days = int(payload["max_holding_days"]) if "max_holding_days" in payload and payload["max_holding_days"] is not None else None
+        position_size = float(payload.get("position_size", 1.0))
+        start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
+        end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+
+        per_symbol_summary = {}
+        per_symbol_equity_curves = {}
+
+        for sym in symbols:
+            res = run_backtest_basic_attention(
+                symbol=sym,
+                lookback_days=lookback_days,
+                attention_quantile=attention_quantile,
+                max_daily_return=max_daily_return,
+                holding_days=holding_days,
+                stop_loss_pct=stop_loss_pct,
+                take_profit_pct=take_profit_pct,
+                max_holding_days=max_holding_days,
+                position_size=position_size,
+                start=start,
+                end=end,
+            )
+            if "summary" in res and "equity_curve" in res:
+                per_symbol_summary[sym] = res["summary"]
+                per_symbol_equity_curves[sym] = res["equity_curve"]
+            else:
+                per_symbol_summary[sym] = {"error": res.get("error", "unknown error")}
+                per_symbol_equity_curves[sym] = []
+
+        return {
+            "per_symbol_summary": per_symbol_summary,
+            "per_symbol_equity_curves": per_symbol_equity_curves,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in backtest_basic_attention_multi: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
