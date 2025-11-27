@@ -79,4 +79,4 @@ export default function AttentionEvents({ events }: { events: AttentionEvent[] }
     </div>
   )
 }
-}
+

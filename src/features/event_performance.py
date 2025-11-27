@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Dict, Sequence
+from typing import List, Dict, Sequence, Optional
 import pandas as pd
 
 from src.data.db_storage import load_price_data, load_attention_data
@@ -17,7 +17,7 @@ class EventPerformance:
 def compute_event_performance(
     symbol: str,
     lookahead_days: Sequence[int],
-    event_types: Sequence[str] | None = None,
+    event_types: Optional[Sequence[str]] = None,
 ) -> Dict[str, Dict[int, EventPerformance]]:
     """计算事件后的平均收益表现。
 

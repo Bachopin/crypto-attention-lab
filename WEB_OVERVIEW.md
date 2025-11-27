@@ -20,6 +20,7 @@ crypto-attention-lab/
     │   ├── ui/           # Base UI components
     │   ├── PriceChart.tsx # TradingView chart
     │   ├── StatCards.tsx  # Metrics cards
+    │   ├── BacktestPanel.tsx # Basic attention backtest with risk controls
     │   └── NewsList.tsx   # News feed
     ├── lib/
     │   ├── api.ts        # API layer (mock + real)
@@ -167,6 +168,15 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 - Timestamp formatting with date-fns
 - External link indicators
 - Source badges
+
+### BacktestPanel Component
+- Basic attention factor backtest UI
+- Exposes risk parameters: `stop_loss_pct`, `take_profit_pct`, `max_holding_days`, `position_size`
+- Supports single-asset and multi-asset backtests via `/api/backtest/basic-attention` 与 `/api/backtest/basic-attention/multi`
+- Visualizes backtest `equity_curve` as a lightweight inline SVG line chart (single-asset, per-symbol multi-asset, and multi-strategy comparison)
+- Supports multiple named strategy presets stored in `localStorage` with prefix `basic-attention-preset-<name>`, including all key parameters
+- Maintains per-preset last backtest summary and equity curve in `localStorage` (`basic-attention-summary-<name>`, `basic-attention-equity-<name>`) and exposes a "策略概览" table (sortable by cumulative return)
+- Allows selecting up to 3 presets for multi-strategy equity curve comparison in a shared SVG chart
 
 ## 🎨 Theming
 
