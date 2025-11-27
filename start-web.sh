@@ -56,5 +56,10 @@ echo ""
 echo "=============================================="
 echo ""
 
-# Start dev server
-npm run dev
+# Start dev server on fixed port 3000 (free if occupied)
+if lsof -ti tcp:3000 >/dev/null 2>&1; then
+    echo "⚠ Port 3000 is in use. Freeing it..."
+    lsof -ti tcp:3000 | xargs -r kill -9
+    sleep 1
+fi
+npm run dev -- -p 3000

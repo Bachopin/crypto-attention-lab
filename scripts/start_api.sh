@@ -26,5 +26,11 @@ echo "Starting FastAPI backend on http://localhost:8000"
 echo "API Documentation: http://localhost:8000/docs"
 echo "Press Ctrl+C to stop the server"
 echo ""
+# Free the port 8000 if occupied
+if lsof -ti tcp:8000 >/dev/null 2>&1; then
+    echo "Port 8000 is in use. Freeing it..."
+    lsof -ti tcp:8000 | xargs -r kill -9
+    sleep 1
+fi
 
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload

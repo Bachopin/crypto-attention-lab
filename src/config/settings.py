@@ -17,6 +17,14 @@ PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+# 数据库配置
+# 默认使用 SQLite，如果环境变量中有 DATABASE_URL 则使用环境变量
+# 示例 PostgreSQL: "postgresql://user:password@localhost:5432/dbname"
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/crypto_attention.db")
+# 新闻数据独立存储（如果未指定，默认使用单独的 SQLite 文件）
+NEWS_DATABASE_URL = os.getenv("NEWS_DATABASE_URL", f"sqlite:///{DATA_DIR}/crypto_news.db")
+
 # 默认配置
-DEFAULT_SYMBOL = "ZEC/USDT"
+TRACKED_SYMBOLS = ["ZEC/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT"]
+DEFAULT_SYMBOL = TRACKED_SYMBOLS[0]
 DEFAULT_TIMEFRAME = "1d"

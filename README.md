@@ -71,6 +71,20 @@ rm data/processed/attention_features_zec.csv
 
 ## 🚀 快速开始
 
+### 首次使用：数据准备
+
+如果是首次使用或想要使用数据库模式，请先运行数据迁移：
+
+```bash
+# 1. 迁移历史 CSV 数据到 SQLite 数据库
+python scripts/migrate_to_database.py
+
+# 2. 如需更新数据，运行以下脚本
+python scripts/fetch_news_data.py        # 获取最新新闻
+python scripts/fetch_price_data.py       # 获取价格数据
+python scripts/generate_attention_data.py # 生成注意力特征
+```
+
 ### 选项 1: 运行完整的全栈应用 (推荐) 🌟
 
 ```bash
@@ -129,8 +143,11 @@ streamlit run src/dashboard/app.py
   - 参数: `symbol`, `granularity`, `start`, `end`
   - 返回: 时间序列注意力分数 (0-100) + 新闻数量
 - ✅ **GET /api/news** - 获取新闻列表
-  - 参数: `symbol`, `start`, `end`
+  - 参数: `symbol`, `start`, `end`, `limit`, `before`, `source`
   - 返回: 结构化新闻数据 (datetime, source, title, url, relevance, source_weight, sentiment_score, tags)
+- ✅ **GET /api/news/count** - 获取新闻总数
+  - 参数: `symbol`, `start`, `end`, `source`
+  - 返回: `{ total: number }`
 - ✅ **GET /api/attention-events** - 获取注意力事件
   - 参数: `symbol`, `start`, `end`, `lookback_days`, `min_quantile`
   - 返回: `[{ datetime, event_type, intensity, summary }]`
@@ -143,9 +160,13 @@ streamlit run src/dashboard/app.py
 
 ### Python 数据处理功能
 - ✅ 从 Binance/CoinGecko 获取 ZEC 价格数据
-- ✅ 集成 CryptoPanic/NewsAPI 获取真实新闻
+- ✅ 集成 CryptoPanic/NewsAPI/CryptoCompare/RSS 获取真实新闻
 - ✅ 新闻特征工程（来源权重/相关性/情绪/标签）
 - ✅ 多维注意力特征（weighted/bullish/bearish/event_intensity）
+- ✅ 注意力事件检测（基于分位数阈值）
+- ✅ 基础注意力策略回测框架
+- ✅ 数据库存储（SQLite + SQLAlchemy，支持多币种扩展）
+- ✅ CSV 向后兼容（数据迁移脚本）
 - ✅ 支持多时间周期 (1D/4H/1H/15M)
 - ✅ 代理支持 (HTTP/SOCKS5)
 
@@ -153,8 +174,11 @@ streamlit run src/dashboard/app.py
 - ✅ 专业交易终端 UI (暗色主题)
 - ✅ TradingView 风格的 K 线图 + 成交量
 - ✅ 注意力分数曲线叠加
+- ✅ 注意力事件标注（可开关）
+- ✅ 事件时间轴列表
+- ✅ 交互式回测面板（参数调节 + 结果展示）
 - ✅ 时间周期切换控件
-- ✅ 实时新闻流
+- ✅ 实时新闻流（支持分页、筛选、无限滚动）
 - ✅ 关键指标卡片
 - ✅ 响应式布局
 - ✅ TypeScript 完整类型安全
@@ -210,7 +234,7 @@ GET /api/attention?symbol=ZEC&granularity=1d&start=2024-01-01T00:00:00Z&end=2024
 
 #### 3. 新闻数据
 ```http
-GET /api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2024-12-31T23:59:59Z
+GET /api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2024-12-31T23:59:59Z&limit=50&source=CoinDesk
 ```
 
 **响应示例:**
@@ -289,11 +313,52 @@ Content-Type: application/json
 
 ## 🧠 Attention 因子与事件 (前端可视化)
 
-- 价格主图新增“事件标注”开关，基于 `attention-events` 在 K 线上方/下方打点：
-  - high_bullish: 绿色向上箭头
-  - high_bearish: 红色向下箭头
+### 多维注意力特征工程
+系统现已实现基于新闻的多维注意力特征，包括：
+
+- **来源权重（source_weight）**：对不同新闻来源赋予不同权重（CoinDesk=1.0, CryptoPanic=0.8, RSS=0.5 等）
+- **情绪分数（sentiment_score）**：基于标题关键词的简单情绪打分（-1~1）
+- **相关性标签（relevance）**：direct（直接提及币种）/ related（相关主题）
+- **主题标签（tags）**：自动提取 listing/hack/upgrade/partnership/regulation 等关键事件标签
+- **加权注意力（weighted_attention）**：综合来源权重和相关性的复合指标
+- **看涨/看跌注意力（bullish/bearish_attention）**：根据情绪分解的正负注意力强度
+- **事件强度（event_intensity）**：当日是否出现高权重来源 + 强情绪 + 明确主题的复合事件标记（0/1）
+
+### 注意力事件检测
+基于分位数阈值的事件检测模块，可识别以下类型的显著事件：
+
+- **attention_spike**：注意力分数突增（相对过去 N 天）
+- **high_weighted_event**：加权注意力显著上升
+- **high_bullish**：看涨注意力大幅上升
+- **high_bearish**：看跌注意力大幅上升
+- **event_intensity**：出现高质量复合事件（高权重来源 + 强情绪 + 明确标签）
+
+### 基础注意力策略与回测
+实现了第一版基于注意力因子的交易策略（**实验性质，不构成投资建议**）：
+
+**策略逻辑**（可通过前端参数调整）：
+1. 当某日的加权注意力（weighted_attention）超过过去 N 天的分位数阈值（默认 0.8）
+2. 且当日涨幅未超过设定上限（默认 5%，避免追高）
+3. 且看涨注意力 > 看跌注意力
+4. 则在该日收盘买入，持有 H 天（默认 3 天）后卖出
+
+**回测输出**：
+- 总交易次数、胜率、平均收益、累计收益、最大回撤
+- 详细交易列表（入场/出场日期、价格、收益率）
+- 简易 equity curve（初始资金 1.0，全仓进出）
+
+### 前端可视化
+- **价格图表事件标注**：在 K 线图上自动标记检测到的注意力事件：
+  - high_bullish: 绿色向上箭头 ↑
+  - high_bearish: 红色向下箭头 ↓
   - high_weighted_event/attention_spike/event_intensity: 黄色/蓝色圆点
-- 事件列表与回测面板在首页中部区域可见，可交互运行回测并查看 Summary/Trades/EquityCurve。
+  - 支持开关控制显示/隐藏事件标注
+- **事件时间轴面板**：列表展示所有检测到的事件，含日期、类型、强度、新闻摘要
+- **回测控制面板**：
+  - 参数调节器（lookback_days、attention_quantile、max_daily_return、holding_days）
+  - Summary 指标卡片（交易次数、胜率、平均收益、累计收益、最大回撤）
+  - 详细交易表格
+  - 一键运行回测按钮
 
 #### 4. 健康检查
 ```http
@@ -368,6 +433,22 @@ shadcn/ui         # UI 组件
 
 ## 🛠️ 开发工具
 
+### 数据管理
+
+```bash
+# 迁移 CSV 数据到数据库
+python scripts/migrate_to_database.py
+
+# 更新新闻数据
+python scripts/fetch_news_data.py
+
+# 更新价格数据
+python scripts/fetch_price_data.py
+
+# 生成注意力特征
+python scripts/generate_attention_data.py
+```
+
 ### Python 开发
 ```bash
 # 激活虚拟环境
@@ -419,15 +500,19 @@ export http_proxy=http://127.0.0.1:7890
 - [x] Streamlit 简单可视化
 - [x] 真实新闻 API 集成
 - [x] 专业级 Next.js 前端
-- [x] FastAPI 后端实现 🆕
-- [x] 前后端完整集成 🆕
-- [ ] WebSocket 实时数据
-- [ ] 用户认证系统
-- [ ] 多币种支持
-- [ ] 高级技术指标
-- [ ] 交易信号生成
-- [ ] 回测系统
-- [ ] 预测模型集成
+- [x] FastAPI 后端实现
+- [x] 前后端完整集成
+- [x] 多维注意力特征工程 🆕
+- [x] 注意力事件检测 🆕
+- [x] 基础注意力策略回测 🆕
+- [x] 数据库存储（SQLite + 多币种支持）🆕
+- [x] 前端事件可视化与交互式回测 🆕
+- [ ] 高级回测框架（止损/止盈/仓位管理）
+- [ ] WebSocket 实时数据流
+- [ ] 多币种对比分析
+- [ ] 机器学习预测模型集成
+- [ ] 用户认证与个人策略保存
+- [ ] 实盘信号推送
 
 ## 📝 许可
 

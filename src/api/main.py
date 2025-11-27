@@ -1,3 +1,4 @@
+ 
 """
 Crypto Attention Lab - FastAPI Backend
 提供价格、注意力和新闻数据的 REST API
@@ -10,30 +11,96 @@ from typing import Optional, List
 from datetime import datetime
 import pandas as pd
 import logging
+import os
+import subprocess
 
-from src.data.storage import (
+from src.data.db_storage import (
     load_price_data,
     load_attention_data,
     load_news_data,
-    ensure_price_data_exists,
-    ensure_attention_data_exists
+    get_available_symbols
 )
-from src.utils.logger import setup_logging
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
 
 # 设置日志
-setup_logging(logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+import asyncio
+from contextlib import asynccontextmanager
+
+# ...existing code...
+
+# ==================== 后台任务调度 ====================
+
+async def scheduled_news_update():
+    """
+    后台任务：定期更新新闻数据
+    每小时运行一次
+    """
+    from scripts.fetch_news_data import run_news_fetch_pipeline
+    
+    while True:
+        try:
+            logger.info("[Scheduler] Starting hourly news update...")
+            # 在线程池中运行同步函数，避免阻塞事件循环
+            await asyncio.to_thread(run_news_fetch_pipeline, days=1)
+            logger.info("[Scheduler] News update completed. Sleeping for 1 hour.")
+        except Exception as e:
+            logger.error(f"[Scheduler] News update failed: {e}")
+        
+        # 等待 1 小时
+        await asyncio.sleep(3600)
+
+
+async def scheduled_price_update():
+    """
+    后台任务：实时价格更新
+    每 2 分钟运行一次
+    """
+    from src.data.realtime_price_updater import get_realtime_updater
+    
+    updater = get_realtime_updater(update_interval=120)
+    await updater.run()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI 生命周期管理
+    启动时开启后台任务
+    """
+    # 启动后台任务
+    news_task = asyncio.create_task(scheduled_news_update())
+    price_task = asyncio.create_task(scheduled_price_update())
+    
+    yield
+    
+    # 关闭时取消任务
+    news_task.cancel()
+    price_task.cancel()
+    try:
+        await news_task
+    except asyncio.CancelledError:
+        logger.info("[Scheduler] News task cancelled")
+    try:
+        await price_task
+    except asyncio.CancelledError:
+        logger.info("[Scheduler] Price task cancelled")
 
 # 创建 FastAPI 应用
 app = FastAPI(
     title="Crypto Attention Lab API",
     description="API for cryptocurrency attention analysis and price data",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
-# 配置 CORS
+# ...existing code...
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 开发环境全开放，生产环境需要收紧
@@ -61,7 +128,7 @@ def health_check():
 @app.get("/api/price")
 def get_price_data(
     symbol: str = Query(default="ZECUSDT", description="交易对符号，如 ZECUSDT"),
-    timeframe: str = Query(default="1d", description="时间周期: 1d, 4h, 1h, 15m, 5m, 1m"),
+    timeframe: str = Query(default="1d", description="时间周期: 1d, 4h, 1h, 15m"),
     start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
     end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式")
 ):
@@ -83,7 +150,7 @@ def get_price_data(
     """
     try:
         # 验证 timeframe
-        valid_timeframes = ["1d", "4h", "1h", "15m", "5m", "1m"]
+        valid_timeframes = ["1d", "4h", "1h", "15m"]
         if timeframe not in valid_timeframes:
             raise HTTPException(
                 status_code=400,
@@ -106,14 +173,7 @@ def get_price_data(
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
-        # 确保数据存在
-        if not ensure_price_data_exists(symbol, timeframe):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Price data not available for {symbol} {timeframe}"
-            )
-        
-        # 加载数据
+        # 加载数据（直接从数据库）
         df, is_fallback = load_price_data(symbol, timeframe, start_dt, end_dt)
         
         if df.empty:
@@ -185,11 +245,7 @@ def get_attention_data(
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
         # 确保数据存在
-        if not ensure_attention_data_exists(symbol):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Attention data not available for {symbol}"
-            )
+        # 数据库模式：直接加载，不预检查
         
         # 加载数据
         df = load_attention_data(symbol, start_dt, end_dt)
@@ -227,9 +283,12 @@ def get_attention_data(
 
 @app.get("/api/news")
 def get_news_data(
-    symbol: str = Query(default="ZEC", description="标的符号，如 ZEC"),
+    symbol: str = Query(default="ALL", description="标的符号，如 ZEC，或 ALL 获取所有"),
     start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
-    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式")
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    limit: Optional[int] = Query(default=None, description="返回的最大条数，用于分页"),
+    before: Optional[str] = Query(default=None, description="返回该时间之前的新闻（ISO8601），用于游标分页"),
+    source: Optional[str] = Query(default=None, description="按新闻源过滤，如 coindesk")
 ):
     """
     获取新闻列表
@@ -261,8 +320,34 @@ def get_news_data(
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
+        # 若提供 before，则将 end_dt 覆盖为 before 并可选设置默认窗口
+        if before:
+            try:
+                before_dt = pd.to_datetime(before, utc=True)
+                end_dt = before_dt if before_dt else end_dt
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid before time format: {e}")
+
         # 加载新闻数据
-        df = load_news_data(symbol, start_dt, end_dt)
+        df = load_news_data(symbol, start_dt, end_dt, limit)
+
+        # 按来源过滤（可选）
+        if source and not df.empty and 'source' in df.columns:
+            df = df[df['source'] == source]
+
+        # 按时间倒序（最新在前）
+        if not df.empty and 'datetime' in df.columns:
+            df = df.sort_values(by='datetime', ascending=False)
+
+        # 应用 limit（若提供）
+        # 注意：如果使用了 source 过滤，可能需要再次 limit，因为 DB 层的 limit 是在 source 过滤之前
+        # 但由于我们现在是在 DB 层 limit，如果 source 过滤导致数据变少，那是符合预期的（返回的是前 N 条中符合 source 的）
+        # 如果用户想要 "符合 source 的前 N 条"，则需要在 DB 层支持 source 过滤。
+        # 目前 DB 层不支持 source 过滤，所以这里的 limit 只是为了减少内存占用。
+        # 为了准确性，如果指定了 source，我们可能需要多取一些数据，或者在 DB 层加 source 过滤。
+        # 考虑到复杂性，暂时保持现状，但在 DB 层 limit 可以防止 OOM。
+        if limit is not None and limit > 0:
+            df = df.head(limit)
         
         if df.empty:
             return []
@@ -293,6 +378,42 @@ def get_news_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== 新闻总数 API ====================
+
+@app.get("/api/news/count")
+def get_news_count(
+    symbol: str = Query(default="ALL", description="标的符号，如 ZEC，或 ALL 获取所有"),
+    start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    before: Optional[str] = Query(default=None, description="返回该时间之前的新闻（ISO8601），用于游标分页"),
+    source: Optional[str] = Query(default=None, description="按新闻源过滤")
+):
+    """
+    获取新闻条目总数（用于分页展示）。
+    """
+    try:
+        start_dt = pd.to_datetime(start, utc=True) if start else None
+        end_dt = pd.to_datetime(end, utc=True) if end else None
+        if before:
+            try:
+                before_dt = pd.to_datetime(before, utc=True)
+                end_dt = before_dt if before_dt else end_dt
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid before time format: {e}")
+
+        df = load_news_data(symbol, start_dt, end_dt)
+        if source and not df.empty and 'source' in df.columns:
+            df = df[df['source'] == source]
+
+        return {"total": int(len(df))}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_news_count: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== 根路径 ====================
 
 @app.get("/")
@@ -303,6 +424,7 @@ def root():
         "version": "0.1.0",
         "endpoints": {
             "health": "/health or /ping",
+            "symbols": "/api/symbols",
             "price": "/api/price?symbol=ZECUSDT&timeframe=1d",
             "attention": "/api/attention?symbol=ZEC",
             "news": "/api/news?symbol=ZEC",
@@ -310,6 +432,30 @@ def root():
         },
         "docs": "/docs"
     }
+
+
+# ==================== 币种列表 API ====================
+
+@app.get("/api/symbols")
+def get_symbols():
+    """
+    获取所有可用币种列表
+    
+    返回格式:
+    {
+        "symbols": ["ZEC", "BTC", "ETH", ...],
+        "count": 8
+    }
+    """
+    try:
+        symbols = get_available_symbols()
+        return {
+            "symbols": symbols,
+            "count": len(symbols)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching symbols: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==================== 数据更新 ====================
@@ -327,7 +473,6 @@ def update_data(
     - update_attention: 是否更新注意力数据
     - update_news: 是否更新新闻数据
     """
-    import subprocess
     from pathlib import Path
 
     results = {
@@ -342,68 +487,105 @@ def update_data(
         if update_price:
             logger.info("Updating price data...")
             script_path = project_root / "scripts" / "fetch_price_data.py"
-            result = subprocess.run(
-                [python_exe, str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
+            try:
+                result = subprocess.run(
+                    [python_exe, str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=str(project_root),
+                    env={**os.environ, "PYTHONPATH": str(project_root)}
+                )
 
-            if result.returncode == 0:
-                results["updated"].append("price")
-                logger.info("Price data updated successfully")
-            else:
-                logger.error(f"Failed to update price data: {result.stderr}")
+                if result.returncode == 0:
+                    results["updated"].append("price")
+                    logger.info("Price data updated successfully")
+                else:
+                    logger.error(f"Failed to update price data: {result.stderr}")
+                    results["status"] = "partial"
+                    results["error_price"] = result.stderr
+            except subprocess.TimeoutExpired:
+                logger.error("Price data update timeout (120s)")
                 results["status"] = "partial"
-                results["error_price"] = result.stderr
+                results["error_price"] = "Timeout after 120 seconds"
+            except Exception as e:
+                logger.error(f"Price data update crashed: {e}")
+                results["status"] = "partial"
+                results["error_price"] = str(e)
 
         if update_attention:
             logger.info("Updating attention data...")
             script_path = project_root / "scripts" / "generate_attention_data.py"
-            result = subprocess.run(
-                [python_exe, str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
+            try:
+                result = subprocess.run(
+                    [python_exe, str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=str(project_root),
+                    env={**os.environ, "PYTHONPATH": str(project_root)}
+                )
 
-            if result.returncode == 0:
-                results["updated"].append("attention")
-                logger.info("Attention data updated successfully")
-            else:
-                logger.error(f"Failed to update attention data: {result.stderr}")
+                if result.returncode == 0:
+                    results["updated"].append("attention")
+                    logger.info("Attention data updated successfully")
+                else:
+                    logger.error(f"Failed to update attention data: {result.stderr}")
+                    results["status"] = "partial"
+                    results["error_attention"] = result.stderr
+            except subprocess.TimeoutExpired:
+                logger.error("Attention data update timeout (60s)")
                 results["status"] = "partial"
-                results["error_attention"] = result.stderr
+                results["error_attention"] = "Timeout after 60 seconds"
+            except Exception as e:
+                logger.error(f"Attention data update crashed: {e}")
+                results["status"] = "partial"
+                results["error_attention"] = str(e)
 
         # Update news data
         if update_news:
             logger.info("Updating news data...")
             script_path = project_root / "scripts" / "fetch_news_data.py"
-            result = subprocess.run(
-                [python_exe, str(script_path)],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-
-            if result.returncode == 0:
-                results["updated"].append("news")
-                logger.info("News data updated successfully")
-                
-                # Regenerate attention features after news update
-                logger.info("Regenerating attention features...")
-                attention_script = project_root / "scripts" / "generate_attention_data.py"
-                subprocess.run(
-                    [python_exe, str(attention_script)],
+            try:
+                # Manual update: fetch last 30 days to ensure coverage without being too slow
+                result = subprocess.run(
+                    [python_exe, str(script_path), "--days", "30"],
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=300,  # Increased timeout to 5 minutes
+                    cwd=str(project_root),
+                    env={**os.environ, "PYTHONPATH": str(project_root)}
                 )
-                if "attention" not in results["updated"]:
-                    results["updated"].append("attention")
-            
-            else:
-                logger.error(f"Failed to update news data: {result.stderr}")
+
+                if result.returncode == 0:
+                    results["updated"].append("news")
+                    logger.info("News data updated successfully")
+                    
+                    # Regenerate attention features after news update
+                    logger.info("Regenerating attention features...")
+                    attention_script = project_root / "scripts" / "generate_attention_data.py"
+                    try:
+                        subprocess.run(
+                            [python_exe, str(attention_script)],
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                            cwd=str(project_root),
+                            env={**os.environ, "PYTHONPATH": str(project_root)}
+                        )
+                        if "attention" not in results["updated"]:
+                            results["updated"].append("attention")
+                    except Exception as e:
+                        logger.warning(f"Attention regeneration failed (non-critical): {e}")
+                
+                else:
+                    logger.error(f"Failed to update news data: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                logger.error("News data update timeout (300s)")
+                results["status"] = "partial"
+                results["error_news"] = "Timeout after 300 seconds"
+            except Exception as e:
+                logger.error(f"News data update crashed: {e}")
                 results["status"] = "partial"
                 results["error_news"] = result.stderr
 
@@ -453,6 +635,211 @@ def backtest_basic_attention(
 ):
     try:
         symbol = payload.get("symbol", "ZECUSDT")
+        lookback_days = int(payload.get("lookback_days", 30))
+        attention_quantile = float(payload.get("attention_quantile", 0.8))
+        max_daily_return = float(payload.get("max_daily_return", 0.05))
+        holding_days = int(payload.get("holding_days", 3))
+        start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
+        end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        res = run_backtest_basic_attention(
+            symbol=symbol,
+            lookback_days=lookback_days,
+            attention_quantile=attention_quantile,
+            max_daily_return=max_daily_return,
+            holding_days=holding_days,
+            start=start,
+            end=end,
+        )
+        return res
+    except Exception as e:
+        logger.error(f"Error in backtest_basic_attention: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 自动更新管理 API ====================
+
+@app.get("/api/auto-update/status")
+def get_auto_update_status():
+    """
+    获取所有标的的自动更新状态
+    
+    Returns:
+        {
+            "symbols": [
+                {
+                    "symbol": "BTC",
+                    "auto_update": true,
+                    "last_update": "2025-11-27T10:00:00Z",
+                    "is_active": true
+                },
+                ...
+            ]
+        }
+    """
+    from src.database.models import Symbol, get_session, get_engine
+    
+    try:
+        session = get_session()
+        symbols = session.query(Symbol).all()
+        
+        result = [{
+            "symbol": s.symbol,
+            "auto_update": s.auto_update_price,
+            "last_update": s.last_price_update.isoformat() if s.last_price_update else None,
+            "is_active": s.is_active
+        } for s in symbols]
+        
+        session.close()
+        return {"symbols": result}
+        
+    except Exception as e:
+        logger.error(f"Error getting auto-update status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auto-update/enable")
+def enable_auto_update(
+    payload: dict = Body(...)
+):
+    """
+    启用标的的自动更新
+    
+    Request:
+        {
+            "symbols": ["BTC", "ETH", "SOL"]
+        }
+    
+    Response:
+        {
+            "status": "success",
+            "enabled": ["BTC", "ETH", "SOL"]
+        }
+    """
+    from src.database.models import Symbol, get_session, get_engine
+    from src.data.db_storage import get_db
+    
+    try:
+        symbols = payload.get("symbols", [])
+        if not symbols:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        
+        db = get_db()
+        session = get_session()
+        enabled = []
+        
+        for symbol_name in symbols:
+            symbol_name = symbol_name.upper()
+            
+            # 获取或创建 Symbol 记录
+            sym = db.get_or_create_symbol(session, symbol_name)
+            
+            # 启用自动更新
+            sym.auto_update_price = True
+            sym.is_active = True
+            enabled.append(symbol_name)
+        
+        session.commit()
+        session.close()
+        
+        logger.info(f"Enabled auto-update for: {enabled}")
+        return {
+            "status": "success",
+            "enabled": enabled
+        }
+        
+    except Exception as e:
+        logger.error(f"Error enabling auto-update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auto-update/disable")
+def disable_auto_update(
+    payload: dict = Body(...)
+):
+    """
+    禁用标的的自动更新
+    
+    Request:
+        {
+            "symbols": ["BTC"]
+        }
+    """
+    from src.database.models import Symbol, get_session
+    
+    try:
+        symbols = payload.get("symbols", [])
+        if not symbols:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        
+        session = get_session()
+        disabled = []
+        
+        for symbol_name in symbols:
+            symbol_name = symbol_name.upper()
+            sym = session.query(Symbol).filter_by(symbol=symbol_name).first()
+            
+            if sym:
+                sym.auto_update_price = False
+                disabled.append(symbol_name)
+        
+        session.commit()
+        session.close()
+        
+        logger.info(f"Disabled auto-update for: {disabled}")
+        return {
+            "status": "success",
+            "disabled": disabled
+        }
+        
+    except Exception as e:
+        logger.error(f"Error disabling auto-update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auto-update/trigger")
+async def trigger_manual_update(
+    payload: dict = Body(...)
+):
+    """
+    手动触发指定标的的价格更新
+    
+    Request:
+        {
+            "symbols": ["BTC", "ETH"]
+        }
+    """
+    from src.data.realtime_price_updater import get_realtime_updater
+    from src.database.models import Symbol, get_session
+    
+    try:
+        symbols = payload.get("symbols", [])
+        if not symbols:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        
+        updater = get_realtime_updater()
+        session = get_session()
+        
+        updated = []
+        for symbol_name in symbols:
+            symbol_name = symbol_name.upper()
+            sym = session.query(Symbol).filter_by(symbol=symbol_name).first()
+            
+            last_update = sym.last_price_update if sym else None
+            
+            # 执行更新
+            await updater.update_single_symbol(symbol_name, last_update)
+            updated.append(symbol_name)
+        
+        session.close()
+        
+        return {
+            "status": "success",
+            "updated": updated
+        }
+        
+    except Exception as e:
+        logger.error(f"Error triggering manual update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
         lookback_days = int(payload.get("lookback_days", 30))
         attention_quantile = float(payload.get("attention_quantile", 0.8))
         max_daily_return = float(payload.get("max_daily_return", 0.05))

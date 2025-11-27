@@ -6,36 +6,47 @@ from src.features.news_features import (
     relevance_flag,
     extract_tags,
 )
+from src.data.db_storage import get_db, USE_DATABASE
+import logging
+
+logger = logging.getLogger(__name__)
 
 
-def process_attention_features(freq: str = 'D'):
+def process_attention_features(symbol: str = 'ZEC', freq: str = 'D'):
     """
-    读取原始新闻数据（优先 attention_zec_news.csv，退回 attention_zec_mock.csv），
+    读取原始新闻数据（从数据库），
     按天/小时聚合，计算 news_count 和 0-100 的 attention_score（min-max）。
-    保存到 data/processed/attention_features_zec.csv，至少包含列：datetime, attention_score。
+    保存到数据库 AttentionFeature 表。
     """
-    raw_news = RAW_DATA_DIR / "attention_zec_news.csv"
-    if not raw_news.exists():
-        raw_news = RAW_DATA_DIR / "attention_zec_mock.csv"
-
-    if not raw_news.exists():
-        print(f"Raw news file not found: {raw_news}")
+    from src.data.db_storage import load_news_data
+    
+    print(f"Processing attention features for {symbol} from database...")
+    
+    # 从数据库加载新闻数据 (默认加载最近 90 天，避免全量计算太慢)
+    start_date = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=90)
+    # 加载该币种相关的新闻
+    df = load_news_data(symbol, start=start_date)
+    
+    if df.empty:
+        print(f"No news data found for {symbol} in database.")
         return None
 
-    print("Processing attention features from:", raw_news)
-    df = pd.read_csv(raw_news)
     if 'datetime' not in df.columns:
-        print("Invalid news file format: missing 'datetime'")
+        print("Invalid news data format: missing 'datetime'")
         return None
 
     df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
     df = df.dropna(subset=['datetime'])
 
-    # 计算新闻级特征
-    df['source_weight'] = df['source'].apply(lambda s: source_weight(str(s))) if 'source' in df.columns else 0.5
-    df['sentiment_score'] = df['title'].apply(lambda t: sentiment_score(str(t))) if 'title' in df.columns else 0.0
-    df['relevance'] = df['title'].apply(lambda t: relevance_flag(str(t), symbol="ZEC")) if 'title' in df.columns else 'related'
-    df['tags'] = df['title'].apply(lambda t: ','.join(extract_tags(str(t)))) if 'title' in df.columns else ''
+    # 计算新闻级特征 (如果数据库里没有预计算好的)
+    if 'source_weight' not in df.columns:
+        df['source_weight'] = df['source'].apply(lambda s: source_weight(str(s))) if 'source' in df.columns else 0.5
+    if 'sentiment_score' not in df.columns:
+        df['sentiment_score'] = df['title'].apply(lambda t: sentiment_score(str(t))) if 'title' in df.columns else 0.0
+    if 'relevance' not in df.columns:
+        df['relevance'] = df['title'].apply(lambda t: relevance_flag(str(t), symbol=symbol)) if 'title' in df.columns else 'related'
+    if 'tags' not in df.columns:
+        df['tags'] = df['title'].apply(lambda t: ','.join(extract_tags(str(t)))) if 'title' in df.columns else ''
 
     # relevance 权重: direct=1.0, related=0.5
     rel_w = df['relevance'].map({'direct': 1.0, 'related': 0.5}).fillna(0.5)
@@ -72,19 +83,31 @@ def process_attention_features(freq: str = 'D'):
         strong_sent = (day_df['sentiment_score'].abs() >= 0.6).any()
         has_tag = day_df['tags'].astype(str).str.len().gt(0).any()
         return int(has_high_source and strong_sent and has_tag)
-    intensity = df_day.groupby('date').apply(compute_intensity).rename('event_intensity').reset_index()
-    grp = grp.reset_index()
-    grp = grp.merge(intensity, left_on='datetime', right_on='date', how='left').drop(columns=['date'])
-    grp['event_intensity'] = grp['event_intensity'].fillna(0).astype(int)
+    
+    # 修复: groupby apply 可能返回空
+    if not df_day.empty:
+        intensity = df_day.groupby('date').apply(compute_intensity).rename('event_intensity').reset_index()
+        grp = grp.merge(intensity, left_on='datetime', right_on='date', how='left').drop(columns=['date'])
+        grp['event_intensity'] = grp['event_intensity'].fillna(0).astype(int)
+    else:
+        grp['event_intensity'] = 0
 
     # 输出新增字段
     out = grp[['datetime', 'attention_score', 'news_count', 'weighted_attention', 'bullish_attention', 'bearish_attention', 'event_intensity']]
 
-    output_file = PROCESSED_DATA_DIR / "attention_features_zec.csv"
-    out.to_csv(output_file, index=False)
-    print(f"Saved attention features to {output_file}")
-    return output_file
+    # 保存到数据库（主存储）
+    if USE_DATABASE:
+        try:
+            db = get_db()
+            records = out.to_dict('records')
+            db.save_attention_features(symbol, records)
+            logger.info(f"✅ Saved {len(records)} attention features to database for {symbol}")
+        except Exception as e:
+            logger.error(f"Failed to save to database: {e}")
+            return None
+    
+    return None
 
 
 if __name__ == "__main__":
-    process_attention_features()
+    process_attention_features(symbol='ZEC')

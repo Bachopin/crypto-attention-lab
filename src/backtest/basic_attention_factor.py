@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 import pandas as pd
 from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
+from src.data.db_storage import load_price_data, load_attention_data
 
 
 @dataclass
@@ -22,21 +23,20 @@ def run_backtest_basic_attention(
     start: Optional[pd.Timestamp] = None,
     end: Optional[pd.Timestamp] = None,
 ) -> Dict:
-    # 价格与注意力
-    price_path = RAW_DATA_DIR / f"price_{symbol}_1d.csv"
-    att_path = PROCESSED_DATA_DIR / "attention_features_zec.csv"
-    if not price_path.exists() or not att_path.exists():
+    # 数据库优先加载
+    p_df, _ = load_price_data(symbol, '1d', start, end)
+    a_df = load_attention_data(symbol.replace('USDT', ''), start, end)
+    
+    if p_df.empty or a_df.empty:
         return {"error": "missing data"}
-    p = pd.read_csv(price_path)
-    a = pd.read_csv(att_path)
-    p['datetime'] = pd.to_datetime(p['datetime'], utc=True, errors='coerce')
-    a['datetime'] = pd.to_datetime(a['datetime'], utc=True, errors='coerce')
-    df = pd.merge(p[['datetime', 'close']], a[['datetime', 'attention_score', 'weighted_attention', 'bullish_attention', 'bearish_attention']], on='datetime', how='inner')
+    
+    df = pd.merge(
+        p_df[['datetime', 'close']],
+        a_df[['datetime', 'attention_score', 'weighted_attention', 'bullish_attention', 'bearish_attention']],
+        on='datetime',
+        how='inner'
+    )
     df = df.dropna()
-    if start:
-        df = df[df['datetime'] >= start]
-    if end:
-        df = df[df['datetime'] <= end]
 
     # 分位数阈值
     def rolling_q(s: pd.Series) -> pd.Series:

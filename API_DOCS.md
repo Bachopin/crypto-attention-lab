@@ -51,7 +51,7 @@
 | Parameter   | Type   | Required | Default  | Description                    |
 |-------------|--------|----------|----------|--------------------------------|
 | `symbol`    | string | No       | ZECUSDT  | 交易对符号 (e.g., ZECUSDT)     |
-| `timeframe` | string | No       | 1d       | 时间周期 (1m, 5m, 15m, 1h, 4h, 1d) |
+| `timeframe` | string | No       | 1d       | 时间周期 (15m, 1h, 4h, 1d) |
 | `start`     | string | No       | -        | 开始时间 (ISO 8601 格式)       |
 | `end`       | string | No       | -        | 结束时间 (ISO 8601 格式)       |
 
@@ -202,7 +202,7 @@ curl "http://localhost:8000/api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2
 **400 Bad Request:**
 ```json
 {
-  "detail": "Invalid timeframe: 99h. Must be one of: 1m, 5m, 15m, 1h, 4h, 1d"
+  "detail": "Invalid timeframe: 99h. Must be one of: 15m, 1h, 4h, 1d"
 }
 ```
 

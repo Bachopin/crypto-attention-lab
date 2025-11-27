@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 import pandas as pd
 from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
+from src.data.db_storage import load_attention_data
 
 
 @dataclass
@@ -19,16 +20,11 @@ def detect_attention_events(
     lookback_days: int = 30,
     min_quantile: float = 0.8,
 ) -> List[AttentionEvent]:
-    path = PROCESSED_DATA_DIR / f"attention_features_{symbol.lower()}.csv"
-    if not path.exists():
+    # 数据库优先加载
+    df = load_attention_data(symbol, start, end)
+    if df.empty:
         return []
-    df = pd.read_csv(path)
-    df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
     df = df.dropna(subset=['datetime'])
-    if start:
-        df = df[df['datetime'] >= start]
-    if end:
-        df = df[df['datetime'] <= end]
 
     # 计算 rolling 分位数阈值
     def q_threshold(s: pd.Series) -> pd.Series:

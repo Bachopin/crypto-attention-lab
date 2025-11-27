@@ -26,7 +26,7 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-# Start FastAPI backend in background
+# Start FastAPI backend in background (ensure port 8000)
 echo -e "${GREEN}[1/2] Starting FastAPI backend...${NC}"
 ./scripts/start_api.sh &
 BACKEND_PID=$!
@@ -34,10 +34,15 @@ BACKEND_PID=$!
 # Wait for backend to start
 sleep 3
 
-# Start Next.js frontend
+# Start Next.js frontend on fixed port 3000 (free if occupied)
 echo -e "${GREEN}[2/2] Starting Next.js frontend...${NC}"
 cd web
-npm run dev &
+if lsof -ti tcp:3000 >/dev/null 2>&1; then
+    echo "Port 3000 is in use. Freeing it..."
+    lsof -ti tcp:3000 | xargs -r kill -9
+    sleep 1
+fi
+npm run dev -- -p 3000 &
 FRONTEND_PID=$!
 
 echo ""
