@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, List
 
 import pandas as pd
+import numpy as np
 
 from src.data.db_storage import load_price_data, USE_DATABASE, get_db
 from src.features.node_attention_features import build_node_attention_features
@@ -25,6 +26,8 @@ def compute_node_carry_factor(
     symbol: str,
     lookahead: str = "1d",
     lookback_days: int = 365,
+    start: Optional[pd.Timestamp] = None,
+    end: Optional[pd.Timestamp] = None,
 ) -> pd.DataFrame:
     """计算节点带货能力因子。
 
@@ -48,14 +51,14 @@ def compute_node_carry_factor(
         raise ValueError("lookahead days must be positive")
 
     # 价格数据（1d 收盘）
-    price_df, _ = load_price_data(f"{symbol}USDT", "1d", None, None)
+    price_df, _ = load_price_data(f"{symbol}USDT", "1d", start, end)
     if price_df.empty:
         return pd.DataFrame()
     price_df = price_df.sort_values("datetime").reset_index(drop=True)
     price_df["datetime"] = pd.to_datetime(price_df["datetime"], utc=True)
 
     # 注意力事件（按标的）
-    events = detect_attention_events(symbol=symbol, lookback_days=lookback_days)
+    events = detect_attention_events(symbol=symbol, lookback_days=lookback_days, start=start, end=end)
     if not events:
         return pd.DataFrame()
 
@@ -101,7 +104,7 @@ def compute_node_carry_factor(
             continue
 
         # 对数收益
-        ret = float(pd.np.log(exit_price / base_price))  # type: ignore[attr-defined]
+        ret = float(np.log(exit_price / base_price))
 
         rows.append({
             "symbol": symbol,
@@ -133,7 +136,12 @@ def compute_node_carry_factor(
     stats["mean_excess_return"] = stats["mean_return"]  # 暂时等于平均收益
     stats["lookahead"] = lookahead
     stats["lookback_days"] = lookback_days
-    stats["updated_at"] = pd.Timestamp.utcnow().tz_localize("UTC")
+    # pd.Timestamp.utcnow() 已为 tz-naive，需本地化为 UTC；若为 tz-aware 则使用 tz_convert
+    ts_now = pd.Timestamp.utcnow()
+    if ts_now.tzinfo is None:
+        stats["updated_at"] = ts_now.tz_localize("UTC")
+    else:
+        stats["updated_at"] = ts_now.tz_convert("UTC")
 
     # 规范列
     out_cols = [
@@ -173,6 +181,10 @@ def save_node_carry_factors(df: pd.DataFrame) -> None:
         return
 
     from src.config.settings import PROCESSED_DATA_DIR
+
+    # 清理异常值，避免 NaN/Inf 导致数据库约束错误
+    df = df.copy()
+    df.replace([np.nan, np.inf, -np.inf], 0.0, inplace=True)
 
     if USE_DATABASE:
         db = get_db()

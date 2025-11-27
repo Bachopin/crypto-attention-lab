@@ -34,6 +34,17 @@ export interface NewsItem {
   tags?: string;
 }
 
+export interface NodeInfluenceItem {
+  symbol: string;
+  node_id: string;
+  n_events: number;
+  mean_excess_return: number;
+  hit_rate: number;
+  ir: number;
+  lookahead: string;
+  lookback_days: number;
+}
+
 // Events & Backtest Types
 export interface AttentionEvent {
   datetime: string;
@@ -305,6 +316,17 @@ export async function runMultiSymbolBacktest(params: {
 export async function fetchAttentionEventPerformance(params: { symbol?: string; lookahead_days?: string } = {}): Promise<EventPerformanceTable> {
   const { symbol = 'ZEC', lookahead_days = '1,3,5,10' } = params
   return fetchAPI<EventPerformanceTable>('/api/attention-events/performance', { symbol, lookahead_days })
+}
+
+/**
+ * Fetch node influence (carry factor) list
+ * GET /api/node-influence?symbol=ZEC&min_events=10&sort_by=ir&limit=100
+ */
+export async function fetchNodeInfluence(params: { symbol?: string; min_events?: number; sort_by?: 'ir' | 'mean_excess_return' | 'hit_rate'; limit?: number } = {}): Promise<NodeInfluenceItem[]> {
+  const { symbol, min_events = 10, sort_by = 'ir', limit = 100 } = params;
+  const apiParams: Record<string, any> = { min_events, sort_by, limit };
+  if (symbol) apiParams.symbol = symbol;
+  return fetchAPI<NodeInfluenceItem[]>('/api/node-influence', apiParams);
 }
 
 /**
