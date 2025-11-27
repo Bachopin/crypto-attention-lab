@@ -23,6 +23,7 @@ from src.data.db_storage import (
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
 from src.features.event_performance import compute_event_performance
+from src.features.node_influence import load_node_carry_factors
 
 # 设置日志
 logging.basicConfig(
@@ -656,6 +657,62 @@ def get_attention_event_performance(
         raise
     except Exception as e:
         logger.error(f"Error in get_attention_event_performance: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 节点带货能力 API ====================
+
+@app.get("/api/node-influence")
+def get_node_influence(
+    symbol: Optional[str] = Query(None, description="标的符号，如 ZEC，留空返回所有"),
+    min_events: int = Query(10, ge=1, description="最小事件样本数过滤"),
+    sort_by: str = Query("ir", description="排序字段: ir | mean_excess_return | hit_rate"),
+    limit: int = Query(100, ge=1, le=1000, description="返回记录数量上限"),
+):
+    """查询节点带货能力因子。
+
+    返回按节点聚合的统计：
+    - symbol, node_id, n_events, mean_excess_return, hit_rate, ir, lookahead, lookback_days
+    """
+
+    try:
+        df = load_node_carry_factors(symbol)
+        if df.empty:
+            return []
+
+        # 过滤样本数
+        if "n_events" in df.columns:
+            df = df[df["n_events"] >= int(min_events)]
+        if df.empty:
+            return []
+
+        # 排序
+        valid_sort = {"ir", "mean_excess_return", "hit_rate"}
+        if sort_by not in valid_sort:
+            sort_by = "ir"
+        if sort_by in df.columns:
+            df = df.sort_values(by=sort_by, ascending=False)
+
+        df = df.head(limit)
+
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "symbol": str(row.get("symbol")),
+                "node_id": str(row.get("node_id")),
+                "n_events": int(row.get("n_events", 0)),
+                "mean_excess_return": float(row.get("mean_excess_return", 0.0)),
+                "hit_rate": float(row.get("hit_rate", 0.0)),
+                "ir": float(row.get("ir", 0.0)),
+                "lookahead": str(row.get("lookahead", "1d")),
+                "lookback_days": int(row.get("lookback_days", 365)),
+            })
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_node_influence: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

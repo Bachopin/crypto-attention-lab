@@ -406,6 +406,118 @@ GET /api/attention?symbol=ZEC&granularity=1d
 4. **事件链路追踪**：同一主题的多条新闻聚合为事件链
 5. **机器学习模型**：LSTM/Transformer 预测注意力 → 价格
 
+### 节点带货能力因子（Node Carry Factor）🆕
+
+在原有「按标的聚合的注意力因子」之上，本项目引入了**节点级带货能力因子**，用于刻画某个传播节点在触发注意力事件后，对未来价格收益的平均贡献。
+
+#### 节点与节点 ID 定义
+
+- **platform**：平台类别，目前主要为 `"news"`（新闻/聚合）、`"social"`（社交）、`"rss"` 等；
+- **node**：传播节点标识，优先使用 `author/account`，否则回退为 `source`；
+- **node_id**：统一的节点 ID，当前规则为：
+
+  ```python
+  node_id = f"{platform}:{node}"
+  ```
+
+例如：`"news:CoinDesk"`、`"social:Twitter"`。
+
+抓取层在 `src/data/attention_fetcher.py` 中已经补充了 `platform` / `author` / `node` / `node_id` 字段（对于不支持的源则退化为 `None` 或 `source`）。
+
+#### 节点级注意力特征
+
+模块：`src/features/node_attention_features.py`
+
+核心函数：
+
+```python
+from src.features.node_attention_features import build_node_attention_features
+
+df_node = build_node_attention_features(symbol="ZEC", freq="D")
+``
+
+返回的 DataFrame 列包括：
+
+- `symbol`, `node_id`, `datetime`, `freq`
+- `news_count`
+- `weighted_attention`
+- `bullish_attention`, `bearish_attention`
+- `sentiment_mean`, `sentiment_std`
+
+特征构造与标的级注意力特征保持一致，只是按 `(symbol, node_id, datetime)` 粒度聚合。
+
+#### 节点带货能力因子
+
+模块：`src/features/node_influence.py`
+
+核心接口：
+
+```python
+from src.features.node_influence import compute_node_carry_factor
+
+df = compute_node_carry_factor(symbol="ZEC", lookahead="1d", lookback_days=180)
+```
+
+计算逻辑（简化描述）：
+
+1. 使用 `detect_attention_events` 获取标的级注意力事件（如 `high_weighted_event` 等）；
+2. 在节点级注意力特征里，找到**事件当日有贡献的节点集合**；
+3. 对每个节点，在其参与事件的所有时间点上，计算未来 `lookahead` 天的价格对数收益；
+4. 按节点聚合收益路径，得到：
+   - `mean_excess_return`：平均收益（当前实现中等同于绝对平均收益，未来可替换为相对基准超额收益）；
+   - `hit_rate`：收益 > 0 的比例；
+   - `ir`：信息比率 $\text{IR} = \frac{\mu}{\sigma}$；
+   - `n_events`：该节点参与的事件样本数。
+
+输出 DataFrame 示例结构：
+
+| symbol | node_id          | n_events | mean_excess_return | hit_rate | ir  | lookahead | lookback_days |
+|--------|------------------|----------|---------------------|----------|-----|-----------|---------------|
+| ZEC    | news:CoinDesk    | 42       | 0.012              | 0.64     | 1.8 | 1d        | 365           |
+
+#### 节点因子查询 API
+
+后端在 `src/api/main.py` 中暴露了新的查询接口：
+
+```http
+GET /api/node-influence?symbol=ZEC&min_events=10&sort_by=ir&limit=100
+```
+
+请求参数：
+
+- `symbol`：可选，指定标的（如 `ZEC`），为空则返回所有标的；
+- `min_events`：最小事件样本数量过滤，默认 10；
+- `sort_by`：排序字段，支持 `ir` / `mean_excess_return` / `hit_rate`，默认 `ir`；
+- `limit`：返回记录数上限，默认 100。
+
+响应示例：
+
+```json
+[
+  {
+    "symbol": "ZEC",
+    "node_id": "news:CryptoPanic",
+    "n_events": 42,
+    "mean_excess_return": 0.012,
+    "hit_rate": 0.64,
+    "ir": 1.8,
+    "lookahead": "1d",
+    "lookback_days": 365
+  }
+]
+```
+
+#### Python 使用示例
+
+```python
+from src.features.node_influence import compute_node_carry_factor
+
+df = compute_node_carry_factor(symbol="ZEC", lookahead="1d", lookback_days=180)
+print(df.sort_values("ir", ascending=False).head(10))
+```
+
+更多脚本示例可见：`scripts/compute_node_influence_example.py`。
+
 ### 长期目标（3-6 月）
 1. **实时 WebSocket 流**：毫秒级价格 + 新闻推送
 2. **多因子融合**：注意力 + 技术指标 + 链上数据

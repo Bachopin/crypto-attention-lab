@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Dict, Any
 from src.config.settings import RAW_DATA_DIR
 
 
@@ -24,7 +24,7 @@ def _fetch_from_cryptopanic(since: datetime, until: datetime) -> list[dict]:
         "kind": "news",
         "public": "true",
     }
-    out = []
+    out: list[Dict[str, Any]] = []
     try:
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
@@ -39,12 +39,26 @@ def _fetch_from_cryptopanic(since: datetime, until: datetime) -> list[dict]:
             title = (item.get("title") or "").strip()
             url_ = item.get("url") or (item.get("source") or {}).get("url") or ""
             source = (item.get("source") or {}).get("title") or (item.get("domain") or "CryptoPanic")
+
+            # 平台与节点信息
+            # 当前约定：
+            # - platform: 数据源平台类型，如 "news"（CryptoPanic 新闻聚合）、未来可扩展为 "social" 等
+            # - node: 传播节点标识（例如具体媒体或账号）。此处使用 source 作为节点名。
+            # - node_id: 节点唯一 ID，当前规则为 f"{platform}:{source}"。
+            platform = "news"
+            node = source
+            node_id = f"{platform}:{node}"
+
             out.append({
                 "timestamp": int(dt.value // 10**6),  # ms
                 "datetime": dt.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S"),
                 "title": title,
                 "source": source,
                 "url": url_,
+                "platform": platform,
+                "author": None,
+                "node": node,
+                "node_id": node_id,
             })
     except Exception:
         return []
@@ -68,7 +82,7 @@ def _fetch_from_newsapi(since: datetime, until: datetime) -> list[dict]:
         "pageSize": 100,
         "apiKey": api_key,
     }
-    out = []
+    out: list[Dict[str, Any]] = []
     try:
         resp = requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
@@ -81,12 +95,22 @@ def _fetch_from_newsapi(since: datetime, until: datetime) -> list[dict]:
             title = (art.get("title") or "").strip()
             url_ = art.get("url") or ""
             source = (art.get("source") or {}).get("name") or "NewsAPI"
+
+            platform = "news"
+            # NewsAPI 提供 author 字段，可能是记者或账号名
+            author = (art.get("author") or None) or None
+            node = author or source
+            node_id = f"{platform}:{node}"
             out.append({
                 "timestamp": int(dt.value // 10**6),
                 "datetime": dt.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S"),
                 "title": title,
                 "source": source,
                 "url": url_,
+                "platform": platform,
+                "author": author,
+                "node": node,
+                "node_id": node_id,
             })
     except Exception:
         return []
@@ -99,12 +123,20 @@ def _fetch_mock(since: datetime, until: datetime) -> list[dict]:
     while current_date <= until:
         daily_news_count = random.randint(0, 5)
         for _ in range(daily_news_count):
+            source = random.choice(["CoinDesk", "Twitter", "CryptoSlate", "Medium"])
+            platform = "social" if source == "Twitter" else "news"
+            node = source
+            node_id = f"{platform}:{node}"
             news_item = {
                 "timestamp": int(current_date.timestamp() * 1000),
                 "datetime": current_date.strftime("%Y-%m-%d %H:%M:%S"),
                 "title": f"ZEC News Sample {random.randint(1000, 9999)}",
-                "source": random.choice(["CoinDesk", "Twitter", "CryptoSlate", "Medium"]),
+                "source": source,
                 "url": "https://example.com/news",
+                "platform": platform,
+                "author": None,
+                "node": node,
+                "node_id": node_id,
             }
             news_list.append(news_item)
         current_date += timedelta(days=1)

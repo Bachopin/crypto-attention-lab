@@ -118,6 +118,92 @@ class AttentionFeature(Base):
     )
 
 
+class NodeAttentionFeature(Base):
+    """节点级注意力特征表
+
+    按 (symbol, node_id, datetime) 存储节点粒度的注意力特征，
+    主要用于后续节点带货能力因子计算。
+    """
+
+    __tablename__ = 'node_attention_features'
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    node_id = Column(String(200), nullable=False, index=True)
+    datetime = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    freq = Column(String(10), nullable=False, default='D')
+
+    news_count = Column(Integer, nullable=False, default=0)
+    weighted_attention = Column(Float, default=0.0)
+    bullish_attention = Column(Float, default=0.0)
+    bearish_attention = Column(Float, default=0.0)
+    sentiment_mean = Column(Float)
+    sentiment_std = Column(Float)
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'node_id', 'datetime', name='uq_node_attention_symbol_node_dt'),
+        Index('ix_node_attention_symbol_node_dt', 'symbol', 'node_id', 'datetime'),
+    )
+
+    @classmethod
+    def from_record(cls, rec: dict) -> "NodeAttentionFeature":
+        return cls(
+            symbol=str(rec.get('symbol')),
+            node_id=str(rec.get('node_id')),
+            datetime=rec.get('datetime'),
+            freq=str(rec.get('freq', 'D')),
+            news_count=int(rec.get('news_count', 0)),
+            weighted_attention=float(rec.get('weighted_attention', 0.0) or 0.0),
+            bullish_attention=float(rec.get('bullish_attention', 0.0) or 0.0),
+            bearish_attention=float(rec.get('bearish_attention', 0.0) or 0.0),
+            sentiment_mean=float(rec.get('sentiment_mean')) if rec.get('sentiment_mean') is not None else None,
+            sentiment_std=float(rec.get('sentiment_std')) if rec.get('sentiment_std') is not None else None,
+        )
+
+
+class NodeCarryFactorModel(Base):
+    """节点带货能力因子表
+
+    存储每个节点在给定 (symbol, lookahead, lookback) 条件下的统计表现。
+    """
+
+    __tablename__ = 'node_carry_factors'
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    node_id = Column(String(200), nullable=False, index=True)
+
+    n_events = Column(Integer, nullable=False, default=0)
+    mean_excess_return = Column(Float, nullable=False, default=0.0)
+    hit_rate = Column(Float, nullable=False, default=0.0)
+    ir = Column(Float, nullable=False, default=0.0)
+
+    lookahead = Column(String(10), nullable=False, default='1d')
+    lookback_days = Column(Integer, nullable=False, default=365)
+
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'node_id', 'lookahead', 'lookback_days', name='uq_node_carry_key'),
+        Index('ix_node_carry_symbol_node', 'symbol', 'node_id'),
+    )
+
+    @classmethod
+    def from_record(cls, rec: dict) -> "NodeCarryFactorModel":
+        return cls(
+            symbol=str(rec.get('symbol')),
+            node_id=str(rec.get('node_id')),
+            n_events=int(rec.get('n_events', 0)),
+            mean_excess_return=float(rec.get('mean_excess_return', 0.0) or 0.0),
+            hit_rate=float(rec.get('hit_rate', 0.0) or 0.0),
+            ir=float(rec.get('ir', 0.0) or 0.0),
+            lookahead=str(rec.get('lookahead', '1d')),
+            lookback_days=int(rec.get('lookback_days', 365)),
+            updated_at=rec.get('updated_at') or datetime.now(timezone.utc),
+        )
+
+
 # 数据库引擎和会话工厂
 def get_engine(db_url: str = None):
     """获取数据库引擎"""
