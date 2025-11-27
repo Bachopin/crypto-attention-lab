@@ -1,15 +1,15 @@
-
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
-import { StatCard, SummaryCard } from '@/components/StatCards'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PriceChart, { PriceChartRef } from '@/components/PriceChart'
 import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
-import PriceOverview from '@/components/PriceOverview'
-import NewsList from '@/components/NewsList'
 import AttentionEvents from '@/components/AttentionEvents'
 import BacktestPanel from '@/components/BacktestPanel'
+import DashboardTab from '@/components/tabs/DashboardTab'
+import NewsTab from '@/components/tabs/NewsTab'
+import SettingsTab from '@/components/tabs/SettingsTab'
 import {
   fetchPrice,
   fetchAttention,
@@ -22,131 +22,231 @@ import {
   type NewsItem,
   type SummaryStats,
 } from '@/lib/api'
-import { Activity, TrendingUp, BarChart3 } from 'lucide-react'
+import { Activity, TrendingUp, Newspaper, Settings } from 'lucide-react'
 import { Range, Time } from 'lightweight-charts'
 
 export default function Home() {
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D')
   const [priceData, setPriceData] = useState<PriceCandle[]>([])
   const [attentionData, setAttentionData] = useState<AttentionData[]>([])
   const [newsData, setNewsData] = useState<NewsItem[]>([])
+  const [assetNewsData, setAssetNewsData] = useState<NewsItem[]>([])
   const [events, setEvents] = useState<import('@/lib/api').AttentionEvent[]>([])
   const [summaryStats, setSummaryStats] = useState<SummaryStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
+  const [updateCountdown, setUpdateCountdown] = useState(0)
+  const [activeTab, setActiveTab] = useState('dashboard')
+
+  // Chart settings persistence
+  const [volumeRatio, setVolumeRatio] = useState(0.2)
+  const [showEventMarkers, setShowEventMarkers] = useState(true)
 
   // Refs for chart synchronization
   const priceChartRef = useRef<PriceChartRef>(null)
   const attentionChartRef = useRef<AttentionChartRef>(null)
 
-  const timeframes: Timeframe[] = ['1D', '4H', '1H', '15M', '5M', '1M']
+  const timeframes: Timeframe[] = ['1D', '4H', '1H', '15M']
+
+  // Fetch available symbols on mount
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.symbols && data.symbols.length > 0) {
+          setAvailableSymbols(data.symbols)
+        }
+      })
+      .catch(err => console.error('Failed to fetch symbols:', err))
+  }, [])
 
   // Handle visible range changes from price chart
-  const handlePriceRangeChange = (range: Range<Time> | null) => {
+  const handlePriceRangeChange = useCallback((range: Range<Time> | null) => {
     if (range && attentionChartRef.current) {
       attentionChartRef.current.setVisibleRange(range)
     }
-  }
+  }, [])
 
   // Handle visible range changes from attention chart
-  const handleAttentionRangeChange = (range: Range<Time> | null) => {
+  const handleAttentionRangeChange = useCallback((range: Range<Time> | null) => {
     if (range && priceChartRef.current) {
       priceChartRef.current.setVisibleRange(range)
     }
-  }
+  }, [])
+
+  // Handle crosshair synchronization
+  const handleCrosshairMove = useCallback((time: Time | null) => {
+    priceChartRef.current?.setCrosshair(time)
+    attentionChartRef.current?.setCrosshair(time)
+  }, [])
 
   // Data loader with stable reference
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  const loadData = useCallback(async (symbol: string, timeframe: Timeframe, showLoading = true) => {
+    if (showLoading) {
+      setLoading(true)
+    }
     setError(null)
     try {
-      console.log('[loadData] Starting data fetch...');
-      const [price, attention, news, summary, attEvents] = await Promise.all([
-        fetchPrice({ symbol: 'ZECUSDT', timeframe: selectedTimeframe }),
-        fetchAttention({ symbol: 'ZEC', granularity: '1d' }),
-        fetchNews({ symbol: 'ZEC' }),
-        fetchSummaryStats('ZEC'),
-        fetchAttentionEvents({ symbol: 'ZEC', lookback_days: 30, min_quantile: 0.8 }),
+      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }),
+        fetchAttention({ symbol: symbol, granularity: '1d' }),
+        fetchNews({ symbol: 'ALL', limit: 100 }),
+        fetchNews({ symbol: symbol }),
+        fetchSummaryStats(symbol),
+        fetchAttentionEvents({ symbol: symbol, lookback_days: 30, min_quantile: 0.8 }),
       ])
-
-      console.log('[loadData] Fetched:', {
-        price: price.length,
-        attention: attention.length,
-        news: news.length,
-        summary
-      });
 
       setPriceData(price)
       setAttentionData(attention)
       setNewsData(news)
+      setAssetNewsData(assetNews)
       setSummaryStats(summary)
       setEvents(attEvents)
-      console.log('[loadData] State updated successfully');
     } catch (error) {
       console.error('Failed to load data:', error)
       setError(error instanceof Error ? error.message : 'Failed to load data from backend')
     } finally {
-      setLoading(false)
+      if (showLoading) {
+        setLoading(false)
+      }
     }
-  }, [selectedTimeframe])
+  }, [])
 
-  // Load data on timeframe change
+  // 仅更新价格数据（用于时间周期切换，无闪烁）
+  const updatePriceOnly = useCallback(async (symbol: string, timeframe: Timeframe) => {
+    try {
+      const price = await fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe })
+      setPriceData(price)
+    } catch (error) {
+      console.error('Failed to update price data:', error)
+    }
+  }, [])
+
+  // Load data on symbol change (with loading)
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    loadData(selectedSymbol, selectedTimeframe, true)
+  }, [selectedSymbol, loadData])
 
-  // Remote updater with stable reference
-  const updateRemoteData = useCallback(async () => {
+  // Update price only on timeframe change (without loading)
+  useEffect(() => {
+    // Avoid running on initial mount if loadData already ran (but loadData runs on symbol change, which happens on mount)
+    // We can just run this. If it's a duplicate request, it's fine, but we want to avoid the loading screen.
+    // However, we need to make sure we don't race with loadData.
+    // Actually, when selectedSymbol changes, loadData runs.
+    // When selectedTimeframe changes, this runs.
+    // They are independent now.
+    updatePriceOnly(selectedSymbol, selectedTimeframe)
+  }, [selectedTimeframe, updatePriceOnly, selectedSymbol])
+
+  // 刷新当前标的数据
+  const refreshCurrentSymbol = useCallback(async () => {
     setUpdating(true)
+    setUpdateCountdown(20)
+    const countdownInterval = setInterval(() => {
+      setUpdateCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/update-data`,
         { method: 'POST' }
       )
+      clearInterval(countdownInterval)
       if (response.ok) {
-        console.log('[updateRemoteData] Server data refreshed, reloading...')
-        await loadData()
-      } else {
-        console.warn('[updateRemoteData] Failed:', response.status)
+        await new Promise(resolve => setTimeout(resolve, 500))
+        await loadDataSilently()
       }
     } catch (err) {
-      console.error('[updateRemoteData] Error:', err)
+      console.error('[refreshCurrentSymbol] Error:', err)
+      clearInterval(countdownInterval)
     } finally {
       setUpdating(false)
+      setUpdateCountdown(0)
     }
-  }, [loadData])
+  }, [selectedTimeframe, selectedSymbol])
+
+  // 静默加载数据（不显示 loading 动画）
+  const loadDataSilently = useCallback(async () => {
+    try {
+      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
+        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: selectedTimeframe }),
+        fetchAttention({ symbol: selectedSymbol, granularity: '1d' }),
+        fetchNews({ symbol: 'ALL', limit: 100 }),
+        fetchNews({ symbol: selectedSymbol }),
+        fetchSummaryStats(selectedSymbol),
+        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: 30, min_quantile: 0.8 }),
+      ])
+      if (price.length > 0) setPriceData(price)
+      if (attention.length > 0) setAttentionData(attention)
+      if (news.length > 0) setNewsData(news)
+      if (assetNews.length > 0) setAssetNewsData(assetNews)
+      if (summary) setSummaryStats(summary)
+      if (attEvents.length >= 0) setEvents(attEvents)
+    } catch (err) {
+      console.error('[loadDataSilently] Failed:', err)
+    }
+  }, [selectedTimeframe, selectedSymbol])
+
+  // 刷新可选代币列表（用于设置页添加后同步看板）
+  const refreshSymbols = useCallback(async () => {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`)
+      const data = await res.json()
+      if (Array.isArray(data.symbols) && data.symbols.length) {
+        setAvailableSymbols(data.symbols)
+        // 若当前选中代币不在列表中，自动切换到第一个
+        if (!data.symbols.includes(selectedSymbol)) {
+          setSelectedSymbol(data.symbols[0])
+        }
+      }
+    } catch (err) {
+      console.error('[refreshSymbols] Failed:', err)
+    }
+  }, [selectedSymbol])
 
   // Auto-refresh every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
-      console.log('[Auto-refresh] Triggering background data update...')
-      updateRemoteData()
+      refreshCurrentSymbol()
     }, 5 * 60 * 1000)
-
     return () => clearInterval(interval)
-  }, [updateRemoteData])
+  }, [refreshCurrentSymbol])
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Activity className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-bold">Crypto Attention Lab</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">ZEC Analysis Dashboard</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={updateRemoteData}
-              disabled={updating}
-              className="text-xs"
-            >
-              {updating ? '更新中...' : '刷新数据'}
-            </Button>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <Activity className="w-6 h-6 text-primary" />
+              <h1 className="text-xl font-bold">Crypto Attention Lab</h1>
+            </div>
+            {/* 主导航 Tabs */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-auto">
+              <TabsList>
+                <TabsTrigger value="dashboard" className="gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  代币看板
+                </TabsTrigger>
+                <TabsTrigger value="news" className="gap-2">
+                  <Newspaper className="w-4 h-4" />
+                  新闻概览
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="gap-2">
+                  <Settings className="w-4 h-4" />
+                  系统设置
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
         </div>
       </header>
@@ -173,7 +273,7 @@ export default function Home() {
               <p className="text-sm text-muted-foreground/70 mb-6">
                 Make sure the FastAPI backend is running at {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}
               </p>
-              <Button onClick={loadData}>Retry</Button>
+              <Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Retry</Button>
             </div>
           </div>
         )}
@@ -185,130 +285,58 @@ export default function Home() {
               <div className="text-5xl mb-4">ℹ️</div>
               <h2 className="text-xl font-semibold mb-2">No data available</h2>
               <p className="text-sm">Try refreshing data or check backend.</p>
-              <div className="mt-4"><Button onClick={loadData}>Reload</Button></div>
+              <div className="mt-4"><Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Reload</Button></div>
             </div>
           </div>
         )}
 
         {!loading && summaryStats && (
-          <>
-            {/* Section 1: Top Summary */}
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Main Summary Card */}
-              <div className="lg:col-span-1">
-                <SummaryCard
-                  symbol="ZEC/USDT"
-                  price={summaryStats.current_price}
-                  priceChange={summaryStats.price_change_24h}
-                  priceChangeAbs={summaryStats.price_change_24h_abs}
-                  volume24h={summaryStats.volume_24h}
-                  attention={summaryStats.current_attention}
-                />
-              </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            {/* 代币看板 */}
+            <TabsContent value="dashboard" className="mt-0 space-y-6">
+              <DashboardTab
+                selectedSymbol={selectedSymbol}
+                availableSymbols={availableSymbols}
+                summaryStats={summaryStats}
+                assetNewsData={assetNewsData}
+                priceData={priceData}
+                attentionData={attentionData}
+                events={events}
+                selectedTimeframe={selectedTimeframe}
+                timeframes={timeframes}
+                onTimeframeChange={setSelectedTimeframe}
+                volumeRatio={volumeRatio}
+                onVolumeRatioChange={setVolumeRatio}
+                showEventMarkers={showEventMarkers}
+                onShowEventMarkersChange={setShowEventMarkers}
+                onSymbolChange={setSelectedSymbol}
+                onRefresh={refreshCurrentSymbol}
+                updating={updating}
+                updateCountdown={updateCountdown}
+                priceChartRef={priceChartRef}
+                attentionChartRef={attentionChartRef}
+                onPriceRangeChange={handlePriceRangeChange}
+                onAttentionRangeChange={handleAttentionRangeChange}
+                onCrosshairMove={handleCrosshairMove}
+              />
 
-              {/* Stat Cards Grid */}
-              <div className="lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                  title="News Today"
-                  value={summaryStats.news_count_today}
-                  decimals={0}
-                />
-                <StatCard
-                  title="Avg Attention (7d)"
-                  value={summaryStats.avg_attention_7d}
-                  suffix="/100"
-                />
-                <StatCard
-                  title="30d Volatility"
-                  value={summaryStats.volatility_30d}
-                  suffix="%"
-                />
-                <StatCard
-                  title="24h Change"
-                  value={summaryStats.price_change_24h}
-                  change={summaryStats.price_change_24h}
-                  suffix="%"
-                />
-              </div>
-            </section>
+              {/* Attention Events & Backtest */}
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <AttentionEvents events={events} />
+                <BacktestPanel />
+              </section>
+            </TabsContent>
 
-            {/* Section 2: Middle Panels */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Price Overview - Simple Line Chart */}
-              <div className="bg-card rounded-lg border p-6">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-primary" />
-                  Price Overview (90 Days)
-                </h2>
-                <PriceOverview priceData={priceData} height={192} />
-              </div>
+            {/* 新闻概览 */}
+            <TabsContent value="news" className="mt-0 space-y-6">
+              <NewsTab news={newsData} />
+            </TabsContent>
 
-              {/* Recent News */}
-              <NewsList news={newsData} maxItems={5} />
-            </section>
-
-            {/* Section 3: Main Price Action Chart */}
-            <section>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">Price Action</h2>
-                
-                {/* Timeframe Selector */}
-                <div className="flex gap-2">
-                  {timeframes.map((tf) => (
-                    <Button
-                      key={tf}
-                      variant={selectedTimeframe === tf ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedTimeframe(tf)}
-                    >
-                      {tf}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-card rounded-lg border p-4">
-                <PriceChart
-                  ref={priceChartRef}
-                  priceData={priceData}
-                  height={600}
-                  onVisibleRangeChange={handlePriceRangeChange}
-                  events={events}
-                />
-              </div>
-            </section>
-
-            {/* Section 4: Attention Score Chart */}
-            <section>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold flex items-center gap-2">
-                  <BarChart3 className="w-6 h-6 text-yellow-500" />
-                  Attention Score
-                </h2>
-              </div>
-
-              <div className="bg-card rounded-lg border p-4">
-                <AttentionChart
-                  ref={attentionChartRef}
-                  attentionData={attentionData}
-                  height={250}
-                  onVisibleRangeChange={handleAttentionRangeChange}
-                />
-              </div>
-            </section>
-
-            {/* Section 5: Attention Events */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <AttentionEvents events={events} />
-              <BacktestPanel />
-            </section>
-
-            {/* Section 6: Full News List */}
-            <section>
-              <h2 className="text-xl font-bold mb-4">All News</h2>
-              <NewsList news={newsData} maxItems={20} />
-            </section>
-          </>
+            {/* 系统设置 */}
+            <TabsContent value="settings" className="mt-0 space-y-6">
+              <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
+            </TabsContent>
+          </Tabs>
         )}
       </main>
 

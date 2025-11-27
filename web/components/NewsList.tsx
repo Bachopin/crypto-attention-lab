@@ -10,15 +10,19 @@ import { ExternalLink } from 'lucide-react'
 interface NewsListProps {
   news: NewsItem[]
   maxItems?: number
+  title?: string
 }
 
-export default function NewsList({ news, maxItems = 10 }: NewsListProps) {
-  const displayNews = news.slice(0, maxItems)
+export default function NewsList({ news, maxItems = 10, title = "Recent News" }: NewsListProps) {
+  // Sort by datetime desc to ensure most recent first
+  const displayNews = [...news]
+    .sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime())
+    .slice(0, maxItems)
 
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Recent News</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 max-h-[500px] overflow-y-auto">
         {displayNews.map((item, index) => (
@@ -37,9 +41,11 @@ export default function NewsList({ news, maxItems = 10 }: NewsListProps) {
                 <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-medium">{item.source}</span>
+                <span className="font-medium text-foreground/80">{item.source}</span>
                 <span>•</span>
-                <span>{format(new Date(item.datetime), 'MMM dd, HH:mm')}</span>
+                <span title={new Date(item.datetime).toString()}>
+                  {format(new Date(item.datetime), 'yyyy-MM-dd HH:mm')}
+                </span>
               </div>
             </div>
           </div>

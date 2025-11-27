@@ -81,7 +81,7 @@ export interface SummaryStats {
   volatility_30d: number; // percentage
 }
 
-export type Timeframe = '1D' | '4H' | '1H' | '15M' | '5M' | '1M';
+export type Timeframe = '1D' | '4H' | '1H' | '15M';
 
 export interface FetchPriceParams {
   symbol?: string;
@@ -101,6 +101,9 @@ export interface FetchNewsParams {
   symbol?: string;
   start?: string;
   end?: string;
+  limit?: number;
+  before?: string;
+  source?: string;
 }
 
 // ==================== API Configuration ====================
@@ -113,8 +116,6 @@ const TIMEFRAME_MAP: Record<Timeframe, string> = {
   '4H': '4h',
   '1H': '1h',
   '15M': '15m',
-  '5M': '5m',
-  '1M': '1m',
 };
 
 // ==================== Helper Functions ====================
@@ -198,22 +199,33 @@ export async function fetchAttention(params: FetchAttentionParams = {}): Promise
 
 /**
  * Fetch news items from backend
- * GET /api/news?symbol=ZEC&start=...&end=...
+ * GET /api/news?symbol=ALL&start=...&end=...
  */
 export async function fetchNews(params: FetchNewsParams = {}): Promise<NewsItem[]> {
   const {
-    symbol = 'ZEC',
+    symbol = 'ALL',
     start,
     end,
+    limit,
+    before,
+    source,
   } = params;
 
   const apiParams = {
     symbol,
     start,
     end,
+    limit,
+    before,
+    source,
   };
-
   return fetchAPI<NewsItem[]>('/api/news', apiParams);
+}
+
+export async function fetchNewsCount(params: FetchNewsParams = {}): Promise<{ total: number }> {
+  const { symbol = 'ALL', start, end, before, source } = params;
+  const apiParams = { symbol, start, end, before, source };
+  return fetchAPI<{ total: number }>('/api/news/count', apiParams);
 }
 
 // ==================== New API: Events & Backtest ====================

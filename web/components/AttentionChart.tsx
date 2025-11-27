@@ -8,24 +8,43 @@ interface AttentionChartProps {
   attentionData: AttentionData[]
   height?: number
   onVisibleRangeChange?: (range: Range<Time> | null) => void
+  onCrosshairMove?: (time: Time | null) => void
 }
 
 export interface AttentionChartRef {
   setVisibleRange: (range: Range<Time>) => void
+  setCrosshair: (time: Time | null) => void
 }
 
 const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
-  ({ attentionData, height = 200, onVisibleRangeChange }, ref) => {
+  ({ attentionData, height = 200, onVisibleRangeChange, onCrosshairMove }, ref) => {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const lineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
-        if (chartRef.current) {
-          chartRef.current.timeScale().setVisibleRange(range)
+        if (chartRef.current && range) {
+          try {
+            chartRef.current.timeScale().setVisibleRange(range)
+          } catch (err) {
+            console.warn('[AttentionChart] Failed to set visible range:', err)
+          }
         }
       },
+      setCrosshair: (time: Time | null) => {
+        if (chartRef.current && lineSeriesRef.current) {
+          if (time) {
+            const point = attentionData.find(d => 
+              Math.floor(d.timestamp / 1000) === (time as number)
+            )
+            const value = point ? point.attention_score : 0
+            chartRef.current.setCrosshairPosition(value, time, lineSeriesRef.current);
+          } else {
+            chartRef.current.clearCrosshairPosition();
+          }
+        }
+      }
     }))
 
     useEffect(() => {
@@ -82,6 +101,13 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         }
       })
 
+      // Subscribe to crosshair moves
+      chart.subscribeCrosshairMove((param) => {
+        if (onCrosshairMove) {
+          onCrosshairMove(param.time || null)
+        }
+      })
+
       // Handle resize
       const handleResize = () => {
         if (chartContainerRef.current) {
@@ -97,17 +123,15 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         window.removeEventListener('resize', handleResize)
         chart.remove()
       }
-    }, [height, onVisibleRangeChange])
+    }, [height, onVisibleRangeChange, onCrosshairMove])
 
     // Update data
     useEffect(() => {
       if (!lineSeriesRef.current) return
 
-      // Convert attention data (adjust for local timezone)
-      const timezoneOffsetMinutes = new Date().getTimezoneOffset()
-      
+      // Use UTC timestamps (seconds)
       const attentionChartData = attentionData.map((d) => ({
-        time: Math.floor(d.timestamp / 1000 - timezoneOffsetMinutes * 60) as any,
+        time: Math.floor(d.timestamp / 1000) as any,
         value: d.attention_score,
       }))
 

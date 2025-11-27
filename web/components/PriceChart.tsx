@@ -10,28 +10,61 @@ interface PriceChartProps {
   height?: number
   onVisibleRangeChange?: (range: Range<Time> | null) => void
   events?: AttentionEvent[]
+  // Controlled state props
+  volumeRatio?: number
+  onVolumeRatioChange?: (ratio: number) => void
   showEventMarkers?: boolean
+  onShowEventMarkersChange?: (show: boolean) => void
+  // Crosshair sync
+  onCrosshairMove?: (time: Time | null) => void
 }
 
 export interface PriceChartRef {
   setVisibleRange: (range: Range<Time>) => void
+  setCrosshair: (time: Time | null) => void
 }
 
 const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
-  ({ priceData, height = 600, onVisibleRangeChange, events = [], showEventMarkers = true }, ref) => {
+  ({ 
+    priceData, 
+    height = 600, 
+    onVisibleRangeChange, 
+    events = [], 
+    volumeRatio = 0.25,
+    onVolumeRatioChange,
+    showEventMarkers = true,
+    onShowEventMarkersChange,
+    onCrosshairMove
+  }, ref) => {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
-    const [volumeRatio, setVolumeRatio] = useState(0.25) // 默认 1/4
-    const [markersEnabled, setMarkersEnabled] = useState(showEventMarkers)
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
-        if (chartRef.current) {
-          chartRef.current.timeScale().setVisibleRange(range)
+        if (chartRef.current && range) {
+          try {
+            chartRef.current.timeScale().setVisibleRange(range)
+          } catch (err) {
+            console.warn('[PriceChart] Failed to set visible range:', err)
+          }
         }
       },
+      setCrosshair: (time: Time | null) => {
+        if (chartRef.current && candlestickSeriesRef.current) {
+          if (time) {
+            // Find point by matching timestamp (seconds)
+            const point = priceData.find(d => 
+              Math.floor(d.timestamp / 1000) === (time as number)
+            )
+            const price = point ? point.close : 0
+            chartRef.current.setCrosshairPosition(price, time, candlestickSeriesRef.current);
+          } else {
+            chartRef.current.clearCrosshairPosition();
+          }
+        }
+      }
     }))
 
   useEffect(() => {
@@ -58,7 +91,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         borderColor: '#2B2B43',
       },
       crosshair: {
-        mode: 1,
+        mode: 1, // CrosshairMode.Normal
       },
     })
 
@@ -75,7 +108,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     })
     candlestickSeriesRef.current = candlestickSeries
 
-    // Add volume series (占比约 1/4)
+    // Add volume series
     const volumeSeries = chart.addHistogramSeries({
       color: '#26a69a',
       priceFormat: {
@@ -85,19 +118,18 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     })
     volumeSeriesRef.current = volumeSeries
 
-    // Configure volume scale margins dynamically
-    chart.priceScale('').applyOptions({
-      scaleMargins: {
-        top: 1 - volumeRatio,
-        bottom: 0,
-      },
-    })
-
     // Subscribe to visible range changes
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       const visibleRange = chart.timeScale().getVisibleRange()
       if (onVisibleRangeChange) {
         onVisibleRangeChange(visibleRange)
+      }
+    })
+
+    // Subscribe to crosshair moves
+    chart.subscribeCrosshairMove((param) => {
+      if (onCrosshairMove) {
+        onCrosshairMove(param.time || null)
       }
     })
 
@@ -116,18 +148,27 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
       window.removeEventListener('resize', handleResize)
       chart.remove()
     }
-  }, [height, onVisibleRangeChange, volumeRatio])
+  }, [height, onVisibleRangeChange, onCrosshairMove])
+
+  // Update volume ratio
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.priceScale('').applyOptions({
+        scaleMargins: {
+          top: 1 - volumeRatio,
+          bottom: 0,
+        },
+      })
+    }
+  }, [volumeRatio])
 
   // Update data & markers
   useEffect(() => {
     if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
-    // Convert price data (adjust for local timezone)
-    // lightweight-charts treats time as UTC, so we offset by timezone
-    const timezoneOffsetMinutes = new Date().getTimezoneOffset()
-    
+    // Use UTC timestamps (seconds) - Chart library handles local time conversion by default
     const candleData = priceData.map((d) => ({
-      time: Math.floor(d.timestamp / 1000 - timezoneOffsetMinutes * 60) as any,
+      time: Math.floor(d.timestamp / 1000) as any,
       open: d.open,
       high: d.high,
       low: d.low,
@@ -135,7 +176,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     }))
 
     const volumeData = priceData.map((d) => ({
-      time: Math.floor(d.timestamp / 1000 - timezoneOffsetMinutes * 60) as any,
+      time: Math.floor(d.timestamp / 1000) as any,
       value: d.volume,
       color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
     }))
@@ -145,10 +186,10 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
     // Set event markers on candles
     if (candlestickSeriesRef.current) {
-      if (markersEnabled && events && events.length > 0) {
+      if (showEventMarkers && events && events.length > 0) {
         const markers = events.map((e) => {
           const dt = new Date(e.datetime)
-          const time = Math.floor(dt.getTime() / 1000 - timezoneOffsetMinutes * 60) as any
+          const time = Math.floor(dt.getTime() / 1000) as any
           // Map event type to style
           let position: 'aboveBar' | 'belowBar' = 'aboveBar'
           let color = '#f59e0b' // amber for generic
@@ -206,7 +247,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     if (chartRef.current) {
       chartRef.current.timeScale().fitContent()
     }
-  }, [priceData, events, markersEnabled])
+  }, [priceData, events, showEventMarkers])
 
   return (
     <div className="relative w-full">
@@ -216,7 +257,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         <Button
           variant={volumeRatio === 0.2 ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setVolumeRatio(0.2)}
+          onClick={() => onVolumeRatioChange?.(0.2)}
           className="text-xs h-6 px-2"
         >
           1/5
@@ -224,7 +265,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         <Button
           variant={volumeRatio === 0.25 ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setVolumeRatio(0.25)}
+          onClick={() => onVolumeRatioChange?.(0.25)}
           className="text-xs h-6 px-2"
         >
           1/4
@@ -232,7 +273,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         <Button
           variant={volumeRatio === 0.33 ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setVolumeRatio(0.33)}
+          onClick={() => onVolumeRatioChange?.(0.33)}
           className="text-xs h-6 px-2"
         >
           1/3
@@ -240,17 +281,17 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         <div className="mx-2 h-4 w-px bg-border" />
         <span className="text-xs text-muted-foreground">事件标注:</span>
         <Button
-          variant={markersEnabled ? 'default' : 'outline'}
+          variant={showEventMarkers ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setMarkersEnabled(true)}
+          onClick={() => onShowEventMarkersChange?.(true)}
           className="text-xs h-6 px-2"
         >
           开
         </Button>
         <Button
-          variant={!markersEnabled ? 'default' : 'outline'}
+          variant={!showEventMarkers ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setMarkersEnabled(false)}
+          onClick={() => onShowEventMarkersChange?.(false)}
           className="text-xs h-6 px-2"
         >
           关

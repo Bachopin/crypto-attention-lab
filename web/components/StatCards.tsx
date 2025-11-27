@@ -2,8 +2,9 @@
 
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { formatNumber, formatPercentage, formatVolume } from '@/lib/utils'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
 
 interface StatCardProps {
   title: string
@@ -55,6 +56,13 @@ interface SummaryCardProps {
   priceChangeAbs: number
   volume24h: number
   attention: number
+  // 新增：集成控制
+  selectedSymbol?: string
+  availableSymbols?: string[]
+  onSymbolChange?: (symbol: string) => void
+  onRefresh?: () => void
+  updating?: boolean
+  updateCountdown?: number
 }
 
 export function SummaryCard({
@@ -64,13 +72,54 @@ export function SummaryCard({
   priceChangeAbs,
   volume24h,
   attention,
+  selectedSymbol,
+  availableSymbols,
+  onSymbolChange,
+  onRefresh,
+  updating = false,
+  updateCountdown = 0,
 }: SummaryCardProps) {
   const isPositive = priceChange >= 0
 
   return (
     <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
       <CardHeader>
-        <CardTitle className="text-2xl">{symbol}</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-2xl">{symbol}</CardTitle>
+          {onRefresh && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRefresh}
+              disabled={updating}
+              className="text-xs"
+            >
+              {updating ? (
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  {updateCountdown > 0 ? `${updateCountdown}s` : '...'}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw className="w-3 h-3" />
+                  刷新
+                </span>
+              )}
+            </Button>
+          )}
+        </div>
+        {/* 资产选择器 */}
+        {selectedSymbol && availableSymbols && onSymbolChange && (
+          <select 
+            value={selectedSymbol}
+            onChange={(e) => onSymbolChange(e.target.value)}
+            className="mt-2 w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {availableSymbols.map(sym => (
+              <option key={sym} value={sym}>{sym}/USDT</option>
+            ))}
+          </select>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
