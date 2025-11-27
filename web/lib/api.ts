@@ -17,6 +17,10 @@ export interface AttentionPoint {
   datetime: string;
   attention_score: number;  // 0-100
   news_count: number;
+  weighted_attention?: number;
+  bullish_attention?: number;
+  bearish_attention?: number;
+  event_intensity?: number; // 0/1
 }
 
 export interface NewsItem {
@@ -24,6 +28,42 @@ export interface NewsItem {
   source: string;
   title: string;
   url: string;
+  relevance?: string;
+  source_weight?: number;
+  sentiment_score?: number;
+  tags?: string;
+}
+
+// Events & Backtest Types
+export interface AttentionEvent {
+  datetime: string;
+  event_type: 'attention_spike' | 'high_weighted_event' | 'high_bullish' | 'high_bearish' | 'event_intensity';
+  intensity: number;
+  summary: string;
+}
+
+export interface BacktestSummary {
+  total_trades: number;
+  win_rate: number; // percentage
+  avg_return: number;
+  cumulative_return: number;
+  max_drawdown: number;
+}
+
+export interface BacktestTrade {
+  entry_date: string;
+  exit_date: string;
+  entry_price: number;
+  exit_price: number;
+  return_pct: number;
+}
+
+export interface EquityPoint { datetime: string; equity: number }
+
+export interface BacktestResult {
+  summary: BacktestSummary;
+  trades: BacktestTrade[];
+  equity_curve: EquityPoint[];
 }
 
 // 兼容旧代码的类型别名
@@ -174,6 +214,33 @@ export async function fetchNews(params: FetchNewsParams = {}): Promise<NewsItem[
   };
 
   return fetchAPI<NewsItem[]>('/api/news', apiParams);
+}
+
+// ==================== New API: Events & Backtest ====================
+
+export async function fetchAttentionEvents(params: { symbol?: string; start?: string; end?: string; lookback_days?: number; min_quantile?: number } = {}): Promise<AttentionEvent[]> {
+  const { symbol = 'ZEC', start, end, lookback_days = 30, min_quantile = 0.8 } = params;
+  const apiParams = { symbol, start, end, lookback_days, min_quantile };
+  return fetchAPI<AttentionEvent[]>('/api/attention-events', apiParams);
+}
+
+export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; start?: string; end?: string } = {}): Promise<BacktestResult> {
+  const body = JSON.stringify({
+    symbol: params.symbol ?? 'ZECUSDT',
+    lookback_days: params.lookback_days ?? 30,
+    attention_quantile: params.attention_quantile ?? 0.8,
+    max_daily_return: params.max_daily_return ?? 0.05,
+    holding_days: params.holding_days ?? 3,
+    start: params.start,
+    end: params.end,
+  });
+  const url = `${API_BASE_URL}/api/backtest/basic-attention`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 /**

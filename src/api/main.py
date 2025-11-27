@@ -206,7 +206,11 @@ def get_attention_data(
                 "timestamp": int(dt.timestamp() * 1000),
                 "datetime": dt.isoformat(),
                 "attention_score": float(row.get('attention_score', 0)),
-                "news_count": int(row.get('news_count', 0))
+                "news_count": int(row.get('news_count', 0)),
+                "weighted_attention": float(row.get('weighted_attention', 0) or 0),
+                "bullish_attention": float(row.get('bullish_attention', 0) or 0),
+                "bearish_attention": float(row.get('bearish_attention', 0) or 0),
+                "event_intensity": int(row.get('event_intensity', 0) or 0),
             })
         
         logger.info(f"Returned {len(result)} attention records for {symbol}")

@@ -1,14 +1,16 @@
 'use client'
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, Range, Time } from 'lightweight-charts'
-import type { PriceCandle } from '@/lib/api'
+import type { PriceCandle, AttentionEvent } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
 interface PriceChartProps {
   priceData: PriceCandle[]
   height?: number
   onVisibleRangeChange?: (range: Range<Time> | null) => void
+  events?: AttentionEvent[]
+  showEventMarkers?: boolean
 }
 
 export interface PriceChartRef {
@@ -16,12 +18,13 @@ export interface PriceChartRef {
 }
 
 const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
-  ({ priceData, height = 600, onVisibleRangeChange }, ref) => {
+  ({ priceData, height = 600, onVisibleRangeChange, events = [], showEventMarkers = true }, ref) => {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
     const [volumeRatio, setVolumeRatio] = useState(0.25) // 默认 1/4
+    const [markersEnabled, setMarkersEnabled] = useState(showEventMarkers)
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
@@ -115,7 +118,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     }
   }, [height, onVisibleRangeChange, volumeRatio])
 
-  // Update data
+  // Update data & markers
   useEffect(() => {
     if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
@@ -140,15 +143,74 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     candlestickSeriesRef.current.setData(candleData)
     volumeSeriesRef.current.setData(volumeData)
 
+    // Set event markers on candles
+    if (candlestickSeriesRef.current) {
+      if (markersEnabled && events && events.length > 0) {
+        const markers = events.map((e) => {
+          const dt = new Date(e.datetime)
+          const time = Math.floor(dt.getTime() / 1000 - timezoneOffsetMinutes * 60) as any
+          // Map event type to style
+          let position: 'aboveBar' | 'belowBar' = 'aboveBar'
+          let color = '#f59e0b' // amber for generic
+          let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
+          let text = 'E'
+
+          switch (e.event_type) {
+            case 'high_bullish':
+              position = 'aboveBar'
+              color = '#22c55e'
+              shape = 'arrowUp'
+              text = 'Bull'
+              break
+            case 'high_bearish':
+              position = 'belowBar'
+              color = '#ef4444'
+              shape = 'arrowDown'
+              text = 'Bear'
+              break
+            case 'high_weighted_event':
+              position = 'aboveBar'
+              color = '#3b82f6'
+              shape = 'circle'
+              text = 'Wt'
+              break
+            case 'attention_spike':
+              position = 'aboveBar'
+              color = '#f59e0b'
+              shape = 'circle'
+              text = 'Spike'
+              break
+            case 'event_intensity':
+              position = 'aboveBar'
+              color = '#eab308'
+              shape = 'circle'
+              text = 'Evt'
+              break
+          }
+
+          return {
+            time,
+            position,
+            color,
+            shape,
+            text,
+          } as any
+        })
+        candlestickSeriesRef.current.setMarkers(markers)
+      } else {
+        candlestickSeriesRef.current.setMarkers([])
+      }
+    }
+
     // Fit content
     if (chartRef.current) {
       chartRef.current.timeScale().fitContent()
     }
-  }, [priceData])
+  }, [priceData, events, markersEnabled])
 
   return (
     <div className="relative w-full">
-      {/* Volume Ratio Control */}
+      {/* Controls */}
       <div className="flex items-center gap-2 mb-2">
         <span className="text-xs text-muted-foreground">成交量窗格:</span>
         <Button
@@ -174,6 +236,24 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
           className="text-xs h-6 px-2"
         >
           1/3
+        </Button>
+        <div className="mx-2 h-4 w-px bg-border" />
+        <span className="text-xs text-muted-foreground">事件标注:</span>
+        <Button
+          variant={markersEnabled ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setMarkersEnabled(true)}
+          className="text-xs h-6 px-2"
+        >
+          开
+        </Button>
+        <Button
+          variant={!markersEnabled ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setMarkersEnabled(false)}
+          className="text-xs h-6 px-2"
+        >
+          关
         </Button>
       </div>
       <div ref={chartContainerRef} className="w-full" />

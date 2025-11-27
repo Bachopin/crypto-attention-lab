@@ -130,7 +130,13 @@ streamlit run src/dashboard/app.py
   - 返回: 时间序列注意力分数 (0-100) + 新闻数量
 - ✅ **GET /api/news** - 获取新闻列表
   - 参数: `symbol`, `start`, `end`
-  - 返回: 结构化新闻数据 (datetime, source, title, url)
+  - 返回: 结构化新闻数据 (datetime, source, title, url, relevance, source_weight, sentiment_score, tags)
+- ✅ **GET /api/attention-events** - 获取注意力事件
+  - 参数: `symbol`, `start`, `end`, `lookback_days`, `min_quantile`
+  - 返回: `[{ datetime, event_type, intensity, summary }]`
+- ✅ **POST /api/backtest/basic-attention** - 运行基础注意力策略回测
+  - 入参: `symbol`, `lookback_days`, `attention_quantile`, `max_daily_return`, `holding_days`, `start`, `end`
+  - 返回: `{ summary, trades, equity_curve }`
 - ✅ 自动 CORS 配置 (支持跨域请求)
 - ✅ 自动数据检查 (如果数据不存在自动获取)
 - ✅ 完整的 API 文档 (FastAPI Swagger UI)
@@ -138,7 +144,8 @@ streamlit run src/dashboard/app.py
 ### Python 数据处理功能
 - ✅ 从 Binance/CoinGecko 获取 ZEC 价格数据
 - ✅ 集成 CryptoPanic/NewsAPI 获取真实新闻
-- ✅ 计算注意力分数 (0-100 归一化)
+- ✅ 新闻特征工程（来源权重/相关性/情绪/标签）
+- ✅ 多维注意力特征（weighted/bullish/bearish/event_intensity）
 - ✅ 支持多时间周期 (1D/4H/1H/15M)
 - ✅ 代理支持 (HTTP/SOCKS5)
 
@@ -192,7 +199,11 @@ GET /api/attention?symbol=ZEC&granularity=1d&start=2024-01-01T00:00:00Z&end=2024
     "timestamp": 1704067200000,
     "datetime": "2024-01-01T00:00:00Z",
     "attention_score": 67.5,
-    "news_count": 12
+    "news_count": 12,
+    "weighted_attention": 14.6,
+    "bullish_attention": 1.45,
+    "bearish_attention": 0.60,
+    "event_intensity": 0
   }
 ]
 ```
@@ -209,10 +220,80 @@ GET /api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2024-12-31T23:59:59Z
     "datetime": "2024-01-01T10:30:00Z",
     "source": "CryptoPanic",
     "title": "ZEC Price Surges on Privacy Upgrade",
-    "url": "https://..."
+    "url": "https://...",
+    "relevance": "direct",
+    "source_weight": 1.2,
+    "sentiment_score": 0.6,
+    "tags": "upgrade,privacy"
   }
 ]
 ```
+
+#### 4. 注意力事件 (新增)
+```http
+GET /api/attention-events?symbol=ZEC&lookback_days=30&min_quantile=0.8
+```
+
+事件类型枚举: `attention_spike | high_weighted_event | high_bullish | high_bearish | event_intensity`
+
+**响应示例:**
+```json
+[
+  {
+    "datetime": "2024-03-15T00:00:00Z",
+    "event_type": "high_weighted_event",
+    "intensity": 0.92,
+    "summary": "news_count=22, att=100.0, w_att=14.6, bull=1.45, bear=0.6"
+  }
+]
+```
+
+#### 5. 基础注意力策略回测 (新增)
+```http
+POST /api/backtest/basic-attention
+Content-Type: application/json
+
+{
+  "symbol": "ZECUSDT",
+  "lookback_days": 30,
+  "attention_quantile": 0.8,
+  "max_daily_return": 0.05,
+  "holding_days": 3
+}
+```
+
+**响应示例:**
+```json
+{
+  "summary": {
+    "total_trades": 4,
+    "win_rate": 50.0,
+    "avg_return": 0.0021,
+    "cumulative_return": 0.0086,
+    "max_drawdown": 0.031
+  },
+  "trades": [
+    {
+      "entry_date": "2024-03-15",
+      "exit_date": "2024-03-18",
+      "entry_price": 28.34,
+      "exit_price": 28.78,
+      "return_pct": 0.0155
+    }
+  ],
+  "equity_curve": [
+    { "datetime": "2024-03-15", "equity": 1.0021 }
+  ]
+}
+```
+
+## 🧠 Attention 因子与事件 (前端可视化)
+
+- 价格主图新增“事件标注”开关，基于 `attention-events` 在 K 线上方/下方打点：
+  - high_bullish: 绿色向上箭头
+  - high_bearish: 红色向下箭头
+  - high_weighted_event/attention_spike/event_intensity: 黄色/蓝色圆点
+- 事件列表与回测面板在首页中部区域可见，可交互运行回测并查看 Summary/Trades/EquityCurve。
 
 #### 4. 健康检查
 ```http
@@ -303,6 +384,14 @@ cd web
 npm run dev      # 开发服务器
 npm run build    # 生产构建
 npm run lint     # 代码检查
+```
+
+### 后端测试
+
+```bash
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+pytest -q
 ```
 
 ## 🐛 故障排除

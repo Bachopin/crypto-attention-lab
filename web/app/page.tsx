@@ -1,17 +1,21 @@
+
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { StatCard, SummaryCard } from '@/components/StatCards'
 import PriceChart, { PriceChartRef } from '@/components/PriceChart'
 import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
 import PriceOverview from '@/components/PriceOverview'
 import NewsList from '@/components/NewsList'
+import AttentionEvents from '@/components/AttentionEvents'
+import BacktestPanel from '@/components/BacktestPanel'
 import {
   fetchPrice,
   fetchAttention,
   fetchNews,
   fetchSummaryStats,
+  fetchAttentionEvents,
   type Timeframe,
   type PriceCandle,
   type AttentionData,
@@ -26,6 +30,7 @@ export default function Home() {
   const [priceData, setPriceData] = useState<PriceCandle[]>([])
   const [attentionData, setAttentionData] = useState<AttentionData[]>([])
   const [newsData, setNewsData] = useState<NewsItem[]>([])
+  const [events, setEvents] = useState<import('@/lib/api').AttentionEvent[]>([])
   const [summaryStats, setSummaryStats] = useState<SummaryStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,22 +56,48 @@ export default function Home() {
     }
   }
 
-  // Load data
-  useEffect(() => {
-    loadData()
+  // Data loader with stable reference
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log('[loadData] Starting data fetch...');
+      const [price, attention, news, summary, attEvents] = await Promise.all([
+        fetchPrice({ symbol: 'ZECUSDT', timeframe: selectedTimeframe }),
+        fetchAttention({ symbol: 'ZEC', granularity: '1d' }),
+        fetchNews({ symbol: 'ZEC' }),
+        fetchSummaryStats('ZEC'),
+        fetchAttentionEvents({ symbol: 'ZEC', lookback_days: 30, min_quantile: 0.8 }),
+      ])
+
+      console.log('[loadData] Fetched:', {
+        price: price.length,
+        attention: attention.length,
+        news: news.length,
+        summary
+      });
+
+      setPriceData(price)
+      setAttentionData(attention)
+      setNewsData(news)
+      setSummaryStats(summary)
+      setEvents(attEvents)
+      console.log('[loadData] State updated successfully');
+    } catch (error) {
+      console.error('Failed to load data:', error)
+      setError(error instanceof Error ? error.message : 'Failed to load data from backend')
+    } finally {
+      setLoading(false)
+    }
   }, [selectedTimeframe])
 
-  // Auto-refresh every 5 minutes
+  // Load data on timeframe change
   useEffect(() => {
-    const interval = setInterval(() => {
-      console.log('[Auto-refresh] Triggering background data update...')
-      updateRemoteData()
-    }, 5 * 60 * 1000)
+    loadData()
+  }, [loadData])
 
-    return () => clearInterval(interval)
-  }, [])
-
-  async function updateRemoteData() {
+  // Remote updater with stable reference
+  const updateRemoteData = useCallback(async () => {
     setUpdating(true)
     try {
       const response = await fetch(
@@ -84,41 +115,17 @@ export default function Home() {
     } finally {
       setUpdating(false)
     }
-  }
+  }, [loadData])
 
-  async function loadData() {
-    setLoading(true)
-    setError(null)
-    try {
-      console.log('[loadData] Starting data fetch...');
-      
-      const [price, attention, news, summary] = await Promise.all([
-        fetchPrice({ symbol: 'ZECUSDT', timeframe: selectedTimeframe }),
-        fetchAttention({ symbol: 'ZEC', granularity: '1d' }),
-        fetchNews({ symbol: 'ZEC' }),
-        fetchSummaryStats('ZEC'),
-      ])
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('[Auto-refresh] Triggering background data update...')
+      updateRemoteData()
+    }, 5 * 60 * 1000)
 
-      console.log('[loadData] Fetched:', {
-        price: price.length,
-        attention: attention.length,
-        news: news.length,
-        summary
-      });
-
-      setPriceData(price)
-      setAttentionData(attention)
-      setNewsData(news)
-      setSummaryStats(summary)
-      
-      console.log('[loadData] State updated successfully');
-    } catch (error) {
-      console.error('Failed to load data:', error)
-      setError(error instanceof Error ? error.message : 'Failed to load data from backend')
-    } finally {
-      setLoading(false)
-    }
-  }
+    return () => clearInterval(interval)
+  }, [updateRemoteData])
 
   return (
     <div className="min-h-screen bg-background">
@@ -171,17 +178,14 @@ export default function Home() {
           </div>
         )}
 
-        {/* Error State */}
-        {!loading && error && (
+        {/* Fallback State */}
+        {!loading && !error && !summaryStats && (
           <div className="flex items-center justify-center h-64">
-            <div className="text-center max-w-md">
-              <div className="text-5xl mb-4">⚠️</div>
-              <h2 className="text-xl font-semibold mb-2">Failed to Load Data</h2>
-              <p className="text-muted-foreground mb-4">{error}</p>
-              <p className="text-sm text-muted-foreground/70 mb-6">
-                Make sure the FastAPI backend is running at {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}
-              </p>
-              <Button onClick={loadData}>Retry</Button>
+            <div className="text-center max-w-md text-muted-foreground">
+              <div className="text-5xl mb-4">ℹ️</div>
+              <h2 className="text-xl font-semibold mb-2">No data available</h2>
+              <p className="text-sm">Try refreshing data or check backend.</p>
+              <div className="mt-4"><Button onClick={loadData}>Reload</Button></div>
             </div>
           </div>
         )}
@@ -269,6 +273,7 @@ export default function Home() {
                   priceData={priceData}
                   height={600}
                   onVisibleRangeChange={handlePriceRangeChange}
+                  events={events}
                 />
               </div>
             </section>
@@ -292,7 +297,13 @@ export default function Home() {
               </div>
             </section>
 
-            {/* Section 5: Full News List */}
+            {/* Section 5: Attention Events */}
+            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AttentionEvents events={events} />
+              <BacktestPanel />
+            </section>
+
+            {/* Section 6: Full News List */}
             <section>
               <h2 className="text-xl font-bold mb-4">All News</h2>
               <NewsList news={newsData} maxItems={20} />
