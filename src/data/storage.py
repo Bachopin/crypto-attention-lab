@@ -1,0 +1,219 @@
+"""
+数据存储和加载工具函数
+提供统一的 CSV 文件读取和时间范围过滤功能
+"""
+
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Tuple
+import logging
+
+from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR
+
+logger = logging.getLogger(__name__)
+
+
+def load_price_data(
+    symbol: str,
+    timeframe: str,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
+) -> Tuple[pd.DataFrame, bool]:
+    """
+    加载价格数据
+    
+    Args:
+        symbol: 标的符号，如 "ZECUSDT"
+        timeframe: 时间周期，如 "1d", "4h", "1h", "15m"
+        start: 开始时间
+        end: 结束时间
+        
+    Returns:
+        (DataFrame, is_fallback): 价格数据和是否是 fallback 数据
+    """
+    # 尝试主文件
+    price_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}.csv"
+    fallback_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}_fallback.csv"
+    
+    is_fallback = False
+    
+    if price_file.exists():
+        df = pd.read_csv(price_file)
+    elif fallback_file.exists():
+        df = pd.read_csv(fallback_file)
+        is_fallback = True
+    else:
+        logger.warning(f"Price data not found for {symbol} {timeframe}")
+        return pd.DataFrame(), True
+    
+    # 转换时间列
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
+    
+    # 时间范围过滤 - 确保类型一致
+    if start is not None:
+        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
+        df = df[df['datetime'] >= start_ts]
+    if end is not None:
+        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
+        df = df[df['datetime'] <= end_ts]
+    
+    return df, is_fallback
+
+
+def load_attention_data(
+    symbol: str,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
+) -> pd.DataFrame:
+    """
+    加载处理后的注意力特征数据
+    
+    Args:
+        symbol: 标的符号，如 "ZEC"
+        start: 开始时间
+        end: 结束时间
+        
+    Returns:
+        DataFrame: 包含 datetime, attention_score, news_count 等字段
+    """
+    # 目前只支持 ZEC，将来可扩展
+    symbol_lower = symbol.lower()
+    attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
+    
+    if not attention_file.exists():
+        logger.warning(f"Attention features not found for {symbol}")
+        return pd.DataFrame()
+    
+    df = pd.read_csv(attention_file)
+    
+    # 转换时间列为 datetime
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
+    
+    # 时间范围过滤 - 确保类型一致
+    if start is not None:
+        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
+        df = df[df['datetime'] >= start_ts]
+    if end is not None:
+        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
+        df = df[df['datetime'] <= end_ts]
+    
+    return df
+
+
+def load_news_data(
+    symbol: str,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None
+) -> pd.DataFrame:
+    """
+    加载原始新闻数据
+    
+    Args:
+        symbol: 标的符号，如 "ZEC"
+        start: 开始时间
+        end: 结束时间
+        
+    Returns:
+        DataFrame: 包含 datetime, source, title, url 等字段
+    """
+    symbol_lower = symbol.lower()
+    
+    # 优先使用真实新闻，否则 fallback 到 mock
+    news_file = RAW_DATA_DIR / f"attention_{symbol_lower}_news.csv"
+    mock_file = RAW_DATA_DIR / f"attention_{symbol_lower}_mock.csv"
+    
+    if news_file.exists():
+        df = pd.read_csv(news_file)
+    elif mock_file.exists():
+        df = pd.read_csv(mock_file)
+    else:
+        logger.warning(f"News data not found for {symbol}")
+        return pd.DataFrame()
+    
+    # 转换时间列
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
+    
+    # 时间范围过滤 - 确保类型一致
+    if start is not None:
+        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
+        df = df[df['datetime'] >= start_ts]
+    if end is not None:
+        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
+        df = df[df['datetime'] <= end_ts]
+    
+    return df
+
+
+def ensure_price_data_exists(symbol: str, timeframe: str) -> bool:
+    """
+    确保价格数据文件存在，如果不存在则尝试获取
+    
+    Args:
+        symbol: 标的符号，如 "ZECUSDT"
+        timeframe: 时间周期
+        
+    Returns:
+        bool: 数据是否可用
+    """
+    price_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}.csv"
+    fallback_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}_fallback.csv"
+    
+    if price_file.exists() or fallback_file.exists():
+        return True
+    
+    # 尝试获取数据
+    try:
+        from src.data.price_fetcher import fetch_and_save_price
+        
+        # 转换格式: ZECUSDT -> ZEC/USDT
+        if '/' not in symbol:
+            base = symbol[:-4] if symbol.endswith('USDT') else symbol[:3]
+            quote = symbol[-4:] if symbol.endswith('USDT') else 'USDT'
+            trading_symbol = f"{base}/{quote}"
+        else:
+            trading_symbol = symbol
+        
+        logger.info(f"Fetching price data for {trading_symbol} {timeframe}")
+        fetch_and_save_price(symbol=trading_symbol, timeframe=timeframe, limit=365)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to fetch price data: {e}")
+        return False
+
+
+def ensure_attention_data_exists(symbol: str) -> bool:
+    """
+    确保注意力数据存在，如果不存在则尝试获取并处理
+    
+    Args:
+        symbol: 标的符号，如 "ZEC"
+        
+    Returns:
+        bool: 数据是否可用
+    """
+    symbol_lower = symbol.lower()
+    attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
+    
+    if attention_file.exists():
+        return True
+    
+    # 尝试获取并处理数据
+    try:
+        from src.data.attention_fetcher import fetch_zec_news, save_attention_data
+        from src.features.attention_features import process_attention_features
+        
+        logger.info(f"Fetching news data for {symbol}")
+        news_list = fetch_zec_news()
+        save_attention_data(news_list)
+        
+        logger.info(f"Processing attention features for {symbol}")
+        process_attention_features()
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to fetch/process attention data: {e}")
+        return False

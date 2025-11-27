@@ -1,0 +1,145 @@
+import os
+import requests
+import pandas as pd
+import random
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from src.config.settings import RAW_DATA_DIR
+
+
+def _dt_or_default(value, default_days=365):
+    if value is None:
+        return datetime.now(timezone.utc) - timedelta(days=default_days)
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _fetch_from_cryptopanic(since: datetime, until: datetime) -> list[dict]:
+    token = os.getenv("CRYPTOPANIC_API_KEY") or os.getenv("CRYPTOPANIC_TOKEN")
+    if not token:
+        return []
+    url = "https://cryptopanic.com/api/v1/posts/"
+    params = {
+        "auth_token": token,
+        "currencies": "ZEC",
+        "kind": "news",
+        "public": "true",
+    }
+    out = []
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for item in data.get("results", []):
+            created = item.get("published_at") or item.get("created_at")
+            if not created:
+                continue
+            dt = pd.to_datetime(created, utc=True)
+            if not (since <= dt.to_pydatetime() <= until):
+                continue
+            title = (item.get("title") or "").strip()
+            url_ = item.get("url") or (item.get("source") or {}).get("url") or ""
+            source = (item.get("source") or {}).get("title") or (item.get("domain") or "CryptoPanic")
+            out.append({
+                "timestamp": int(dt.value // 10**6),  # ms
+                "datetime": dt.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S"),
+                "title": title,
+                "source": source,
+                "url": url_,
+            })
+    except Exception:
+        return []
+    return out
+
+
+def _fetch_from_newsapi(since: datetime, until: datetime) -> list[dict]:
+    api_key = os.getenv("NEWS_API_KEY") or os.getenv("NEWSAPI_KEY")
+    if not api_key:
+        return []
+    # NewsAPI everything endpoint
+    url = "https://newsapi.org/v2/everything"
+    # 关键词尽量覆盖 Zcash/ZEC，避免误报
+    q = "(Zcash OR ZEC)"
+    params = {
+        "q": q,
+        "language": "en",
+        "sortBy": "publishedAt",
+        "from": since.isoformat(),
+        "to": until.isoformat(),
+        "pageSize": 100,
+        "apiKey": api_key,
+    }
+    out = []
+    try:
+        resp = requests.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        for art in data.get("articles", []):
+            dt_raw = art.get("publishedAt")
+            if not dt_raw:
+                continue
+            dt = pd.to_datetime(dt_raw, utc=True)
+            title = (art.get("title") or "").strip()
+            url_ = art.get("url") or ""
+            source = (art.get("source") or {}).get("name") or "NewsAPI"
+            out.append({
+                "timestamp": int(dt.value // 10**6),
+                "datetime": dt.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S"),
+                "title": title,
+                "source": source,
+                "url": url_,
+            })
+    except Exception:
+        return []
+    return out
+
+
+def _fetch_mock(since: datetime, until: datetime) -> list[dict]:
+    news_list = []
+    current_date = since
+    while current_date <= until:
+        daily_news_count = random.randint(0, 5)
+        for _ in range(daily_news_count):
+            news_item = {
+                "timestamp": int(current_date.timestamp() * 1000),
+                "datetime": current_date.strftime("%Y-%m-%d %H:%M:%S"),
+                "title": f"ZEC News Sample {random.randint(1000, 9999)}",
+                "source": random.choice(["CoinDesk", "Twitter", "CryptoSlate", "Medium"]),
+                "url": "https://example.com/news",
+            }
+            news_list.append(news_item)
+        current_date += timedelta(days=1)
+    return news_list
+
+
+def fetch_zec_news(since: Optional[datetime] = None, until: Optional[datetime] = None) -> list[dict]:
+    """
+    获取 ZEC/Zcash 相关新闻：优先 CryptoPanic，其次 NewsAPI；都不可用时使用 Mock。
+    返回标准字段：timestamp(ms), datetime(str, UTC), title, source, url
+    """
+    until = until if until else datetime.now(timezone.utc)
+    since = _dt_or_default(since, default_days=365)
+
+    items = _fetch_from_cryptopanic(since, until)
+    if not items:
+        items = _fetch_from_newsapi(since, until)
+    if not items:
+        items = _fetch_mock(since, until)
+    return items
+
+
+def save_attention_data(news_list):
+    """保存新闻数据到 raw 目录，标准文件名：attention_zec_news.csv"""
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not news_list:
+        print("No news to save.")
+        return None
+    df = pd.DataFrame(news_list)
+    filepath = RAW_DATA_DIR / "attention_zec_news.csv"
+    df.to_csv(filepath, index=False)
+    print(f"Saved {len(df)} news items to {filepath}")
+    return filepath
+
+
+if __name__ == "__main__":
+    news = fetch_zec_news()
+    save_attention_data(news)

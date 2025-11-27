@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+.env
+.env.local
+venv/
+.venv/
+
+# Logs
+fastapi.log
+logs/*
+!logs/.gitkeep
+server.pid
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/dist/
+web/.turbo/
+web/.env.local
+
+# Streamlit cache
+.streamlit/
+
+# Data (keep processed for reproducibility?)
+# Raw large volatile files can be ignored if size growth is a concern.
+# Uncomment below if you want to exclude raw scraped data.
+# data/raw/*
+# data/processed/*
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Coverage / Reports
+htmlcov/
+.coverage*
+
+# Misc build artifacts
+*.bak
+*.tmp

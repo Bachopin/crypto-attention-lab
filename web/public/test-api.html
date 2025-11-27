@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API 测试 - Crypto Attention Lab</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #0a0a0a; color: #fff; }
+        .section { margin: 20px 0; padding: 15px; background: #1a1a1a; border: 1px solid #333; }
+        .success { color: #0f0; }
+        .error { color: #f00; }
+        pre { background: #000; padding: 10px; overflow: auto; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🔍 API 测试面板</h1>
+    
+    <div class="section">
+        <h2>1. 测试价格 API</h2>
+        <button onclick="testPrice()">测试 /api/price</button>
+        <div id="price-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. 测试注意力 API</h2>
+        <button onclick="testAttention()">测试 /api/attention</button>
+        <div id="attention-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>3. 测试新闻 API</h2>
+        <button onclick="testNews()">测试 /api/news</button>
+        <div id="news-result"></div>
+    </div>
+    
+    <div class="section">
+        <h2>4. 测试统计计算</h2>
+        <button onclick="testSummaryStats()">测试统计计算</button>
+        <div id="stats-result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        async function testPrice() {
+            const el = document.getElementById('price-result');
+            el.innerHTML = '<p>⏳ 加载中...</p>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/price?symbol=ZECUSDT&timeframe=1d`);
+                const data = await resp.json();
+                el.innerHTML = `
+                    <p class="success">✅ 成功! 获取 ${data.length} 个数据点</p>
+                    <pre>${JSON.stringify(data.slice(-3), null, 2)}</pre>
+                `;
+            } catch (err) {
+                el.innerHTML = `<p class="error">❌ 错误: ${err.message}</p>`;
+            }
+        }
+        
+        async function testAttention() {
+            const el = document.getElementById('attention-result');
+            el.innerHTML = '<p>⏳ 加载中...</p>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/attention?symbol=ZEC`);
+                const data = await resp.json();
+                el.innerHTML = `
+                    <p class="success">✅ 成功! 获取 ${data.length} 个数据点</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (err) {
+                el.innerHTML = `<p class="error">❌ 错误: ${err.message}</p>`;
+            }
+        }
+        
+        async function testNews() {
+            const el = document.getElementById('news-result');
+            el.innerHTML = '<p>⏳ 加载中...</p>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/news?symbol=ZEC`);
+                const data = await resp.json();
+                el.innerHTML = `
+                    <p class="success">✅ 成功! 获取 ${data.length} 条新闻</p>
+                    <pre>${JSON.stringify(data.slice(0, 3), null, 2)}</pre>
+                `;
+            } catch (err) {
+                el.innerHTML = `<p class="error">❌ 错误: ${err.message}</p>`;
+            }
+        }
+        
+        async function testSummaryStats() {
+            const el = document.getElementById('stats-result');
+            el.innerHTML = '<p>⏳ 计算中...</p>';
+            try {
+                const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+                const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                
+                const [priceData, attentionData, newsData] = await Promise.all([
+                    fetch(`${API_BASE}/api/price?symbol=ZECUSDT&timeframe=1d`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/attention?symbol=ZEC&start=${weekAgo}`).then(r => r.json()),
+                    fetch(`${API_BASE}/api/news?symbol=ZEC&start=${yesterday}`).then(r => r.json()),
+                ]);
+                
+                const latestPrice = priceData[priceData.length - 1];
+                const previousPrice = priceData[priceData.length - 2];
+                
+                const stats = {
+                    current_price: latestPrice?.close || 0,
+                    previous_price: previousPrice?.close || 0,
+                    price_change_24h: previousPrice ? ((latestPrice.close - previousPrice.close) / previousPrice.close * 100) : 0,
+                    volume_24h: latestPrice?.volume || 0,
+                    current_attention: attentionData[attentionData.length - 1]?.attention_score || 0,
+                    avg_attention_7d: attentionData.reduce((sum, d) => sum + d.attention_score, 0) / attentionData.length,
+                    news_count_today: newsData.length,
+                    
+                    debug: {
+                        priceDataPoints: priceData.length,
+                        attentionDataPoints: attentionData.length,
+                        newsDataPoints: newsData.length,
+                    }
+                };
+                
+                el.innerHTML = `
+                    <p class="success">✅ 计算成功!</p>
+                    <pre>${JSON.stringify(stats, null, 2)}</pre>
+                `;
+            } catch (err) {
+                el.innerHTML = `<p class="error">❌ 错误: ${err.message}</p>`;
+            }
+        }
+        
+        // 自动测试
+        window.onload = () => {
+            console.log('🚀 自动运行所有测试...');
+            testPrice();
+            setTimeout(testAttention, 500);
+            setTimeout(testNews, 1000);
+            setTimeout(testSummaryStats, 1500);
+        };
+    </script>
+</body>
+</html>
