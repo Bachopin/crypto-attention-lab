@@ -4,6 +4,7 @@ Crypto Attention Lab - FastAPI Backend
 """
 
 from fastapi import FastAPI, Query, HTTPException
+from fastapi import Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from datetime import datetime
@@ -18,6 +19,8 @@ from src.data.storage import (
     ensure_attention_data_exists
 )
 from src.utils.logger import setup_logging
+from src.events.attention_events import detect_attention_events
+from src.backtest.basic_attention_factor import run_backtest_basic_attention
 
 # 设置日志
 setup_logging(logging.INFO)
@@ -269,7 +272,11 @@ def get_news_data(
                 "datetime": dt.isoformat() if pd.notna(dt) else None,
                 "source": str(row.get('source', 'Unknown')),
                 "title": str(row.get('title', '')),
-                "url": str(row.get('url', ''))
+                "url": str(row.get('url', '')),
+                "relevance": str(row.get('relevance', '')),
+                "source_weight": float(row.get('source_weight', 0) or 0),
+                "sentiment_score": float(row.get('sentiment_score', 0) or 0),
+                "tags": str(row.get('tags', '')),
             })
         
         logger.info(f"Returned {len(result)} news items for {symbol}")
@@ -390,6 +397,7 @@ def update_data(
                 )
                 if "attention" not in results["updated"]:
                     results["updated"].append("attention")
+            
             else:
                 logger.error(f"Failed to update news data: {result.stderr}")
                 results["status"] = "partial"
@@ -405,3 +413,58 @@ def update_data(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ==================== 注意力事件 API ====================
+
+@app.get("/api/attention-events")
+def get_attention_events(
+    symbol: str = Query(default="ZEC"),
+    start: Optional[str] = Query(default=None),
+    end: Optional[str] = Query(default=None),
+    lookback_days: int = Query(default=30),
+    min_quantile: float = Query(default=0.8),
+):
+    try:
+        start_dt = pd.to_datetime(start, utc=True) if start else None
+        end_dt = pd.to_datetime(end, utc=True) if end else None
+        events = detect_attention_events(symbol=symbol, start=start_dt, end=end_dt, lookback_days=lookback_days, min_quantile=min_quantile)
+        return [
+            {
+                "datetime": e.datetime.isoformat(),
+                "event_type": e.event_type,
+                "intensity": e.intensity,
+                "summary": e.summary,
+            } for e in events
+        ]
+    except Exception as e:
+        logger.error(f"Error in get_attention_events: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 基础回测 API ====================
+
+@app.post("/api/backtest/basic-attention")
+def backtest_basic_attention(
+    payload: dict = Body(...)
+):
+    try:
+        symbol = payload.get("symbol", "ZECUSDT")
+        lookback_days = int(payload.get("lookback_days", 30))
+        attention_quantile = float(payload.get("attention_quantile", 0.8))
+        max_daily_return = float(payload.get("max_daily_return", 0.05))
+        holding_days = int(payload.get("holding_days", 3))
+        start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
+        end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        res = run_backtest_basic_attention(
+            symbol=symbol,
+            lookback_days=lookback_days,
+            attention_quantile=attention_quantile,
+            max_daily_return=max_daily_return,
+            holding_days=holding_days,
+            start=start,
+            end=end,
+        )
+        return res
+    except Exception as e:
+        logger.error(f"Error in backtest_basic_attention: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
