@@ -28,6 +28,7 @@ def compute_node_carry_factor(
     lookback_days: int = 365,
     start: Optional[pd.Timestamp] = None,
     end: Optional[pd.Timestamp] = None,
+    chunk_days: Optional[int] = None,
 ) -> pd.DataFrame:
     """计算节点带货能力因子。
 
@@ -84,6 +85,8 @@ def compute_node_carry_factor(
     price_df = price_df.reset_index(drop=True)
 
     # 为每个事件 + 节点计算未来收益
+    # 如果后续需要分块计算以降低内存占用，可按 chunk_days 对事件进行分组并分批处理。
+    # 这里先提供占位参数与说明，当前实现仍一次性处理。
     rows = []
     for _, row in merged.iterrows():
         ev_date = row["datetime"]

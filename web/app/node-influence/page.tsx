@@ -1,106 +1,150 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from 'react'
-import { fetchNodeInfluence, NodeInfluenceItem } from '@/lib/api'
+import { useEffect, useMemo, useState } from "react";
+import { fetchNodeInfluence, NodeInfluenceItem } from "@/lib/api";
+import { Separator } from "@/components/ui/separator";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-function formatPct(x: number) {
-  return `${(x * 100).toFixed(2)}%`
-}
+type SortKey = "ir" | "mean_excess_return" | "hit_rate";
 
 export default function NodeInfluencePage() {
-  const [symbol, setSymbol] = useState<string>('ZEC')
-  const [minEvents, setMinEvents] = useState<number>(10)
-  const [sortBy, setSortBy] = useState<'ir' | 'mean_excess_return' | 'hit_rate'>('ir')
-  const [limit, setLimit] = useState<number>(100)
-  const [data, setData] = useState<NodeInfluenceItem[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
-  const [error, setError] = useState<string>('')
+  const [symbol, setSymbol] = useState<string>("ZEC");
+  const [minEvents, setMinEvents] = useState<number>(10);
+  const [sortBy, setSortBy] = useState<SortKey>("ir");
+  const [limit, setLimit] = useState<number>(100);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<NodeInfluenceItem[]>([]);
 
-  async function load() {
-    setLoading(true)
-    setError('')
+  const params = useMemo(() => ({ symbol, min_events: minEvents, sort_by: sortBy, limit }), [symbol, minEvents, sortBy, limit]);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await fetchNodeInfluence({ symbol, min_events: minEvents, sort_by: sortBy, limit })
-      setData(res)
+      const res = await fetchNodeInfluence({ symbol, min_events: minEvents, sort_by: sortBy, limit });
+      setData(res);
     } catch (e: any) {
-      setError(e?.message || 'Failed to load')
+      setError(e?.message || "加载失败");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params]);
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Node Influence (Carry Factor)</h1>
+    <div className="container mx-auto px-4 py-6">
+      <h1 className="text-2xl font-semibold">节点带货能力因子</h1>
+      <p className="text-sm text-muted-foreground mt-1">按 IR/平均收益/命中率排序，筛选最小样本数</p>
+      <Separator className="my-4" />
 
-      <div className="flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="block text-sm">Symbol</label>
-          <input className="border rounded px-2 py-1 bg-transparent" value={symbol} onChange={e => setSymbol(e.target.value.toUpperCase())} />
+      <Card className="p-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div>
+            <label className="block text-sm mb-1">标的 Symbol</label>
+            <input
+              className="w-full border rounded px-2 py-1"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value.trim().toUpperCase())}
+              placeholder="如 ZEC"
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">最小样本数</label>
+            <input
+              type="number"
+              className="w-full border rounded px-2 py-1"
+              value={minEvents}
+              min={0}
+              onChange={(e) => setMinEvents(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">排序字段</label>
+            <select
+              className="w-full border rounded px-2 py-1"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+            >
+              <option value="ir">IR</option>
+              <option value="mean_excess_return">平均收益</option>
+              <option value="hit_rate">命中率</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">数量上限</label>
+            <input
+              type="number"
+              className="w-full border rounded px-2 py-1"
+              value={limit}
+              min={1}
+              onChange={(e) => setLimit(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              className="border rounded px-3 py-1 hover:bg-muted"
+              onClick={load}
+              disabled={loading}
+            >
+              {loading ? "加载中..." : "刷新"}
+            </button>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm">Min Events</label>
-          <input type="number" className="border rounded px-2 py-1 bg-transparent" value={minEvents} onChange={e => setMinEvents(Number(e.target.value) || 0)} />
-        </div>
-        <div>
-          <label className="block text-sm">Sort By</label>
-          <select className="border rounded px-2 py-1 bg-transparent" value={sortBy} onChange={e => setSortBy(e.target.value as any)}>
-            <option value="ir">IR</option>
-            <option value="mean_excess_return">Mean Excess Return</option>
-            <option value="hit_rate">Hit Rate</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm">Limit</label>
-          <input type="number" className="border rounded px-2 py-1 bg-transparent" value={limit} onChange={e => setLimit(Number(e.target.value) || 1)} />
-        </div>
-        <button className="border rounded px-3 py-1 hover:bg-neutral-800" onClick={load} disabled={loading}>Reload</button>
-      </div>
+      </Card>
 
-      {error && <div className="text-red-500">{error}</div>}
-      {loading && <div>Loading...</div>}
+      {error && (
+        <div className="text-red-600 text-sm mb-3">{error}</div>
+      )}
 
-      {!loading && data.length > 0 && (
-        <div className="overflow-auto border rounded">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="bg-neutral-900">
-                <th className="px-3 py-2 text-left">Symbol</th>
-                <th className="px-3 py-2 text-left">Node</th>
-                <th className="px-3 py-2 text-right">Events</th>
-                <th className="px-3 py-2 text-right">Mean Excess</th>
-                <th className="px-3 py-2 text-right">Hit Rate</th>
-                <th className="px-3 py-2 text-right">IR</th>
-                <th className="px-3 py-2 text-left">Lookahead</th>
-                <th className="px-3 py-2 text-right">Lookback</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row, i) => (
-                <tr key={`${row.symbol}-${row.node_id}-${i}`} className={i % 2 ? 'bg-neutral-950' : ''}>
-                  <td className="px-3 py-2">{row.symbol}</td>
-                  <td className="px-3 py-2">{row.node_id}</td>
-                  <td className="px-3 py-2 text-right">{row.n_events}</td>
-                  <td className="px-3 py-2 text-right">{formatPct(row.mean_excess_return)}</td>
-                  <td className="px-3 py-2 text-right">{formatPct(row.hit_rate)}</td>
-                  <td className="px-3 py-2 text-right">{row.ir.toFixed(3)}</td>
-                  <td className="px-3 py-2">{row.lookahead}</td>
-                  <td className="px-3 py-2 text-right">{row.lookback_days}</td>
+      <Tabs defaultValue="table">
+        <TabsList>
+          <TabsTrigger value="table">表格视图</TabsTrigger>
+          <TabsTrigger value="raw">原始 JSON</TabsTrigger>
+        </TabsList>
+        <TabsContent value="table">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-2 py-2">Node</th>
+                  <th className="px-2 py-2">样本数</th>
+                  <th className="px-2 py-2">平均收益</th>
+                  <th className="px-2 py-2">命中率</th>
+                  <th className="px-2 py-2">IR</th>
+                  <th className="px-2 py-2">参数</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {!loading && data.length === 0 && (
-        <div className="text-neutral-400">No data. Adjust filters and reload.</div>
-      )}
+              </thead>
+              <tbody>
+                {data.map((row) => (
+                  <tr key={`${row.symbol}-${row.node_id}`} className="border-t">
+                    <td className="px-2 py-2 font-mono">{row.node_id}</td>
+                    <td className="px-2 py-2">{row.n_events}</td>
+                    <td className="px-2 py-2">{row.mean_excess_return.toFixed(4)}</td>
+                    <td className="px-2 py-2">{(row.hit_rate * 100).toFixed(1)}%</td>
+                    <td className="px-2 py-2">{row.ir.toFixed(3)}</td>
+                    <td className="px-2 py-2 text-muted-foreground">
+                      {row.lookahead} / {row.lookback_days}d
+                    </td>
+                  </tr>
+                ))}
+                {data.length === 0 && !loading && (
+                  <tr>
+                    <td className="px-2 py-4" colSpan={6}>暂无数据</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+        <TabsContent value="raw">
+          <pre className="text-xs bg-muted p-3 rounded overflow-x-auto">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </TabsContent>
+      </Tabs>
     </div>
-  )
+  );
 }
