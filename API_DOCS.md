@@ -238,7 +238,7 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
 
 #### `POST /api/backtest/basic-attention`
 
-运行基础注意力策略回测。
+运行基础注意力策略回测，支持简单风控参数。
 
 **Request Body:**
 
@@ -249,6 +249,10 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
   "attention_quantile": 0.8,
   "max_daily_return": 0.05,
   "holding_days": 3,
+  "stop_loss_pct": 0.05,
+  "take_profit_pct": 0.1,
+  "max_holding_days": 5,
+  "position_size": 1.0,
   "start": "2024-01-01T00:00:00Z",
   "end": "2024-12-31T23:59:59Z"
 }
@@ -262,7 +266,12 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
     "win_rate": 60.0,
     "avg_return": 0.045,
     "cumulative_return": 0.24,
-    "max_drawdown": 0.10
+    "max_drawdown": 0.10,
+    "max_consecutive_losses": 2,
+    "monthly_returns": {
+      "2024-01": 0.12,
+      "2024-02": 0.03
+    }
   },
   "trades": [
     {
@@ -276,6 +285,96 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
   "equity_curve": [
     { "datetime": "2024-01-18T00:00:00Z", "equity": 1.10 }
   ]
+}
+```
+
+#### `POST /api/backtest/basic-attention/multi`
+
+运行多币种基础注意力策略回测，对比不同币种的策略表现。
+
+**Request Body:**
+
+```json
+{
+  "symbols": ["ZECUSDT", "BTCUSDT", "ETHUSDT"],
+  "lookback_days": 30,
+  "attention_quantile": 0.8,
+  "max_daily_return": 0.05,
+  "holding_days": 3,
+  "stop_loss_pct": 0.05,
+  "take_profit_pct": 0.1,
+  "max_holding_days": 5,
+  "position_size": 1.0,
+  "start": "2024-01-01T00:00:00Z",
+  "end": "2024-12-31T23:59:59Z"
+}
+```
+
+**Response:**
+
+```json
+{
+  "per_symbol_summary": {
+    "ZECUSDT": {
+      "total_trades": 5,
+      "win_rate": 60.0,
+      "avg_return": 0.045,
+      "cumulative_return": 0.24,
+      "max_drawdown": 0.10
+    },
+    "BTCUSDT": {
+      "total_trades": 3,
+      "win_rate": 66.7,
+      "avg_return": 0.03,
+      "cumulative_return": 0.09,
+      "max_drawdown": 0.05
+    }
+  },
+  "per_symbol_equity_curves": {
+    "ZECUSDT": [
+      { "datetime": "2024-01-18T00:00:00Z", "equity": 1.10 }
+    ],
+    "BTCUSDT": [
+      { "datetime": "2024-02-10T00:00:00Z", "equity": 1.05 }
+    ]
+  }
+}
+```
+
+---
+
+### 7. Attention Event Performance
+
+#### `GET /api/attention-events/performance`
+
+按事件类型统计事件后的平均收益表现，用于分析事件与收益的关联。
+
+**Query Parameters:**
+
+| Parameter       | Type   | Required | Default | Description                              |
+|-----------------|--------|----------|---------|------------------------------------------|
+| `symbol`        | string | No       | ZEC     | 币种符号（例如 ZEC、BTC）                 |
+| `lookahead`     | string | No       | 1,3,5,10| 逗号分隔的前瞻天数列表，如 `1,3,5,10`    |
+
+**Example Request:**
+
+```bash
+curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahead=1,3,5,10"
+```
+
+**Response:**
+
+```json
+{
+  "high_weighted_event": {
+    "1": { "avg_return": 0.012, "sample_size": 10 },
+    "3": { "avg_return": 0.025, "sample_size": 10 },
+    "5": { "avg_return": 0.031, "sample_size": 9 }
+  },
+  "high_bullish": {
+    "1": { "avg_return": 0.008, "sample_size": 7 },
+    "3": { "avg_return": 0.020, "sample_size": 7 }
+  }
 }
 ```
 
