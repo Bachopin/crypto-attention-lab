@@ -22,8 +22,9 @@ import {
   type NewsItem,
   type SummaryStats,
 } from '@/lib/api'
-import { Activity, TrendingUp, Newspaper, Settings } from 'lucide-react'
+import { Activity, TrendingUp, Newspaper, Settings, Network } from 'lucide-react'
 import { Range, Time } from 'lightweight-charts'
+import Link from 'next/link'
 
 export default function Home() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
@@ -247,6 +248,14 @@ export default function Home() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link href="/node-influence">
+              <Button variant="outline" size="sm" className="gap-2">
+                <Network className="w-4 h-4" />
+                节点因子
+              </Button>
+            </Link>
           </div>
         </div>
       </header>
