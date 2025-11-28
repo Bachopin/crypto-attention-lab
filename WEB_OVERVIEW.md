@@ -166,6 +166,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 - Multi-symbol attention regime analysis interface
 - Displays regime statistics (avg return, win rate) across different lookahead periods
 - Supports custom parameters (lookahead days, split method)
+- **Smart Analysis Report**: Automatically generates text-based insights (Momentum/Reversal/Diminishing Returns) based on regime performance differences
 
 ### StatCards Components
 - **SummaryCard**: Main asset display with gradient background
