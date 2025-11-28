@@ -1064,22 +1064,4 @@ async def trigger_manual_update(
     except Exception as e:
         logger.error(f"Error triggering manual update: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-        lookback_days = int(payload.get("lookback_days", 30))
-        attention_quantile = float(payload.get("attention_quantile", 0.8))
-        max_daily_return = float(payload.get("max_daily_return", 0.05))
-        holding_days = int(payload.get("holding_days", 3))
-        start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
-        end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
-        res = run_backtest_basic_attention(
-            symbol=symbol,
-            lookback_days=lookback_days,
-            attention_quantile=attention_quantile,
-            max_daily_return=max_daily_return,
-            holding_days=holding_days,
-            start=start,
-            end=end,
-        )
-        return res
-    except Exception as e:
-        logger.error(f"Error in backtest_basic_attention: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+

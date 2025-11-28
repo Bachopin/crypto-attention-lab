@@ -657,25 +657,39 @@ Response 示例（节选）：
 
 ```json
 {
-  "meta": { "symbols": ["ZEC","BTC","ETH"], "lookahead_days": [7,30] },
-  "results": {
-    "ZEC": {
+  "ZEC": {
+    "meta": {
       "attention_source": "composite",
-      "labels": ["low","mid","high"],
-      "regimes": {
-        "low": {
-          "sample_count": 120,
-          "lookahead_30d": { "avg_return": 0.053, "std_return": 0.12, "pos_ratio": 0.61, "max_drawdown": -0.45, "sample_count": 118 }
-        },
-        "mid": {},
-        "high": {}
+      "split_method": "tercile",
+      "lookahead_days": [7, 30],
+      "data_points": 365
+    },
+    "regimes": [
+      {
+        "name": "low",
+        "quantile_range": [0.0, 0.33],
+        "stats": {
+          "7": { "avg_return": 0.01, "std_return": 0.05, "pos_ratio": 0.55, "sample_count": 120 },
+          "30": { "avg_return": 0.05, "std_return": 0.12, "pos_ratio": 0.61, "sample_count": 118 }
+        }
+      },
+      {
+        "name": "mid",
+        "quantile_range": [0.33, 0.66],
+        "stats": { ... }
+      },
+      {
+        "name": "high",
+        "quantile_range": [0.66, 1.0],
+        "stats": { ... }
       }
-    }
-  }
+    ]
+  },
+  "BTC": { ... }
 }
 ```
 
 说明:
 - `avg_return` 为对数收益均值；`pos_ratio` 为正收益比例。
-- `max_drawdown` 为基于累计对数收益的近似最大回撤（负值）。
+- `quantile_range` 显示该 regime 对应的注意力分数范围。
 - `labels` 根据分位档位自动生成：三档为 `low/mid/high`，四档为 `q1..q4`。

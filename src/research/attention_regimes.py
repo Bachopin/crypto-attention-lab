@@ -1,10 +1,12 @@
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import logging
 
 from src.data.db_storage import load_attention_data as db_load_attention_data, load_price_data as db_load_price_data
 
+logger = logging.getLogger(__name__)
 
 def _get_attention_column(attention_source: str) -> str:
     mapping = {
@@ -113,15 +115,15 @@ def analyze_attention_regimes(
 
         if att.empty or prices.empty:
             results[symbol] = {
-                "warning": "missing data",
-                "regimes": {},
+                "meta": {"error": "missing data"},
+                "regimes": [],
             }
             continue
 
         if attention_col not in att.columns:
             results[symbol] = {
-                "warning": f"attention column '{attention_col}' not found",
-                "regimes": {},
+                "meta": {"error": f"attention column '{attention_col}' not found"},
+                "regimes": [],
             }
             continue
 
@@ -130,8 +132,8 @@ def analyze_attention_regimes(
         df = att[[attention_col]].join(prices[["close"]], how="inner").dropna()
         if df.empty:
             results[symbol] = {
-                "warning": "no overlapping attention and price data",
-                "regimes": {},
+                "meta": {"error": "no overlapping attention and price data"},
+                "regimes": [],
             }
             continue
 
@@ -140,8 +142,8 @@ def analyze_attention_regimes(
             bin_edges, labels = _compute_quantile_bins(df[attention_col], split_method, split_quantiles)
         except Exception as e:
             results[symbol] = {
-                "warning": f"failed to compute quantiles: {e}",
-                "regimes": {},
+                "meta": {"error": f"failed to compute quantiles: {e}"},
+                "regimes": [],
             }
             continue
 
@@ -158,46 +160,60 @@ def analyze_attention_regimes(
             shifted = close.shift(-k)
             r = np.log(shifted / close)
             future_returns[k] = r
+        
         # Assemble stats by regime
-        regime_stats: Dict[str, Dict] = {}
-        for lab in labels:
+        regime_list = []
+        
+        # We want to iterate through labels to maintain order (low -> high)
+        for i, lab in enumerate(labels):
             subset = df[df["regime"] == lab]
+            
+            # Determine quantile range for this bin
+            # bin_edges has length len(labels) + 1
+            q_range = [float(bin_edges[i]), float(bin_edges[i+1])]
+            
+            stats_by_k = {}
+            
             if subset.empty:
-                regime_stats[lab] = {"sample_count": 0}
-                continue
-            regime_stats[lab] = {"sample_count": int(len(subset))}
-            for k in lookahead_days:
-                r = future_returns[k].loc[subset.index].dropna()
-                if r.empty:
-                    stats = {
+                for k in lookahead_days:
+                    stats_by_k[str(k)] = {
                         "avg_return": None,
                         "std_return": None,
                         "pos_ratio": None,
-                        "max_drawdown": None,
-                        "sample_count": 0,
+                        "sample_count": 0
                     }
-                else:
-                    stats = {
-                        "avg_return": float(r.mean()),
-                        "std_return": float(r.std(ddof=1)) if len(r) > 1 else 0.0,
-                        "pos_ratio": float((r > 0).mean()),
-                        "max_drawdown": float(_max_drawdown_from_returns(r)),
-                        "sample_count": int(len(r)),
-                    }
-                regime_stats[lab][f"lookahead_{k}d"] = stats
+            else:
+                for k in lookahead_days:
+                    r = future_returns[k].loc[subset.index].dropna()
+                    if r.empty:
+                        stats_by_k[str(k)] = {
+                            "avg_return": None,
+                            "std_return": None,
+                            "pos_ratio": None,
+                            "sample_count": 0
+                        }
+                    else:
+                        stats_by_k[str(k)] = {
+                            "avg_return": float(r.mean()),
+                            "std_return": float(r.std(ddof=1)) if len(r) > 1 else 0.0,
+                            "pos_ratio": float((r > 0).mean()),
+                            "sample_count": int(len(r)),
+                        }
+            
+            regime_list.append({
+                "name": lab,
+                "quantile_range": q_range,
+                "stats": stats_by_k
+            })
 
         results[symbol] = {
-            "attention_source": attention_source,
-            "attention_column": attention_col,
-            "split_method": split_method,
-            "labels": labels,
-            "regimes": regime_stats,
+            "meta": {
+                "attention_source": attention_source,
+                "split_method": split_method,
+                "lookahead_days": lookahead_days,
+                "data_points": len(df)
+            },
+            "regimes": regime_list
         }
 
-    meta = {
-        "symbols": symbols,
-        "lookahead_days": lookahead_days,
-        "start": start.isoformat() if isinstance(start, datetime) else None,
-        "end": end.isoformat() if isinstance(end, datetime) else None,
-    }
-    return {"meta": meta, "results": results}
+    return results
