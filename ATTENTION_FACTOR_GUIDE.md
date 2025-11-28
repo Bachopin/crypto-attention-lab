@@ -655,3 +655,47 @@ print(df.sort_values("ir", ascending=False).head(10))
 - 推荐用 `scripts/demo_attention_regime_analysis.py` 验证多币种 regime 统计。
 
 ---
+
+## Attention Regime 分析方法论
+
+### 1. 核心概念
+Attention Regime（注意力体制）分析旨在研究**不同注意力热度区间**对未来价格表现的统计显著性影响。例如：
+- 当注意力处于 "High" 区间时，未来 7 天是否倾向于上涨？
+- 当注意力处于 "Low" 区间时，市场是否缺乏波动？
+
+### 2. 计算逻辑
+后端模块：`src/research/attention_regimes.py`
+
+#### 步骤一：数据对齐
+将日级 `attention_score`（或 `composite_attention_score`）与收盘价 `close` 按日期对齐。
+
+#### 步骤二：Regime 划分
+根据历史数据的分位数将注意力划分为不同的 Regime：
+- **Tercile (三等分)**: Low (0-33%), Mid (33-66%), High (66-100%)
+- **Quartile (四等分)**: Q1, Q2, Q3, Q4
+
+#### 步骤三：前瞻收益计算 (Lookahead Return)
+对于每个时间点 $t$，计算未来 $k$ 天的对数收益率：
+$$ r_{t,k} = \ln(\frac{P_{t+k}}{P_t}) $$
+
+#### 步骤四：统计聚合
+按 Regime 分组，统计每个组内的：
+- **Avg Return**: 平均收益率
+- **Pos Ratio**: 正收益比例（胜率）
+- **Sample Count**: 样本数量
+
+### 3. 前端交互
+面板位置：Dashboard 底部 "Attention Regime Analysis"
+
+**输入参数**：
+- **Symbols**: 逗号分隔的币种列表（如 `ZEC,BTC,ETH`）
+- **Lookahead Days**: 逗号分隔的天数（如 `7,30`）
+- **Attention Source**: `composite` (合成) 或 `news_channel` (仅新闻)
+- **Split Method**: `tercile` (三等分) 或 `quartile` (四等分)
+
+**输出解读**：
+表格展示了每个 Symbol 在不同 Regime 下的表现。
+- 如果 **High Regime** 的 **Avg Return** 显著高于 **Low Regime**，说明高注意力可能预示着价格上涨（动量效应）。
+- 如果 **High Regime** 的 **Avg Return** 为负，可能暗示过度关注后的反转（Reversal）。
+
+---

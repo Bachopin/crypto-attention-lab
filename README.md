@@ -376,6 +376,13 @@ Content-Type: application/json
   - 详细交易表格
   - 一键运行回测按钮
 
+### Attention Regime 分析 (新增)
+系统提供了一个多币种的 Attention Regime 分析面板，用于统计不同注意力热度区间（如 Low/Mid/High）对未来价格收益的影响。
+
+- **方法论**：将历史注意力分数按分位数划分为不同体制 (Regime)，统计每个体制下未来 N 天的平均收益与胜率。
+- **用途**：验证注意力因子在不同币种上的有效性（动量 vs 反转）。
+- **详情**：请参阅 [ATTENTION_FACTOR_GUIDE.md](./ATTENTION_FACTOR_GUIDE.md#attention-regime-分析方法论)
+
 #### 4. 健康检查
 ```http
 GET /health
