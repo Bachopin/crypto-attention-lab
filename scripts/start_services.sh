@@ -9,6 +9,8 @@ cd "$(dirname "$0")/.."
 mkdir -p logs
 
 echo "🚀 启动 Crypto Attention Lab 服务..."
+BACKOFF_RETRIES=10
+BACKOFF_DELAY=3
 
 # 检查并停止已有进程
 if pgrep -f "uvicorn src.api.main" > /dev/null; then
@@ -27,10 +29,16 @@ fi
 echo "📡 启动后端 API (端口 8000)..."
 nohup uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/api.log 2>&1 &
 BACKEND_PID=$!
-sleep 3
+BACKEND_READY=false
+for ((i=1; i<=BACKOFF_RETRIES; i++)); do
+    if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+        BACKEND_READY=true
+        break
+    fi
+    sleep "$BACKOFF_DELAY"
+done
 
-# 验证后端
-if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+if [ "$BACKEND_READY" = true ]; then
     echo "✅ 后端 API 启动成功 (PID: $BACKEND_PID)"
 else
     echo "❌ 后端 API 启动失败，请查看 logs/api.log"
@@ -43,10 +51,17 @@ cd web
 nohup npm run dev -- -p 3000 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 cd ..
-sleep 5
+FRONTEND_READY=false
+for ((i=1; i<=BACKOFF_RETRIES; i++)); do
+    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+    if [ "$STATUS_CODE" = "200" ] || [ "$STATUS_CODE" = "302" ]; then
+        FRONTEND_READY=true
+        break
+    fi
+    sleep "$BACKOFF_DELAY"
+done
 
-# 验证前端
-if curl -s -I http://localhost:3000 | grep -q "200 OK"; then
+if [ "$FRONTEND_READY" = true ]; then
     echo "✅ 前端服务启动成功 (PID: $FRONTEND_PID)"
 else
     echo "❌ 前端服务启动失败，请查看 logs/frontend.log"
