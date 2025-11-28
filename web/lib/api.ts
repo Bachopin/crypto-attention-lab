@@ -91,6 +91,39 @@ export interface MultiBacktestResult {
   };
 }
 
+// Attention Regime Research Types
+export interface AttentionRegimeLookaheadStats {
+  avg_return: number | null;
+  std_return: number | null;
+  pos_ratio: number | null;
+  max_drawdown: number | null;
+  sample_count: number;
+}
+
+export interface AttentionRegimePerLabelStats {
+  sample_count: number;
+  [lookaheadKey: string]: any; // keys like "lookahead_7d" map to AttentionRegimeLookaheadStats
+}
+
+export interface AttentionRegimeSymbolResult {
+  attention_source: string;
+  attention_column: string;
+  split_method: string;
+  labels: string[];
+  regimes: Record<string, AttentionRegimePerLabelStats>;
+  warning?: string;
+}
+
+export interface AttentionRegimeResponse {
+  meta: {
+    symbols: string[];
+    lookahead_days: number[];
+    start?: string | null;
+    end?: string | null;
+  };
+  results: Record<string, AttentionRegimeSymbolResult>;
+}
+
 export type EventPerformanceTable = Record<string, Record<string, {
   event_type: string;
   lookahead_days: number;
@@ -343,6 +376,34 @@ export async function fetchNodeInfluence(params: { symbol?: string; min_events?:
   const apiParams: Record<string, any> = { min_events, sort_by, limit };
   if (symbol) apiParams.symbol = symbol;
   return fetchAPI<NodeInfluenceItem[]>('/api/node-influence', apiParams);
+}
+
+// ==================== Research: Attention Regimes ====================
+export async function fetchAttentionRegimeAnalysis(params: {
+  symbols: string[];
+  lookahead_days?: number[];
+  attention_source?: 'composite' | 'news_channel' | 'google_channel' | 'twitter_channel';
+  split_method?: 'tercile' | 'quartile';
+  split_quantiles?: number[];
+  start?: string;
+  end?: string;
+}): Promise<AttentionRegimeResponse> {
+  const body = JSON.stringify({
+    symbols: params.symbols,
+    lookahead_days: params.lookahead_days ?? [7, 30],
+    attention_source: params.attention_source ?? 'composite',
+    split_method: params.split_method ?? 'tercile',
+    split_quantiles: params.split_quantiles,
+    start: params.start,
+    end: params.end,
+  });
+  const url = `${API_BASE_URL}/api/research/attention-regimes`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 /**

@@ -7,6 +7,7 @@ import PriceChart, { PriceChartRef } from '@/components/PriceChart'
 import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
 import AttentionEvents from '@/components/AttentionEvents'
 import BacktestPanel from '@/components/BacktestPanel'
+import AttentionRegimePanel from '@/components/AttentionRegimePanel'
 import DashboardTab from '@/components/tabs/DashboardTab'
 import NewsTab from '@/components/tabs/NewsTab'
 import SettingsTab from '@/components/tabs/SettingsTab'
@@ -330,9 +331,10 @@ export default function Home() {
               />
 
               {/* Attention Events & Backtest */}
-              <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <AttentionEvents events={events} />
                 <BacktestPanel />
+                <AttentionRegimePanel />
               </section>
             </TabsContent>
 

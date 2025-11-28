@@ -631,3 +631,51 @@ API 会自动检查数据是否存在:
 - [Uvicorn Deployment](https://www.uvicorn.org/deployment/)
 - [OpenAPI Specification](https://swagger.io/specification/)
 - [ISO 8601 Date Format](https://en.wikipedia.org/wiki/ISO_8601)
+
+---
+
+## 🧪 Research: Attention Regimes
+
+`POST /api/research/attention-regimes`
+
+对多个 symbol 的注意力分位数分层，统计未来收益分布。
+
+Request Body:
+
+```json
+{
+  "symbols": ["ZEC", "BTC", "ETH"],
+  "lookahead_days": [7, 30],
+  "attention_source": "composite",
+  "split_method": "tercile",
+  "start": "2023-01-01",
+  "end": "2025-11-01"
+}
+```
+
+Response 示例（节选）：
+
+```json
+{
+  "meta": { "symbols": ["ZEC","BTC","ETH"], "lookahead_days": [7,30] },
+  "results": {
+    "ZEC": {
+      "attention_source": "composite",
+      "labels": ["low","mid","high"],
+      "regimes": {
+        "low": {
+          "sample_count": 120,
+          "lookahead_30d": { "avg_return": 0.053, "std_return": 0.12, "pos_ratio": 0.61, "max_drawdown": -0.45, "sample_count": 118 }
+        },
+        "mid": {},
+        "high": {}
+      }
+    }
+  }
+}
+```
+
+说明:
+- `avg_return` 为对数收益均值；`pos_ratio` 为正收益比例。
+- `max_drawdown` 为基于累计对数收益的近似最大回撤（负值）。
+- `labels` 根据分位档位自动生成：三档为 `low/mid/high`，四档为 `q1..q4`。

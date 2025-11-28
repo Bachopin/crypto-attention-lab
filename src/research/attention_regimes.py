@@ -1,85 +1,203 @@
+from typing import List, Dict, Optional, Tuple
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Dict, Any
 from datetime import datetime
-from src.data.db_storage import load_attention_data, load_price_data
+
+from src.data.db_storage import load_attention_data as db_load_attention_data, load_price_data as db_load_price_data
+
+
+def _get_attention_column(attention_source: str) -> str:
+    mapping = {
+        "composite": "composite_attention_score",
+        "news_channel": "news_channel_score",
+        "google_channel": "google_channel_score",
+        "twitter_channel": "twitter_channel_score",
+    }
+    return mapping.get(attention_source, attention_source)
+
+
+def _compute_quantile_bins(series: pd.Series, split_method: str, split_quantiles: Optional[List[float]]) -> Tuple[np.ndarray, List[str]]:
+    if split_quantiles:
+        qs = split_quantiles
+    elif split_method == "tercile":
+        qs = [0.0, 1/3, 2/3, 1.0]
+    elif split_method == "quartile":
+        qs = [0.0, 0.25, 0.5, 0.75, 1.0]
+    else:
+        raise ValueError("Unsupported split_method without split_quantiles")
+
+    quantiles = series.quantile(qs).to_numpy()
+    # Ensure strictly increasing to avoid duplicates causing cut errors
+    quantiles = np.unique(quantiles)
+    if len(quantiles) < 2:
+        raise ValueError("Insufficient variance in attention series to compute bins")
+
+    labels = []
+    n_bins = len(quantiles) - 1
+    if n_bins == 3:
+        labels = ["low", "mid", "high"]
+    elif n_bins == 4:
+        labels = ["q1", "q2", "q3", "q4"]
+    else:
+        labels = [f"q{i+1}" for i in range(n_bins)]
+
+    return quantiles, labels
+
+
+def _max_drawdown_from_returns(returns: pd.Series) -> float:
+    # Approximate MDD from cumulative log-return path
+    cum = returns.cumsum()
+    running_max = cum.cummax()
+    drawdown = cum - running_max
+    return float(drawdown.min()) if not drawdown.empty else 0.0
+
+
+def _load_attention(symbol: str, start: Optional[datetime], end: Optional[datetime]) -> pd.DataFrame:
+    df = db_load_attention_data(symbol, start, end)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        df = df.sort_values('datetime').set_index('datetime')
+    else:
+        df.index = pd.to_datetime(df.index, utc=True)
+        df = df.sort_index()
+    # Daily sample unify
+    df = df.resample('1D').last().dropna(how='all')
+    return df
+
+
+def _load_prices(symbol: str, start: Optional[datetime], end: Optional[datetime]) -> pd.DataFrame:
+    symbol_code = symbol if symbol.endswith('USDT') else f"{symbol}USDT"
+    df, _ = db_load_price_data(symbol_code, '1d', start, end)
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        df = df.sort_values('datetime').set_index('datetime')
+    else:
+        df.index = pd.to_datetime(df.index, utc=True)
+        df = df.sort_index()
+    if 'close' not in df.columns:
+        for c in ['Close', 'closing_price', 'price']:
+            if c in df.columns:
+                df['close'] = df[c]
+                break
+    return df[['close']].dropna()
+
 
 def analyze_attention_regimes(
     symbols: List[str],
     lookahead_days: List[int],
     attention_source: str = "composite",
-    split_method: str = "quantile",
+    split_method: str = "tercile",
+    split_quantiles: Optional[List[float]] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
-) -> Dict[str, Any]:
+) -> Dict:
     """
-    对每个 symbol，按 attention regime 分析未来收益等统计。
-    返回结构: {symbol: {regime: {lookahead: {mean, std, pos_ratio, max_drawdown, ...}}}}
+    对多币种进行 Attention Regime 分析。
+
+    返回结构适合直接 JSON 化，包含每个 symbol 在不同 Attention regime 下、
+    对未来 k 天收益的统计信息。
     """
-    results = {}
+    results: Dict[str, Dict] = {}
+    attention_col = _get_attention_column(attention_source)
+
     for symbol in symbols:
-        # 1. 加载数据
-        attn_df = load_attention_data(symbol, start, end)
-        price_df = load_price_data(symbol, timeframe="1d", start=start, end=end)
-        if attn_df is None or price_df is None or len(attn_df) == 0 or len(price_df) == 0:
-            results[symbol] = {"error": "No data"}
+        # reuse storage instance inside loaders by monkey-patching if needed (simplify by passing instance)
+        att = _load_attention(symbol, start, end)
+        prices = _load_prices(symbol, start, end)
+
+        if att.empty or prices.empty:
+            results[symbol] = {
+                "warning": "missing data",
+                "regimes": {},
+            }
             continue
-        # 2. 选择 attention 指标
-        if attention_source == "composite":
-            attn_col = "composite_attention_score"
-        elif attention_source == "news_channel":
-            attn_col = "news_channel_score"
-        else:
-            attn_col = attention_source
-        if attn_col not in attn_df.columns:
-            results[symbol] = {"error": f"No column {attn_col}"}
+
+        if attention_col not in att.columns:
+            results[symbol] = {
+                "warning": f"attention column '{attention_col}' not found",
+                "regimes": {},
+            }
             continue
-        # 3. 合并数据
-        df = pd.merge(attn_df[["datetime", attn_col]], price_df[["datetime", "close"]], on="datetime", how="inner")
-        df = df.sort_values("datetime").reset_index(drop=True)
-        # 4. regime 分段
-        if split_method == "quantile":
-            q = df[attn_col].quantile([0.33, 0.66]).values
-            bins = [-np.inf, q[0], q[1], np.inf]
-            labels = ["low", "mid", "high"]
-            df["regime"] = pd.cut(df[attn_col], bins=bins, labels=labels, include_lowest=True)
-        else:
-            # fallback: median split
-            m = df[attn_col].median()
-            bins = [-np.inf, m, np.inf]
-            labels = ["low", "high"]
-            df["regime"] = pd.cut(df[attn_col], bins=bins, labels=labels, include_lowest=True)
-        # 5. 计算未来收益
-        df["log_close"] = np.log(df["close"])
+
+        # Merge on date index
+        # Join attention & price; avoid unnecessary copy
+        df = att[[attention_col]].join(prices[["close"]], how="inner").dropna()
+        if df.empty:
+            results[symbol] = {
+                "warning": "no overlapping attention and price data",
+                "regimes": {},
+            }
+            continue
+
+        # Compute bins
+        try:
+            bin_edges, labels = _compute_quantile_bins(df[attention_col], split_method, split_quantiles)
+        except Exception as e:
+            results[symbol] = {
+                "warning": f"failed to compute quantiles: {e}",
+                "regimes": {},
+            }
+            continue
+
+        # Assign regimes
+        # Use pandas.cut with include_lowest=True
+        df["regime"] = pd.cut(df[attention_col], bins=bin_edges, labels=labels, include_lowest=True)
+        df = df.dropna(subset=["regime"])  # drop where binning failed
+
+        # Precompute future returns for all k
+        close = df["close"]
+        future_returns = {}
         for k in lookahead_days:
-            df[f"fwd_return_{k}d"] = df["log_close"].shift(-k) - df["log_close"]
-        # 6. regime 统计
-        symbol_result = {}
-        for regime in df["regime"].dropna().unique():
-            regime_result = {}
-            sub = df[df["regime"] == regime]
+            # log return from t close to t+k close
+            shifted = close.shift(-k)
+            r = np.log(shifted / close)
+            future_returns[k] = r
+        # Assemble stats by regime
+        regime_stats: Dict[str, Dict] = {}
+        for lab in labels:
+            subset = df[df["regime"] == lab]
+            if subset.empty:
+                regime_stats[lab] = {"sample_count": 0}
+                continue
+            regime_stats[lab] = {"sample_count": int(len(subset))}
             for k in lookahead_days:
-                ret = sub[f"fwd_return_{k}d"].dropna()
-                if len(ret) == 0:
-                    stats = {"mean": None, "std": None, "median": None, "pos_ratio": None, "max_drawdown": None, "count": 0}
-                else:
-                    # 最大回撤（基于累计收益）
-                    cum = ret.cumsum()
-                    drawdown = cum - cum.cummax()
-                    max_dd = drawdown.min() if len(drawdown) > 0 else None
+                r = future_returns[k].loc[subset.index].dropna()
+                if r.empty:
                     stats = {
-                        "mean": ret.mean(),
-                        "std": ret.std(),
-                        "median": ret.median(),
-                        "pos_ratio": (ret > 0).mean(),
-                        "max_drawdown": max_dd,
-                        "count": len(ret),
+                        "avg_return": None,
+                        "std_return": None,
+                        "pos_ratio": None,
+                        "max_drawdown": None,
+                        "sample_count": 0,
                     }
-                regime_result[str(k)] = stats
-            symbol_result[str(regime)] = regime_result
+                else:
+                    stats = {
+                        "avg_return": float(r.mean()),
+                        "std_return": float(r.std(ddof=1)) if len(r) > 1 else 0.0,
+                        "pos_ratio": float((r > 0).mean()),
+                        "max_drawdown": float(_max_drawdown_from_returns(r)),
+                        "sample_count": int(len(r)),
+                    }
+                regime_stats[lab][f"lookahead_{k}d"] = stats
+
         results[symbol] = {
-            "regimes": list(df["regime"].dropna().unique()),
-            "lookahead_days": lookahead_days,
-            "stats": symbol_result,
+            "attention_source": attention_source,
+            "attention_column": attention_col,
+            "split_method": split_method,
+            "labels": labels,
+            "regimes": regime_stats,
         }
-    return results
+
+    meta = {
+        "symbols": symbols,
+        "lookahead_days": lookahead_days,
+        "start": start.isoformat() if isinstance(start, datetime) else None,
+        "end": end.isoformat() if isinstance(end, datetime) else None,
+    }
+    return {"meta": meta, "results": results}
