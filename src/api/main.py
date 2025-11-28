@@ -269,6 +269,17 @@ def get_attention_data(
                 "bullish_attention": float(row.get('bullish_attention', 0) or 0),
                 "bearish_attention": float(row.get('bearish_attention', 0) or 0),
                 "event_intensity": int(row.get('event_intensity', 0) or 0),
+                "news_channel_score": float(row.get('news_channel_score', 0) or 0),
+                "google_trend_value": float(row.get('google_trend_value', 0) or 0),
+                "google_trend_zscore": float(row.get('google_trend_zscore', 0) or 0),
+                "google_trend_change_7d": float(row.get('google_trend_change_7d', 0) or 0),
+                "google_trend_change_30d": float(row.get('google_trend_change_30d', 0) or 0),
+                "twitter_volume": float(row.get('twitter_volume', 0) or 0),
+                "twitter_volume_zscore": float(row.get('twitter_volume_zscore', 0) or 0),
+                "twitter_volume_change_7d": float(row.get('twitter_volume_change_7d', 0) or 0),
+                "composite_attention_score": float(row.get('composite_attention_score', 0) or 0),
+                "composite_attention_zscore": float(row.get('composite_attention_zscore', 0) or 0),
+                "composite_attention_spike_flag": int(row.get('composite_attention_spike_flag', 0) or 0),
             })
         
         logger.info(f"Returned {len(result)} attention records for {symbol}")

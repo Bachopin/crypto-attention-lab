@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchNodeInfluence, NodeInfluenceItem } from "@/lib/api";
 import { Separator } from "@/components/ui/separator";
 import { Card } from "@/components/ui/card";
@@ -20,9 +20,7 @@ export default function NodeInfluencePage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<NodeInfluenceItem[]>([]);
 
-  const params = useMemo(() => ({ symbol, min_events: minEvents, sort_by: sortBy, limit }), [symbol, minEvents, sortBy, limit]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -33,9 +31,11 @@ export default function NodeInfluencePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [symbol, minEvents, sortBy, limit]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [params]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div className="container mx-auto px-4 py-6">

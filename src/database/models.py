@@ -44,6 +44,11 @@ class News(Base):
     title = Column(Text, nullable=False)
     source = Column(String(100), nullable=False, index=True)
     url = Column(Text, unique=True, nullable=False)
+    language = Column(String(10))
+    platform = Column(String(50))
+    author = Column(String(200))
+    node = Column(String(200))
+    node_id = Column(String(255), index=True)
     
     # 关联字段（多对多：一条新闻可能涉及多个币种）
     symbols = Column(String(200))  # 逗号分隔的 symbol list, e.g., 'ZEC,BTC'
@@ -107,6 +112,17 @@ class AttentionFeature(Base):
     bullish_attention = Column(Float, default=0.0)
     bearish_attention = Column(Float, default=0.0)
     event_intensity = Column(Integer, default=0)  # 0 or 1
+    news_channel_score = Column(Float, default=0.0)
+    google_trend_value = Column(Float, default=0.0)
+    google_trend_zscore = Column(Float, default=0.0)
+    google_trend_change_7d = Column(Float, default=0.0)
+    google_trend_change_30d = Column(Float, default=0.0)
+    twitter_volume = Column(Float, default=0.0)
+    twitter_volume_zscore = Column(Float, default=0.0)
+    twitter_volume_change_7d = Column(Float, default=0.0)
+    composite_attention_score = Column(Float, default=0.0)
+    composite_attention_zscore = Column(Float, default=0.0)
+    composite_attention_spike_flag = Column(Integer, default=0)
     
     # 关系
     symbol_ref = relationship('Symbol', back_populates='attention_features')

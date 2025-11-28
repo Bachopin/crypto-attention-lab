@@ -5,6 +5,7 @@ streamlit
 requests
 python-dotenv
 streamlit-lightweight-charts
+pytrends>=4.9.2
 
 # FastAPI Backend Dependencies
 fastapi>=0.109.0

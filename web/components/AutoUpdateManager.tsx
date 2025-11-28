@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
 
@@ -26,7 +26,7 @@ export default function AutoUpdateManager({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // 加载标的状态
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     try {
       const res = await fetch(`${apiBaseUrl}/api/auto-update/status`);
       const data = await res.json();
@@ -36,7 +36,7 @@ export default function AutoUpdateManager({
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiBaseUrl]);
 
   // 启用自动更新
   const enableAutoUpdate = async (symbol: string) => {
@@ -144,7 +144,7 @@ export default function AutoUpdateManager({
     // 每 30 秒刷新状态
     const interval = setInterval(loadStatus, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadStatus]);
 
   if (loading) {
     return (

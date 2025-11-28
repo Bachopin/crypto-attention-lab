@@ -75,8 +75,7 @@ export default function BacktestPanel() {
 
   useEffect(() => {
     loadPresetKeysAndData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadPresetKeysAndData]);
 
   const savePreset = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -113,7 +112,7 @@ export default function BacktestPanel() {
       console.error('Failed to load preset', e);
       setInfoMessage('加载配置失败，已忽略本地数据。');
     }
-  }, []);
+  }, [presetName]);
 
   const deletePreset = useCallback((name: string) => {
     if (typeof window === 'undefined') return;

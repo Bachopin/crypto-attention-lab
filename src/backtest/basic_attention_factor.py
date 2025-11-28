@@ -56,29 +56,37 @@ def run_backtest_basic_attention(
     while i < len(df):
         row = df.iloc[i]
         cond = (
-            pd.notna(row['w_q']) and row['weighted_attention'] >= row['w_q'] and
+            pd.notna(row['w_q']) and row['weighted_attention'] > row['w_q'] and
             row['daily_ret'] <= max_daily_return and
             (row.get('bullish_attention', 0) >= row.get('bearish_attention', 0))
         )
         if cond:
             entry_idx = i
             entry = df.iloc[entry_idx]
+            entry_close = float(entry['close'])
+            prev_close = entry.get('prev_close')
+            entry_price = entry_close
+            if pd.notna(prev_close) and entry_close > float(prev_close):
+                entry_price = float(prev_close)
 
             # 动态持仓天数：优先使用 max_holding_days
-            max_hold = max_holding_days if max_holding_days is not None else holding_days
+            if max_holding_days is not None:
+                future_bars = max(1, int(max_holding_days) - 1)
+            else:
+                future_bars = max(1, int(holding_days))
             exit_idx = entry_idx
-            max_close = entry['close']
-            max_price_since_entry = entry['close']
+            max_price_since_entry = entry_price
             ret = 0.0
 
-            # 向前模拟持仓，直到触发止损/止盈或达到最大持仓天数
-            for step in range(1, max_hold + 1):
-                if entry_idx + step >= len(df):
+            # 向前模拟持仓（包含信号当日），直到触发止损/止盈或达到最大持仓天数
+            for step in range(0, future_bars + 1):
+                idx = entry_idx + step
+                if idx >= len(df):
                     break
-                exit_idx = entry_idx + step
-                exit_row = df.iloc[exit_idx]
+                exit_idx = idx
+                exit_row = df.iloc[idx]
                 price_now = float(exit_row['close'])
-                ret = price_now / float(entry['close']) - 1.0
+                ret = price_now / entry_price - 1.0
 
                 # 浮动回撤：基于入场以来的最高价
                 max_price_since_entry = max(max_price_since_entry, price_now)
@@ -90,11 +98,11 @@ def run_backtest_basic_attention(
                 if take_profit_pct is not None and ret >= take_profit_pct:
                     stop = True
 
-                if stop:
+                if stop or step == future_bars:
                     break
 
             exit = df.iloc[exit_idx]
-            trades.append(Trade(entry['datetime'], exit['datetime'], float(entry['close']), float(exit['close']), float(ret)))
+            trades.append(Trade(entry['datetime'], exit['datetime'], entry_price, float(exit['close']), float(ret)))
             i = exit_idx + 1
         else:
             i += 1

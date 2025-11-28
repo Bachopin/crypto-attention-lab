@@ -91,6 +91,11 @@ event_intensity = has_high_weight_source AND strong_sentiment AND has_tags ? 1 :
 
 保存到 `data/processed/attention_features_zec.csv` 和数据库。
 
+👉 **2025 版更新**：`process_attention_features` 现在还会调用
+`google_trends_fetcher` 与 `twitter_attention_fetcher`，并基于
+`src/config/attention_channels.py` 中的配置生成三条通道（新闻、Google
+Trends、Twitter）与 `composite_attention_score`。
+
 ### 4. 事件检测
 位置：`src/events/attention_events.py`
 
@@ -143,6 +148,28 @@ max_drawdown = max(peak - equity) / peak
 | `bullish_attention` | 看涨注意力 | ≥0 | Σ(positive_sentiment × weighted) |
 | `bearish_attention` | 看跌注意力 | ≥0 | Σ(negative_sentiment × weighted) |
 | `event_intensity` | 事件强度标记 | 0/1 | 高权重来源 ∧ 强情绪 ∧ 有标签 |
+
+### 多通道 Attention（2025 版新增）
+
+| 字段 | 通道 | 含义 | 备注 |
+|------|------|------|------|
+| `news_channel_score` | 新闻 | `weighted_attention` 的滚动 z-score | 反映加权新闻热度的堆积/衰退 |
+| `google_trend_value` / `google_trend_zscore` / `google_trend_change_7d` / `google_trend_change_30d` | Google Trends | 搜索热度及其变化 | 由 `pytrends` 获取，关键词配置见 `attention_channels.py` |
+| `twitter_volume` / `twitter_volume_zscore` / `twitter_volume_change_7d` | Twitter | 公开推文讨论量 | 调用官方 counts API（无 Token 时自动回退为 0） |
+| `composite_attention_score` / `composite_attention_zscore` | 合成 | `news + google + twitter` 的线性组合 | 默认权重 0.5 / 0.3 / 0.2，可配置 |
+| `composite_attention_spike_flag` | 合成 | 合成得分是否超过滚动 90% 分位 | 用于趋势/扩散诊断 |
+
+上述字段都存储在 `attention_features` 表并通过 `/api/attention`
+返回，可作为多日趋势策略的统一入口。
+
+整体计算流程：
+1. `attention_fetcher` 收集多来源新闻并写入语言/平台元数据；
+2. `news_features` 结合 `attention_channels.py` 的语言/来源/节点配置计算加权新闻热度；
+3. `google_trends_fetcher` 与 `twitter_attention_fetcher` 依据同一配置抓取并缓存外部信号；
+4. `attention_features.process_attention_features` 汇总所有通道，按配置权重产出 `composite_attention_score` 及 z-score/flag；
+5. API 层直接暴露每个通道与合成指标，方便前端或量化脚本使用。
+
+> ⚠️ 若未配置 Google/Twitter 凭证，系统会自动记录 0 并继续执行，确保回测/离线生成流程不被阻塞。
 
 ### 来源权重表
 ```python

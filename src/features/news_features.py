@@ -1,15 +1,14 @@
-from typing import Dict, List
+from __future__ import annotations
+
+from typing import Dict, List, Optional
 import re
 
-SOURCE_WEIGHTS: Dict[str, float] = {
-    "CoinDesk": 1.0,
-    "Cointelegraph": 0.9,
-    "CryptoPanic": 0.8,
-    "CryptoCompare": 0.7,
-    "CryptoSlate": 0.6,
-    "RSS": 0.5,
-    "Unknown": 0.4,
-}
+from src.config.attention_channels import (
+    DEFAULT_SOURCE_LANGUAGE,
+    get_language_weight,
+    get_source_base_weight,
+)
+from src.features.node_factor_utils import get_source_level_multiplier
 
 KEYWORD_TAGS = {
     "listing": ["listing", "list on", "added to", "listed"],
@@ -28,7 +27,30 @@ NEGATIVE_WORDS = [
 
 
 def source_weight(source: str) -> float:
-    return SOURCE_WEIGHTS.get(source, SOURCE_WEIGHTS["Unknown"])
+    return get_source_base_weight(source)
+
+
+def effective_source_weight(
+    source: str,
+    *,
+    language: Optional[str] = None,
+    node_id: Optional[str] = None,
+    node_weight_lookup: Optional[Dict[str, float]] = None,
+) -> float:
+    """Calculate the full source weight including language + optional node boost."""
+
+    lang = (language or DEFAULT_SOURCE_LANGUAGE.get(source) or "other").lower()
+    base = get_source_base_weight(source) * get_language_weight(lang)
+
+    if node_id:
+        adj = get_source_level_multiplier(node_id, node_weight_lookup or {})
+    else:
+        adj = None
+
+    if adj is not None:
+        base *= adj
+
+    return float(base)
 
 
 def sentiment_score(title: str) -> float:

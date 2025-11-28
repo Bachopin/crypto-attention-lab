@@ -59,6 +59,7 @@ def _fetch_from_cryptopanic(since: datetime, until: datetime) -> list[dict]:
                 "author": None,
                 "node": node,
                 "node_id": node_id,
+                "language": "en",  # CryptoPanic 不提供语种，默认英文。TODO: 结合内容检测。
             })
     except Exception:
         return []
@@ -111,6 +112,7 @@ def _fetch_from_newsapi(since: datetime, until: datetime) -> list[dict]:
                 "author": author,
                 "node": node,
                 "node_id": node_id,
+                "language": (art.get("language") or "en"),
             })
     except Exception:
         return []
@@ -137,6 +139,7 @@ def _fetch_mock(since: datetime, until: datetime) -> list[dict]:
                 "author": None,
                 "node": node,
                 "node_id": node_id,
+                "language": "en",
             }
             news_list.append(news_item)
         current_date += timedelta(days=1)

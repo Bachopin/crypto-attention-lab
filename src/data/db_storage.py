@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple, List
 import logging
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, inspect, text
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
@@ -32,6 +32,34 @@ class DatabaseStorage:
         self.news_engine = get_engine(NEWS_DATABASE_URL)
         # 确保新闻表在新闻数据库中存在
         News.__table__.create(bind=self.news_engine, checkfirst=True)
+        self._ensure_news_columns()
+        self._ensure_attention_columns()
+
+    def _ensure_news_columns(self) -> None:
+        columns = {
+            "language": "TEXT",
+            "platform": "TEXT",
+            "author": "TEXT",
+            "node": "TEXT",
+            "node_id": "TEXT",
+        }
+        _ensure_columns(self.news_engine, 'news', columns)
+
+    def _ensure_attention_columns(self) -> None:
+        columns = {
+            "google_trend_value": "FLOAT DEFAULT 0",
+            "google_trend_zscore": "FLOAT DEFAULT 0",
+            "google_trend_change_7d": "FLOAT DEFAULT 0",
+            "google_trend_change_30d": "FLOAT DEFAULT 0",
+            "twitter_volume": "FLOAT DEFAULT 0",
+            "twitter_volume_zscore": "FLOAT DEFAULT 0",
+            "twitter_volume_change_7d": "FLOAT DEFAULT 0",
+            "news_channel_score": "FLOAT DEFAULT 0",
+            "composite_attention_score": "FLOAT DEFAULT 0",
+            "composite_attention_zscore": "FLOAT DEFAULT 0",
+            "composite_attention_spike_flag": "INTEGER DEFAULT 0",
+        }
+        _ensure_columns(self.engine, 'attention_features', columns)
     
     def get_or_create_symbol(self, session, symbol: str, name: str = None, category: str = None) -> Symbol:
         """获取或创建币种记录"""
@@ -78,6 +106,11 @@ class DatabaseStorage:
                     title=record['title'],
                     source=record['source'],
                     url=record['url'],
+                    language=record.get('language'),
+                    platform=record.get('platform'),
+                    author=record.get('author'),
+                    node=record.get('node'),
+                    node_id=record.get('node_id'),
                     symbols=record.get('symbols', ''),
                     relevance=record.get('relevance', 'related'),
                     source_weight=record.get('source_weight'),
@@ -143,6 +176,11 @@ class DatabaseStorage:
                 'title': n.title,
                 'source': n.source,
                 'url': n.url,
+                'language': n.language,
+                'platform': n.platform,
+                'author': n.author,
+                'node': n.node,
+                'node_id': n.node_id,
                 'symbols': n.symbols,
                 'relevance': n.relevance,
                 'source_weight': n.source_weight,
@@ -270,6 +308,17 @@ class DatabaseStorage:
                     existing.bullish_attention = record.get('bullish_attention', 0.0)
                     existing.bearish_attention = record.get('bearish_attention', 0.0)
                     existing.event_intensity = record.get('event_intensity', 0)
+                    existing.news_channel_score = record.get('news_channel_score', 0.0)
+                    existing.google_trend_value = record.get('google_trend_value', 0.0)
+                    existing.google_trend_zscore = record.get('google_trend_zscore', 0.0)
+                    existing.google_trend_change_7d = record.get('google_trend_change_7d', 0.0)
+                    existing.google_trend_change_30d = record.get('google_trend_change_30d', 0.0)
+                    existing.twitter_volume = record.get('twitter_volume', 0.0)
+                    existing.twitter_volume_zscore = record.get('twitter_volume_zscore', 0.0)
+                    existing.twitter_volume_change_7d = record.get('twitter_volume_change_7d', 0.0)
+                    existing.composite_attention_score = record.get('composite_attention_score', 0.0)
+                    existing.composite_attention_zscore = record.get('composite_attention_zscore', 0.0)
+                    existing.composite_attention_spike_flag = record.get('composite_attention_spike_flag', 0)
                 else:
                     feat = AttentionFeature(
                         symbol_id=sym.id,
@@ -280,6 +329,17 @@ class DatabaseStorage:
                         bullish_attention=record.get('bullish_attention', 0.0),
                         bearish_attention=record.get('bearish_attention', 0.0),
                         event_intensity=record.get('event_intensity', 0),
+                        news_channel_score=record.get('news_channel_score', 0.0),
+                        google_trend_value=record.get('google_trend_value', 0.0),
+                        google_trend_zscore=record.get('google_trend_zscore', 0.0),
+                        google_trend_change_7d=record.get('google_trend_change_7d', 0.0),
+                        google_trend_change_30d=record.get('google_trend_change_30d', 0.0),
+                        twitter_volume=record.get('twitter_volume', 0.0),
+                        twitter_volume_zscore=record.get('twitter_volume_zscore', 0.0),
+                        twitter_volume_change_7d=record.get('twitter_volume_change_7d', 0.0),
+                        composite_attention_score=record.get('composite_attention_score', 0.0),
+                        composite_attention_zscore=record.get('composite_attention_zscore', 0.0),
+                        composite_attention_spike_flag=record.get('composite_attention_spike_flag', 0),
                     )
                     session.add(feat)
             
@@ -327,6 +387,17 @@ class DatabaseStorage:
                 'bullish_attention': f.bullish_attention,
                 'bearish_attention': f.bearish_attention,
                 'event_intensity': f.event_intensity,
+                'news_channel_score': f.news_channel_score,
+                'google_trend_value': f.google_trend_value,
+                'google_trend_zscore': f.google_trend_zscore,
+                'google_trend_change_7d': f.google_trend_change_7d,
+                'google_trend_change_30d': f.google_trend_change_30d,
+                'twitter_volume': f.twitter_volume,
+                'twitter_volume_zscore': f.twitter_volume_zscore,
+                'twitter_volume_change_7d': f.twitter_volume_change_7d,
+                'composite_attention_score': f.composite_attention_score,
+                'composite_attention_zscore': f.composite_attention_zscore,
+                'composite_attention_spike_flag': f.composite_attention_spike_flag,
             } for f in results])
         finally:
             session.close()
@@ -358,6 +429,31 @@ def get_db() -> DatabaseStorage:
     if _db_storage is None:
         _db_storage = DatabaseStorage()
     return _db_storage
+
+
+def _ensure_columns(engine, table_name: str, column_defs: dict) -> None:
+    """Best-effort ALTER TABLE to add missing columns."""
+
+    if engine is None:
+        return
+
+    inspector = inspect(engine)
+    try:
+        existing = {col['name'] for col in inspector.get_columns(table_name)}
+    except Exception as exc:
+        logger.warning("Failed to inspect table %s: %s", table_name, exc)
+        return
+
+    for col_name, ddl in column_defs.items():
+        if col_name in existing:
+            continue
+        statement = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {ddl}"
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(statement))
+            logger.info("Added missing column %s.%s", table_name, col_name)
+        except Exception as exc:  # pragma: no cover - sqlite limitations
+            logger.warning("Failed to add column %s.%s: %s", table_name, col_name, exc)
 
 
 # ========== 向后兼容的接口函数 ==========
@@ -452,6 +548,24 @@ def load_attention_data(
         end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
         df = df[df['datetime'] <= end_ts]
     
+    required_cols = [
+        'news_channel_score',
+        'google_trend_value',
+        'google_trend_zscore',
+        'google_trend_change_7d',
+        'google_trend_change_30d',
+        'twitter_volume',
+        'twitter_volume_zscore',
+        'twitter_volume_change_7d',
+        'composite_attention_score',
+        'composite_attention_zscore',
+        'composite_attention_spike_flag',
+    ]
+    for col in required_cols:
+        if col not in df.columns:
+            default = 0.0 if not col.endswith('_flag') else 0
+            df[col] = default
+
     return df
 
 

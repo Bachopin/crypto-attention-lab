@@ -129,7 +129,7 @@ export default function Home() {
   // Load data on symbol change (with loading)
   useEffect(() => {
     loadData(selectedSymbol, selectedTimeframe, true)
-  }, [selectedSymbol, loadData])
+  }, [selectedSymbol, selectedTimeframe, loadData])
 
   // Update price only on timeframe change (without loading)
   useEffect(() => {
@@ -141,6 +141,28 @@ export default function Home() {
     // They are independent now.
     updatePriceOnly(selectedSymbol, selectedTimeframe)
   }, [selectedTimeframe, updatePriceOnly, selectedSymbol])
+
+  // 静默加载数据（不显示 loading 动画）
+  const loadDataSilently = useCallback(async () => {
+    try {
+      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
+        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: selectedTimeframe }),
+        fetchAttention({ symbol: selectedSymbol, granularity: '1d' }),
+        fetchNews({ symbol: 'ALL', limit: 100 }),
+        fetchNews({ symbol: selectedSymbol }),
+        fetchSummaryStats(selectedSymbol),
+        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: 30, min_quantile: 0.8 }),
+      ])
+      if (price.length > 0) setPriceData(price)
+      if (attention.length > 0) setAttentionData(attention)
+      if (news.length > 0) setNewsData(news)
+      if (assetNews.length > 0) setAssetNewsData(assetNews)
+      if (summary) setSummaryStats(summary)
+      if (attEvents.length >= 0) setEvents(attEvents)
+    } catch (err) {
+      console.error('[loadDataSilently] Failed:', err)
+    }
+  }, [selectedTimeframe, selectedSymbol])
 
   // 刷新当前标的数据
   const refreshCurrentSymbol = useCallback(async () => {
@@ -172,29 +194,7 @@ export default function Home() {
       setUpdating(false)
       setUpdateCountdown(0)
     }
-  }, [selectedTimeframe, selectedSymbol])
-
-  // 静默加载数据（不显示 loading 动画）
-  const loadDataSilently = useCallback(async () => {
-    try {
-      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
-        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: selectedTimeframe }),
-        fetchAttention({ symbol: selectedSymbol, granularity: '1d' }),
-        fetchNews({ symbol: 'ALL', limit: 100 }),
-        fetchNews({ symbol: selectedSymbol }),
-        fetchSummaryStats(selectedSymbol),
-        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: 30, min_quantile: 0.8 }),
-      ])
-      if (price.length > 0) setPriceData(price)
-      if (attention.length > 0) setAttentionData(attention)
-      if (news.length > 0) setNewsData(news)
-      if (assetNews.length > 0) setAssetNewsData(assetNews)
-      if (summary) setSummaryStats(summary)
-      if (attEvents.length >= 0) setEvents(attEvents)
-    } catch (err) {
-      console.error('[loadDataSilently] Failed:', err)
-    }
-  }, [selectedTimeframe, selectedSymbol])
+  }, [loadDataSilently])
 
   // 刷新可选代币列表（用于设置页添加后同步看板）
   const refreshSymbols = useCallback(async () => {
