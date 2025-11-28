@@ -36,6 +36,8 @@
 - ✅ 验证服务健康状态
 - ✅ 日志输出到 `logs/` 目录
 
+> ⚙️ `start_services.sh` 在脚本顶部定义了 `BACKOFF_RETRIES`/`BACKOFF_DELAY`（默认为 10 次、3 秒间隔），你可以根据 Dev Container 的性能调整这些值来给后端/前端更多预热时间。
+
 ### 停止服务
 
 ```bash

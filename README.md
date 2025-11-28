@@ -97,6 +97,8 @@ python scripts/generate_attention_data.py # 生成注意力特征
 # - API 文档: http://localhost:8000/docs
 ```
 
+> 💡 `./scripts/start_services.sh` 也可以用来启动后端 + 前端，脚本在健康检查失败时会重试最多 10 次（默认每次间隔 3 秒），并把日志写入 `logs/api.log` 与 `logs/frontend.log`，方便调试启动顺序较慢的任务。
+
 ### 选项 2: 分别启动后端和前端
 
 #### 启动 FastAPI 后端
