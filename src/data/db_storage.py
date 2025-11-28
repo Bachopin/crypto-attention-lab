@@ -466,7 +466,7 @@ def load_price_data(
 ) -> Tuple[pd.DataFrame, bool]:
     """
     加载价格数据（兼容旧接口）
-    优先使用数据库，回退到 CSV
+    数据库为唯一真实来源；仅当显式关闭数据库模式时才读取 CSV。
     """
     if USE_DATABASE:
         try:
@@ -476,19 +476,22 @@ def load_price_data(
                 base = symbol[:-4]
             else:
                 base = symbol.split('/')[0] if '/' in symbol else symbol[:3]
-            
+
             df = db.get_prices(base, timeframe, start, end)
-            if not df.empty:
-                return df, False
+            return df, False
         except Exception as e:
-            logger.warning(f"Database query failed, falling back to CSV: {e}")
-    
-    # CSV fallback（保持原有逻辑）
+            logger.error(f"Database price query failed: {e}")
+            return pd.DataFrame(), False
+
+    if DISABLE_CSV_FALLBACK:
+        logger.info("CSV price fallback disabled; returning empty frame")
+        return pd.DataFrame(), False
+
     price_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}.csv"
     fallback_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}_fallback.csv"
-    
+
     is_fallback = False
-    
+
     if price_file.exists():
         df = pd.read_csv(price_file)
     elif fallback_file.exists():
@@ -497,17 +500,17 @@ def load_price_data(
     else:
         logger.warning(f"Price data not found for {symbol} {timeframe}")
         return pd.DataFrame(), True
-    
+
     if 'datetime' in df.columns:
         df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-    
+
     if start is not None:
         start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
         df = df[df['datetime'] >= start_ts]
     if end is not None:
         end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
         df = df[df['datetime'] <= end_ts]
-    
+
     return df, is_fallback
 
 
@@ -518,36 +521,40 @@ def load_attention_data(
 ) -> pd.DataFrame:
     """
     加载注意力特征数据（兼容旧接口）
+    数据默认仅使用数据库，CSV 仅在显式关闭数据库模式时启用。
     """
     if USE_DATABASE:
         try:
             db = get_db()
             df = db.get_attention_features(symbol, start, end)
-            if not df.empty:
-                return df
+            return df
         except Exception as e:
-            logger.warning(f"Database query failed, falling back to CSV: {e}")
-    
-    # CSV fallback
+            logger.error(f"Database attention query failed: {e}")
+            return pd.DataFrame()
+
+    if DISABLE_CSV_FALLBACK:
+        logger.info("CSV attention fallback disabled; returning empty frame")
+        return pd.DataFrame()
+
     symbol_lower = symbol.lower()
     attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
-    
+
     if not attention_file.exists():
         logger.warning(f"Attention features not found for {symbol}")
         return pd.DataFrame()
-    
+
     df = pd.read_csv(attention_file)
-    
+
     if 'datetime' in df.columns:
         df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-    
+
     if start is not None:
         start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
         df = df[df['datetime'] >= start_ts]
     if end is not None:
         end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
         df = df[df['datetime'] <= end_ts]
-    
+
     required_cols = [
         'news_channel_score',
         'google_trend_value',
@@ -587,22 +594,21 @@ def load_news_data(
                 symbols = None
             else:
                 symbols = [s.strip() for s in symbol.split(',')]
-            
+
             df = db.get_news(symbols, start, end, limit)
-            if not df.empty:
-                return df
-            # 若显式禁止 CSV 回退，则直接返回空
-            if DISABLE_CSV_FALLBACK:
-                logger.info("CSV fallback disabled via DISABLE_CSV_FALLBACK; returning empty news result")
-                return pd.DataFrame()
+            return df
         except Exception as e:
-            logger.warning(f"Database query failed, falling back to CSV: {e}")
-    
-    # CSV fallback
-    symbol_lower = symbol.lower()
+            logger.error(f"Database news query failed: {e}")
+            return pd.DataFrame()
+
+    if DISABLE_CSV_FALLBACK:
+        logger.info("CSV news fallback disabled; returning empty frame")
+        return pd.DataFrame()
+
+    symbol_lower = symbol.lower() if symbol else "all"
     news_file = RAW_DATA_DIR / f"attention_{symbol_lower}_news.csv"
     mock_file = RAW_DATA_DIR / f"attention_{symbol_lower}_mock.csv"
-    
+
     if news_file.exists():
         df = pd.read_csv(news_file)
     elif mock_file.exists():
@@ -610,17 +616,17 @@ def load_news_data(
     else:
         logger.warning(f"News data not found for {symbol}")
         return pd.DataFrame()
-    
+
     if 'datetime' in df.columns:
         df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-    
+
     if start is not None:
         start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
         df = df[df['datetime'] >= start_ts]
     if end is not None:
         end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
         df = df[df['datetime'] <= end_ts]
-    
+
     if limit:
         df = df.head(limit)
 
