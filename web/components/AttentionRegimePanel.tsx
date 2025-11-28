@@ -32,6 +32,61 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
     }
   }
 
+  const generateAnalysisReport = (regimes: any[], lookaheadDays: number[]) => {
+    if (!regimes || regimes.length < 2) return null;
+    
+    const low = regimes[0];
+    const high = regimes[regimes.length - 1];
+    
+    return (
+      <div className="mt-3 p-3 bg-muted/50 rounded text-xs space-y-2 border border-border/50">
+        <div className="font-semibold text-foreground flex items-center gap-2">
+          <span>💡 智能分析报告</span>
+          <span className="text-[10px] font-normal text-muted-foreground bg-background px-1.5 py-0.5 rounded border">基于历史数据统计</span>
+        </div>
+        {lookaheadDays.map(days => {
+          const k = String(days);
+          const lowStats = low.stats[k];
+          const highStats = high.stats[k];
+          
+          if (!lowStats || !highStats) return null;
+          
+          const lowRet = lowStats.avg_return;
+          const highRet = highStats.avg_return;
+          const diff = highRet - lowRet;
+          
+          let conclusion = "";
+          let colorClass = "text-muted-foreground";
+          
+          if (highRet > 0.01 && diff > 0.005) {
+            conclusion = "存在显著的动量效应，高关注度往往伴随价格上涨，适合顺势交易。";
+            colorClass = "text-green-500 dark:text-green-400";
+          } else if (highRet < -0.01) {
+             conclusion = "存在过热反转风险，高关注度后往往伴随价格回调，需警惕追高。";
+             colorClass = "text-red-500 dark:text-red-400";
+          } else if (highRet > 0 && diff < -0.005) {
+             conclusion = "虽然平均收益为正，但不如低关注度时期（边际效用递减），性价比降低。";
+             colorClass = "text-yellow-600 dark:text-yellow-400";
+          } else if (Math.abs(highRet) < 0.005) {
+             conclusion = "高关注度下价格波动无明显方向，可能处于震荡期。";
+          } else {
+             conclusion = "关注度对未来收益影响不明确，建议结合其他指标。";
+          }
+
+          return (
+            <div key={k} className="flex flex-col sm:flex-row sm:gap-2">
+              <span className="font-medium min-w-[60px] text-muted-foreground">{days}天展望:</span>
+              <span className={colorClass}>
+                高关注度下平均收益 <strong>{(highRet * 100).toFixed(2)}%</strong> (vs 低关注度 {(lowRet * 100).toFixed(2)}%)。
+                {conclusion}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-card rounded-lg border p-4 space-y-4">
       <h3 className="text-lg font-semibold">Attention Regime Analysis</h3>
@@ -112,6 +167,9 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
                   })}
                 </tbody>
               </table>
+              
+              {/* Analysis Report */}
+              {symRes.regimes && generateAnalysisReport(symRes.regimes, data.meta.lookahead_days)}
             </div>
           ))}
         </div>
