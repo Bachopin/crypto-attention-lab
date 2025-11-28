@@ -57,7 +57,6 @@ web/
 │   │   ├── card.tsx
 │   │   └── separator.tsx
 │   ├── PriceChart.tsx    # TradingView chart component
-│   ├── VolumeChart.tsx   # Dedicated volume chart
 │   ├── AttentionRegimePanel.tsx # Regime analysis with smart reports
 │   ├── StatCards.tsx     # Summary & metric cards
 │   └── NewsList.tsx      # News feed component
