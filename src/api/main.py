@@ -1,4 +1,3 @@
- 
 """
 Crypto Attention Lab - FastAPI Backend
 提供价格、注意力和新闻数据的 REST API
@@ -23,6 +22,7 @@ from src.data.db_storage import (
 )
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
+from src.backtest.attention_rotation import run_attention_rotation_backtest
 from src.features.event_performance import compute_event_performance
 from src.features.node_influence import load_node_carry_factors
 
@@ -35,8 +35,6 @@ logger = logging.getLogger(__name__)
 
 import asyncio
 from contextlib import asynccontextmanager
-
-# ...existing code...
 
 # ==================== 后台任务调度 ====================
 
@@ -103,7 +101,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# ...existing code...
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 开发环境全开放，生产环境需要收紧
@@ -1063,5 +1060,48 @@ async def trigger_manual_update(
         
     except Exception as e:
         logger.error(f"Error triggering manual update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 注意力轮动策略回测 API ====================
+
+@app.post("/api/backtest/attention-rotation")
+def backtest_attention_rotation(payload: dict = Body(...)):
+    """
+    多币种 Attention 轮动策略回测
+    """
+    try:
+        symbols = payload.get("symbols") or []
+        if not symbols or not isinstance(symbols, list):
+            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
+
+        attention_source = payload.get("attention_source", "composite")
+        rebalance_days = int(payload.get("rebalance_days", 7))
+        lookback_days = int(payload.get("lookback_days", 30))
+        top_k = int(payload.get("top_k", 3))
+
+        start = payload.get("start")
+        end = payload.get("end")
+        start_dt = pd.to_datetime(start, utc=True) if start else None
+        end_dt = pd.to_datetime(end, utc=True) if end else None
+
+        result = run_attention_rotation_backtest(
+            symbols=symbols,
+            attention_source=attention_source,
+            rebalance_days=rebalance_days,
+            lookback_days=lookback_days,
+            top_k=top_k,
+            start=start_dt,
+            end=end_dt,
+        )
+        
+        if "error" in result:
+             raise HTTPException(status_code=400, detail=result["error"])
+             
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in backtest_attention_rotation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 

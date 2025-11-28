@@ -489,3 +489,61 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
     };
   }
 }
+
+/**
+ * Attention Rotation Backtest Result
+ */
+export interface AttentionRotationResult {
+  params: {
+    symbols: string[];
+    attention_source: string;
+    rebalance_days: number;
+    lookback_days: number;
+    top_k: number;
+    start?: string;
+    end?: string;
+  };
+  equity_curve: EquityPoint[];
+  rebalance_log: {
+    rebalance_date: string;
+    selected_symbols: string[];
+    attention_values: Record<string, number>;
+  }[];
+  summary: {
+    total_return: number;
+    annualized_return: number;
+    max_drawdown: number;
+    volatility: number;
+    sharpe: number;
+    num_rebalances: number;
+    start_date: string;
+    end_date: string;
+  };
+}
+
+export async function runAttentionRotationBacktest(params: {
+  symbols: string[];
+  attention_source?: 'composite' | 'news_channel';
+  rebalance_days?: number;
+  lookback_days?: number;
+  top_k?: number;
+  start?: string;
+  end?: string;
+}): Promise<AttentionRotationResult> {
+  const body = JSON.stringify({
+    symbols: params.symbols,
+    attention_source: params.attention_source ?? 'composite',
+    rebalance_days: params.rebalance_days ?? 7,
+    lookback_days: params.lookback_days ?? 30,
+    top_k: params.top_k ?? 3,
+    start: params.start,
+    end: params.end,
+  });
+  const url = `${API_BASE_URL}/api/backtest/attention-rotation`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

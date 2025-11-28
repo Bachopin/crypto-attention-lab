@@ -401,6 +401,65 @@ curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahea
 
 ---
 
+### 8. Attention Rotation Backtest
+
+#### `POST /api/backtest/attention-rotation`
+
+运行多币种 Attention 轮动策略回测。
+
+**Request Body:**
+
+```json
+{
+  "symbols": ["ZECUSDT", "BTCUSDT", "ETHUSDT"],
+  "attention_source": "composite",
+  "rebalance_days": 7,
+  "lookback_days": 30,
+  "top_k": 2,
+  "start": "2024-01-01T00:00:00Z",
+  "end": "2024-12-31T23:59:59Z"
+}
+```
+
+**Response:**
+
+```json
+{
+  "params": {
+    "symbols": ["ZECUSDT", "BTCUSDT", "ETHUSDT"],
+    "attention_source": "composite",
+    "rebalance_days": 7,
+    "lookback_days": 30,
+    "top_k": 2,
+    "start": "2024-01-01T00:00:00+00:00",
+    "end": "2024-12-31T23:59:59+00:00"
+  },
+  "equity_curve": [
+    {"datetime": "2024-01-01T00:00:00+00:00", "equity": 1.0},
+    {"datetime": "2024-01-02T00:00:00+00:00", "equity": 1.01}
+  ],
+  "rebalance_log": [
+    {
+      "rebalance_date": "2024-01-01T00:00:00+00:00",
+      "selected_symbols": ["BTCUSDT", "ETHUSDT"],
+      "attention_values": {"BTCUSDT": 1.2, "ETHUSDT": 0.9, "ZECUSDT": 0.5}
+    }
+  ],
+  "summary": {
+    "total_return": 0.15,
+    "annualized_return": 0.15,
+    "max_drawdown": 0.05,
+    "volatility": 0.2,
+    "sharpe": 0.75,
+    "num_rebalances": 52,
+    "start_date": "2024-01-01T00:00:00+00:00",
+    "end_date": "2024-12-31T23:59:59+00:00"
+  }
+}
+```
+
+---
+
 ## 🔧 Error Handling
 
 所有端点在出错时返回标准的 HTTP 错误响应:
