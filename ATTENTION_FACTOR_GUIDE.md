@@ -617,3 +617,41 @@ print(df.sort_values("ir", ascending=False).head(10))
 **📝 贡献指南**: 欢迎 PR！请先阅读 CONTRIBUTING.md（待补充）
 
 **免责声明**: 本系统仅供加密货币市场研究与教育目的，不构成任何投资建议。
+
+---
+
+## Google Trends 通道说明
+
+- Google 通道数据由 `scripts/fetch_multi_symbol_google_trends.py` 批量拉取，支持多币种、日级分辨率。
+- 关键词配置见 `src/config/attention_channels.py`，如未配置则自动 fallback 为 `["<symbol> crypto"]`。
+- 拉取逻辑优先写入数据库 `google_trends` 表，并在 `data/processed/google_trends_<symbol>.csv` 下缓存。
+- attention 特征工程会自动 merge 真数据，缺失时自动填 0 并记录 warning 日志。
+- 可用命令：
+  ```bash
+  python scripts/fetch_multi_symbol_google_trends.py --days 365 --force-refresh
+  ```
+- ⚠️ 若 pytrends 未安装或网络异常，Google 通道自动降级为 0，不影响主流程。
+
+---
+
+## Attention Regime 研究接口
+
+- 新增 `/api/research/attention-regimes` POST 接口，支持多币种 attention regime 研究。
+- 用法示例：
+  ```http
+  POST /api/research/attention-regimes
+  {
+    "symbols": ["ZEC", "BTC", "ETH"],
+    "lookahead_days": [7, 30],
+    "attention_source": "composite",  // 或 "news_channel"
+    "split_method": "quantile",
+    "start": "2023-01-01",
+    "end": "2025-11-01"
+  }
+  ```
+- 返回每个 symbol 在不同 attention regime（如 low/mid/high）下未来收益、波动、正收益比例、最大回撤等统计。
+- regime 分段支持分位数（默认 tercile）或中位数。
+- 适合 Notebook/脚本批量分析，不直接用于交易信号。
+- 推荐用 `scripts/demo_attention_regime_analysis.py` 验证多币种 regime 统计。
+
+---

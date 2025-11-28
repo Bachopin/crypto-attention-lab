@@ -8,6 +8,55 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi import Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
+from src.research.attention_regimes import analyze_attention_regimes
+# ==================== 自动更新管理 API ====================
+
+# ==================== Attention Regime 研究接口 ====================
+
+@app.post("/api/research/attention-regimes")
+def research_attention_regimes(payload: dict = Body(...)):
+    """
+    多币种 attention regime 研究分析接口
+    Request:
+        {
+            "symbols": ["ZEC", "BTC", "ETH"],
+            "lookahead_days": [7, 30],
+            "attention_source": "composite",  # 或 "news_channel"
+            "split_method": "quantile",
+            "start": "2023-01-01",
+            "end": "2025-11-01"
+        }
+    Response:
+        {
+            "BTC": { ... },
+            ...
+        }
+    """
+    try:
+        symbols = payload.get("symbols") or []
+        lookahead_days = payload.get("lookahead_days") or [7, 30]
+        attention_source = payload.get("attention_source", "composite")
+        split_method = payload.get("split_method", "quantile")
+        start = payload.get("start")
+        end = payload.get("end")
+        start_dt = pd.to_datetime(start, utc=True) if start else None
+        end_dt = pd.to_datetime(end, utc=True) if end else None
+        if not symbols or not isinstance(symbols, list):
+            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
+        res = analyze_attention_regimes(
+            symbols=symbols,
+            lookahead_days=lookahead_days,
+            attention_source=attention_source,
+            split_method=split_method,
+            start=start_dt,
+            end=end_dt,
+        )
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in research_attention_regimes: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 from datetime import datetime
 import pandas as pd
 import logging
