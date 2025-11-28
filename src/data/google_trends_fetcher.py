@@ -16,6 +16,7 @@ import pandas as pd
 
 from src.config.attention_channels import get_symbol_attention_config
 from src.config.settings import PROCESSED_DATA_DIR
+from src.data.db_storage import USE_DATABASE, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,15 @@ def _normalize_datetime(value: pd.Timestamp | datetime) -> pd.Timestamp:
     else:
         ts = ts.tz_convert("UTC")
     return ts.normalize()
+
+
+def _ensure_datetime_column(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "datetime" not in df.columns:
+        return df
+    out = df.copy()
+    out["datetime"] = pd.to_datetime(out["datetime"], utc=True, errors="coerce").dt.normalize()
+    out = out.dropna(subset=["datetime"])
+    return out
 
 
 def fetch_google_trends(
@@ -74,6 +84,30 @@ def fetch_google_trends(
     return df
 
 
+def fetch_google_trends_for_symbol(
+    symbol: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    freq: str = "D",
+    geo: Optional[str] = None,
+) -> pd.DataFrame:
+    """Convenience wrapper that applies symbol-level keyword settings."""
+
+    cfg = get_symbol_attention_config(symbol)
+    series = fetch_google_trends(
+        cfg.google_trends_keywords,
+        start,
+        end,
+        geo=geo or cfg.google_geo,
+    )
+    if series.empty:
+        return series
+    series = _ensure_datetime_column(series)
+    series["symbol"] = symbol.upper()
+    series["keyword_set"] = "|".join(cfg.google_trends_keywords)
+    return series
+
+
 def load_cached_google_trends(symbol: str) -> pd.DataFrame:
     path = _cache_path(symbol)
     if not path.exists():
@@ -92,28 +126,89 @@ def save_google_trends_cache(symbol: str, df: pd.DataFrame) -> None:
     df.to_csv(path, index=False)
 
 
-def get_google_trends_series(symbol: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+def get_google_trends_series(
+    symbol: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
     """Return cached trends and fetch missing ranges if necessary."""
 
     cfg = get_symbol_attention_config(symbol)
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
 
-    cached = load_cached_google_trends(symbol)
-    coverage_ok = (not cached.empty) and cached["datetime"].min() <= start and cached["datetime"].max() >= end
+    cached = pd.DataFrame()
+    if not force_refresh:
+        cached = _ensure_datetime_column(load_cached_google_trends(symbol))
 
-    if not coverage_ok:
-        fetched = fetch_google_trends(cfg.google_trends_keywords, start, end, geo=cfg.google_geo)
-        if not fetched.empty:
-            combined = pd.concat([cached, fetched], ignore_index=True)
-            combined = combined.drop_duplicates(subset=["datetime"], keep="last").sort_values("datetime")
-            save_google_trends_cache(symbol, combined)
-            cached = combined
+    db_rows = pd.DataFrame()
+    db_handle = None
+    if USE_DATABASE:
+        try:
+            db_handle = get_db()
+            db_rows = _ensure_datetime_column(db_handle.get_google_trends(symbol, start, end))
+        except Exception as exc:  # pragma: no cover - DB optional
+            logger.warning("Failed to load Google Trends rows from DB for %s: %s", symbol, exc)
+            db_handle = None
+
+    combined_existing = pd.concat(
+        [df for df in (cached, db_rows) if not df.empty],
+        ignore_index=True,
+    )
+    if not combined_existing.empty:
+        combined_existing = (
+            combined_existing
+            .drop_duplicates(subset=["datetime"], keep="last")
+            .sort_values("datetime")
+        )
+
+    coverage_ok = (
+        not force_refresh
+        and not combined_existing.empty
+        and combined_existing["datetime"].min() <= start
+        and combined_existing["datetime"].max() >= end
+    )
+
+    need_fetch = force_refresh or not coverage_ok
+    fetched = pd.DataFrame()
+    if need_fetch:
+        fetched = fetch_google_trends_for_symbol(symbol, start, end, geo=cfg.google_geo)
+        if fetched.empty:
+            logger.warning(
+                "Google Trends fetch returned empty for %s (keywords=%s)",
+                symbol,
+                cfg.google_trends_keywords,
+            )
         else:
-            logger.debug("Google Trends fetch returned empty for %s", symbol)
+            if db_handle is None and USE_DATABASE:
+                try:
+                    db_handle = get_db()
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("Failed to init DB handle for google trends: %s", exc)
+                    db_handle = None
 
-    if cached.empty:
-        return cached
+            if db_handle is not None:
+                try:
+                    db_handle.save_google_trends(symbol, fetched.to_dict("records"))
+                except Exception as exc:  # pragma: no cover
+                    logger.warning("Failed to persist Google Trends rows for %s: %s", symbol, exc)
 
-    mask = (cached["datetime"] >= start) & (cached["datetime"] <= end)
-    return cached.loc[mask].copy()
+    merged = pd.concat(
+        [df for df in (combined_existing, fetched) if not df.empty],
+        ignore_index=True,
+    )
+
+    if merged.empty:
+        return merged
+
+    merged = (
+        merged
+        .drop_duplicates(subset=["datetime"], keep="last")
+        .sort_values("datetime")
+    )
+
+    save_google_trends_cache(symbol, merged[["datetime", "value"]])
+
+    mask = (merged["datetime"] >= start) & (merged["datetime"] <= end)
+    return merged.loc[mask].copy()

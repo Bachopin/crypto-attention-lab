@@ -96,6 +96,14 @@ event_intensity = has_high_weight_source AND strong_sentiment AND has_tags ? 1 :
 `src/config/attention_channels.py` 中的配置生成三条通道（新闻、Google
 Trends、Twitter）与 `composite_attention_score`。
 
+### 3b. Google Trends 同步（2025 新增）
+```bash
+python scripts/fetch_multi_symbol_google_trends.py --days 365
+```
+- 根据 `TRACKED_SYMBOLS` 与数据库中的可用币种，批量抓取 Google 搜索热度；
+- 通过 `pytrends` 获取真实 interest-over-time 序列，优先写入 SQLite（`google_trends` 表），并在 `data/processed/google_trends_<symbol>.csv` 下缓存；
+- `attention_features` 读取同一套缓存，不可用时会记录 warning 并退化为 0，确保生成流程不中断。
+
 ### 4. 事件检测
 位置：`src/events/attention_events.py`
 
@@ -131,6 +139,12 @@ avg_return = mean(returns)
 max_drawdown = max(peak - equity) / peak
 ```
 
+🧪 **快速对比脚本**：
+```bash
+python scripts/demo_multi_symbol_attention_backtest.py
+```
+输出 Legacy vs Composite 两套信号在 `ZEC/BTC/ETH` 上的收益对比，可做日常 sanity check。
+
 ---
 
 ## 注意力特征详解
@@ -161,6 +175,11 @@ max_drawdown = max(peak - equity) / peak
 
 上述字段都存储在 `attention_features` 表并通过 `/api/attention`
 返回，可作为多日趋势策略的统一入口。
+
+Google 通道的关键补充：
+- 可执行 `scripts/fetch_multi_symbol_google_trends.py --force-refresh` 强制刷新任意窗口；
+- 如果网络/配额暂不可用，后端会退化为 0 并打印 warning，方便排查；
+- 数据同时缓存在数据库与 CSV，任一层缺失时仍可重建。
 
 整体计算流程：
 1. `attention_fetcher` 收集多来源新闻并写入语言/平台元数据；

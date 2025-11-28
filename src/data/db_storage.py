@@ -12,7 +12,7 @@ from sqlalchemy import and_, or_, inspect, text
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
-    Symbol, News, Price, AttentionFeature,
+    Symbol, News, Price, AttentionFeature, GoogleTrend,
     init_database, get_session, get_engine
 )
 
@@ -399,6 +399,113 @@ class DatabaseStorage:
                 'composite_attention_zscore': f.composite_attention_zscore,
                 'composite_attention_spike_flag': f.composite_attention_spike_flag,
             } for f in results])
+        finally:
+            session.close()
+
+    def save_google_trends(self, symbol: str, trends: List[dict]) -> None:
+        """Persist Google Trends rows to the relational store."""
+
+        if not trends:
+            return
+
+        session = get_session(self.engine)
+        try:
+            norm = symbol.upper()
+            if norm.endswith('USDT'):
+                norm = norm[:-4]
+            if '/' in norm:
+                norm = norm.split('/')[0]
+            sym = self.get_or_create_symbol(session, norm)
+
+            for record in trends:
+                dt = record.get('datetime')
+                if dt is None:
+                    continue
+                dt = pd.to_datetime(dt, utc=True, errors='coerce')
+                if pd.isna(dt):
+                    continue
+
+                value = record.get('value', record.get('trend_value', 0.0))
+                try:
+                    value = float(value or 0.0)
+                except (TypeError, ValueError):
+                    value = 0.0
+
+                keyword_set = record.get('keyword_set')
+
+                existing = session.query(GoogleTrend).filter(
+                    and_(
+                        GoogleTrend.symbol_id == sym.id,
+                        GoogleTrend.datetime == dt,
+                    )
+                ).first()
+
+                if existing:
+                    existing.trend_value = value
+                    if keyword_set:
+                        existing.keyword_set = keyword_set
+                else:
+                    gt = GoogleTrend(
+                        symbol_id=sym.id,
+                        datetime=dt,
+                        trend_value=value,
+                        keyword_set=keyword_set,
+                    )
+                    session.add(gt)
+
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            logger.error("Failed to save Google Trends rows for %s: %s", symbol, exc)
+            raise
+        finally:
+            session.close()
+
+    def get_google_trends(
+        self,
+        symbol: str,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> pd.DataFrame:
+        """Load cached Google Trends rows for a symbol."""
+
+        session = get_session(self.engine)
+        try:
+            norm = (symbol or '').upper()
+            if norm.endswith('USDT'):
+                norm = norm[:-4]
+            if '/' in norm:
+                norm = norm.split('/')[0]
+
+            sym = session.query(Symbol).filter_by(symbol=norm).first()
+            if not sym:
+                return pd.DataFrame()
+
+            query = session.query(GoogleTrend).filter(GoogleTrend.symbol_id == sym.id)
+            if start:
+                start_ts = start if isinstance(start, pd.Timestamp) else pd.Timestamp(start)
+                if start_ts.tz is None:
+                    start_ts = start_ts.tz_localize('UTC')
+                query = query.filter(GoogleTrend.datetime >= start_ts)
+            if end:
+                end_ts = end if isinstance(end, pd.Timestamp) else pd.Timestamp(end)
+                if end_ts.tz is None:
+                    end_ts = end_ts.tz_localize('UTC')
+                query = query.filter(GoogleTrend.datetime <= end_ts)
+
+            query = query.order_by(GoogleTrend.datetime)
+            rows = query.all()
+            if not rows:
+                return pd.DataFrame()
+
+            return pd.DataFrame([
+                {
+                    'datetime': row.datetime,
+                    'value': row.trend_value,
+                    'keyword_set': row.keyword_set,
+                }
+                for row in rows
+            ])
         finally:
             session.close()
     

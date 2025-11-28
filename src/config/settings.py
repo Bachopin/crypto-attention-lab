@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from src.config.attention_channels import SYMBOL_ATTENTION_CONFIG
+
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
@@ -28,3 +30,9 @@ NEWS_DATABASE_URL = os.getenv("NEWS_DATABASE_URL", f"sqlite:///{DATA_DIR}/crypto
 TRACKED_SYMBOLS = ["ZEC/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT"]
 DEFAULT_SYMBOL = TRACKED_SYMBOLS[0]
 DEFAULT_TIMEFRAME = "1d"
+
+# Google Trends keyword helper (used by scripts)
+GOOGLE_TRENDS_KEYWORDS = {
+	symbol: cfg.google_trends_keywords
+	for symbol, cfg in SYMBOL_ATTENTION_CONFIG.items()
+}

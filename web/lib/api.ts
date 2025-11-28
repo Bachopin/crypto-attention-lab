@@ -75,11 +75,20 @@ export interface BacktestResult {
   summary: BacktestSummary;
   trades: BacktestTrade[];
   equity_curve: EquityPoint[];
+  meta?: {
+    attention_source?: 'legacy' | 'composite';
+    signal_field?: string;
+  };
 }
 
 export interface MultiBacktestResult {
   per_symbol_summary: Record<string, BacktestSummary | { error: string }>;
   per_symbol_equity_curves: Record<string, EquityPoint[]>;
+  per_symbol_meta?: Record<string, { attention_source?: 'legacy' | 'composite'; signal_field?: string }>;
+  meta?: {
+    attention_source?: 'legacy' | 'composite';
+    symbols?: string[];
+  };
 }
 
 export type EventPerformanceTable = Record<string, Record<string, {
@@ -259,13 +268,18 @@ export async function fetchAttentionEvents(params: { symbol?: string; start?: st
   return fetchAPI<AttentionEvent[]>('/api/attention-events', apiParams);
 }
 
-export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; start?: string; end?: string } = {}): Promise<BacktestResult> {
+export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; stop_loss_pct?: number | null; take_profit_pct?: number | null; max_holding_days?: number | null; position_size?: number; attention_source?: 'legacy' | 'composite'; start?: string; end?: string } = {}): Promise<BacktestResult> {
   const body = JSON.stringify({
     symbol: params.symbol ?? 'ZECUSDT',
     lookback_days: params.lookback_days ?? 30,
     attention_quantile: params.attention_quantile ?? 0.8,
     max_daily_return: params.max_daily_return ?? 0.05,
     holding_days: params.holding_days ?? 3,
+    stop_loss_pct: params.stop_loss_pct,
+    take_profit_pct: params.take_profit_pct,
+    max_holding_days: params.max_holding_days,
+    position_size: params.position_size,
+    attention_source: params.attention_source,
     start: params.start,
     end: params.end,
   });
@@ -288,6 +302,7 @@ export async function runMultiSymbolBacktest(params: {
   take_profit_pct?: number | null;
   max_holding_days?: number | null;
   position_size?: number;
+  attention_source?: 'legacy' | 'composite';
   start?: string;
   end?: string;
 }): Promise<MultiBacktestResult> {
@@ -301,6 +316,7 @@ export async function runMultiSymbolBacktest(params: {
     take_profit_pct: params.take_profit_pct,
     max_holding_days: params.max_holding_days,
     position_size: params.position_size ?? 1.0,
+    attention_source: params.attention_source,
     start: params.start,
     end: params.end,
   });

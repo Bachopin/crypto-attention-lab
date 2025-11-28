@@ -5,17 +5,33 @@ import { Button } from '@/components/ui/button';
 import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint } from '@/lib/api';
 import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
 
+type AttentionSource = 'legacy' | 'composite';
+
+interface PanelParams {
+  symbol: string;
+  lookback_days: number;
+  attention_quantile: number;
+  max_daily_return: number;
+  holding_days: number;
+  stop_loss_pct: number | null;
+  take_profit_pct: number | null;
+  max_holding_days: number | null;
+  position_size: number;
+  attention_source: AttentionSource;
+}
+
 export default function BacktestPanel() {
-  const [params, setParams] = useState({
+  const [params, setParams] = useState<PanelParams>({
     symbol: 'ZECUSDT',
     lookback_days: 30,
     attention_quantile: 0.8,
     max_daily_return: 0.05,
     holding_days: 3,
-    stop_loss_pct: 0.05 as number | null,
-    take_profit_pct: 0.1 as number | null,
-    max_holding_days: 5 as number | null,
+    stop_loss_pct: 0.05,
+    take_profit_pct: 0.1,
+    max_holding_days: 5,
     position_size: 1.0,
+    attention_source: 'legacy',
   });
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResult, setMultiResult] = useState<MultiBacktestResult | null>(null);
@@ -133,7 +149,7 @@ export default function BacktestPanel() {
 
   useEffect(() => {
     setInfoMessage(null);
-  }, [params.symbol, params.lookback_days, params.attention_quantile, params.max_daily_return, params.holding_days, params.stop_loss_pct, params.take_profit_pct, params.max_holding_days, params.position_size]);
+  }, [params.symbol, params.lookback_days, params.attention_quantile, params.max_daily_return, params.holding_days, params.stop_loss_pct, params.take_profit_pct, params.max_holding_days, params.position_size, params.attention_source]);
 
   async function run() {
     setLoading(true); setError(null);
@@ -178,6 +194,7 @@ export default function BacktestPanel() {
         take_profit_pct: params.take_profit_pct,
         max_holding_days: params.max_holding_days,
         position_size: params.position_size,
+        attention_source: params.attention_source,
       });
       setMultiResult(res);
       const symbolsFromResult = Object.keys(res.per_symbol_equity_curves || {});
@@ -199,7 +216,8 @@ export default function BacktestPanel() {
           止损 {params.stop_loss_pct != null ? `${(params.stop_loss_pct * 100).toFixed(1)}%` : '未设置'}，
           止盈 {params.take_profit_pct != null ? `${(params.take_profit_pct * 100).toFixed(1)}%` : '未设置'}，
           最长持仓 {params.max_holding_days ?? params.holding_days} 天，
-          仓位 {(params.position_size * 100).toFixed(0)}%
+          仓位 {(params.position_size * 100).toFixed(0)}%，
+          信号源 {params.attention_source === 'legacy' ? 'Legacy Attention' : 'Composite Attention'}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -391,6 +409,32 @@ export default function BacktestPanel() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 rounded border bg-background p-3 text-sm">
+        <span className="text-xs text-muted-foreground">注意力信号源</span>
+        <div className="flex gap-2">
+          {([
+            { key: 'legacy', label: 'Legacy (加权新闻)' },
+            { key: 'composite', label: 'Composite (多通道)' },
+          ] as { key: AttentionSource; label: string }[]).map(option => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setParams(p => ({ ...p, attention_source: option.key }))}
+              className={`rounded border px-3 py-1 text-xs ${
+                params.attention_source === option.key
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-background hover:bg-muted'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground">
+          Composite 推荐用于多币种回测，基于新闻 + Google + Twitter 权重融合。
+        </span>
+      </div>
+
       {error && <div className="text-red-500 text-sm">{error}</div>}
       {infoMessage && !error && (
         <div className="text-xs text-muted-foreground">{infoMessage}</div>
@@ -405,6 +449,12 @@ export default function BacktestPanel() {
 
       {result && (
         <div className="space-y-4">
+                    {result.meta?.attention_source && (
+                      <div className="text-xs text-muted-foreground">
+                        信号源：{result.meta.attention_source === 'composite' ? 'Composite Attention' : 'Legacy Attention'}
+                        {result.meta.signal_field && `（字段 ${result.meta.signal_field}）`}
+                      </div>
+                    )}
           {result.trades.length === 0 && (
             <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-xs text-muted-foreground">
               在当前参数下没有产生交易，可以尝试降低 attention_quantile 或放宽 max_daily_return。
@@ -455,6 +505,11 @@ export default function BacktestPanel() {
       {multiResult && (
         <div className="space-y-4">
           <h4 className="text-md font-semibold">Multi-Asset Comparison</h4>
+          {multiResult.meta?.attention_source && (
+            <div className="text-xs text-muted-foreground">
+              多币种回测信号源：{multiResult.meta.attention_source === 'composite' ? 'Composite Attention' : 'Legacy Attention'}
+            </div>
+          )}
           {Object.values(multiResult.per_symbol_summary).every(s => 'error' in s || s.total_trades === 0) && (
             <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 p-3 text-xs text-muted-foreground">
               在当前参数下多币种回测没有产生交易，可以尝试降低 attention_quantile 或放宽 max_daily_return。
@@ -513,6 +568,7 @@ export default function BacktestPanel() {
                 multiResult.per_symbol_equity_curves[selectedMultiSymbol].length > 0 && (
                   <EquityCurve
                     title={`Equity Curve - ${selectedMultiSymbol}`}
+                    subtitle={multiResult.per_symbol_meta?.[selectedMultiSymbol]?.signal_field}
                     points={multiResult.per_symbol_equity_curves[selectedMultiSymbol]}
                   />
                 )}
@@ -698,7 +754,7 @@ function MultiStrategyComparison({
   );
 }
 
-function EquityCurve({ title, points }: { title: string; points: { datetime: string; equity: number }[] }) {
+function EquityCurve({ title, points, subtitle }: { title: string; points: { datetime: string; equity: number }[]; subtitle?: string }) {
   const { path, minEquity, maxEquity } = useMemo(() => {
     if (!points.length) return { path: '', minEquity: 0, maxEquity: 0 };
     const values = points.map(p => p.equity);
@@ -724,8 +780,9 @@ function EquityCurve({ title, points }: { title: string; points: { datetime: str
     <div className="space-y-1 rounded border bg-background p-3">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{title}</span>
-        <span>
-          {`区间权益：${minEquity.toFixed(2)} → ${maxEquity.toFixed(2)}`}
+        <span className="flex items-center gap-2">
+          {subtitle && <span className="text-[10px] uppercase tracking-wide">{subtitle}</span>}
+          <span>{`区间权益：${minEquity.toFixed(2)} → ${maxEquity.toFixed(2)}`}</span>
         </span>
       </div>
       <svg viewBox="0 0 100 40" className="h-24 w-full">

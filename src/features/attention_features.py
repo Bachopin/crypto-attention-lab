@@ -128,6 +128,13 @@ def process_attention_features(symbol: str = 'ZEC', freq: str = 'D'):
     if not gt.empty:
         gt = gt.rename(columns={'value': 'google_trend_value'})
         grouped = grouped.merge(gt, on='datetime', how='left')
+    else:
+        logger.warning(
+            "Google Trends channel empty for %s (%s → %s); falling back to zeros",
+            symbol,
+            (start_range - pd.Timedelta(days=7)).date(),
+            end_range.date(),
+        )
     grouped['google_trend_value'] = grouped.get('google_trend_value', pd.Series(index=grouped.index)).fillna(0.0)
     grouped['google_trend_zscore'] = _rolling_zscore(grouped['google_trend_value'])
     grouped['google_trend_change_7d'] = _safe_pct_change(grouped['google_trend_value'], 7)

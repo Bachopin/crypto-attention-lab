@@ -32,6 +32,7 @@ class Symbol(Base):
     # 关系
     prices = relationship('Price', back_populates='symbol_ref', cascade='all, delete-orphan')
     attention_features = relationship('AttentionFeature', back_populates='symbol_ref', cascade='all, delete-orphan')
+    google_trends = relationship('GoogleTrend', back_populates='symbol_ref', cascade='all, delete-orphan')
 
 
 class News(Base):
@@ -131,6 +132,26 @@ class AttentionFeature(Base):
     __table_args__ = (
         UniqueConstraint('symbol_id', 'datetime', name='uq_attention_symbol_dt'),
         Index('ix_attention_symbol_datetime', 'symbol_id', 'datetime'),
+    )
+
+
+class GoogleTrend(Base):
+    """Google Trends time-series samples for each symbol."""
+
+    __tablename__ = 'google_trends'
+
+    id = Column(Integer, primary_key=True)
+    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
+    datetime = Column(DateTime(timezone=True), nullable=False)
+    trend_value = Column(Float, nullable=False, default=0.0)
+    keyword_set = Column(String(255))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    symbol_ref = relationship('Symbol', back_populates='google_trends')
+
+    __table_args__ = (
+        UniqueConstraint('symbol_id', 'datetime', name='uq_google_trend_symbol_dt'),
+        Index('ix_google_trend_symbol_datetime', 'symbol_id', 'datetime'),
     )
 
 

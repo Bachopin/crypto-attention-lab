@@ -1,8 +1,11 @@
+import logging
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 import pandas as pd
 from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
 from src.data.db_storage import load_price_data, load_attention_data
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,28 +29,57 @@ def run_backtest_basic_attention(
     position_size: float = 1.0,
     start: Optional[pd.Timestamp] = None,
     end: Optional[pd.Timestamp] = None,
+    attention_source: str = "legacy",
 ) -> Dict:
     # 数据库优先加载
+    source_key = (attention_source or "legacy").lower()
+    if source_key not in {"legacy", "composite"}:
+        source_key = "legacy"
+
     p_df, _ = load_price_data(symbol, '1d', start, end)
     a_df = load_attention_data(symbol.replace('USDT', ''), start, end)
     
     if p_df.empty or a_df.empty:
-        return {"error": "missing data"}
+        return {"error": "missing data", "meta": {"attention_source": source_key}}
     
+    attention_columns = [
+        'datetime',
+        'attention_score',
+        'weighted_attention',
+        'bullish_attention',
+        'bearish_attention',
+        'composite_attention_score',
+        'composite_attention_zscore',
+    ]
+    available_attention_cols = [col for col in attention_columns if col in a_df.columns]
+
     df = pd.merge(
         p_df[['datetime', 'close']],
-        a_df[['datetime', 'attention_score', 'weighted_attention', 'bullish_attention', 'bearish_attention']],
+        a_df[available_attention_cols],
         on='datetime',
         how='inner'
     )
     df = df.dropna()
+
+    signal_column = 'weighted_attention' if source_key == 'legacy' else 'composite_attention_score'
+
+    if signal_column not in df.columns:
+        logger.warning(
+            "Requested attention source column missing: %s (symbol=%s, source=%s)",
+            signal_column,
+            symbol,
+            source_key,
+        )
+        return {"error": f"{signal_column} not available", "meta": {"attention_source": source_key}}
+
+    df['attention_signal'] = df[signal_column].astype(float)
 
     # 分位数阈值
     def rolling_q(s: pd.Series) -> pd.Series:
         min_p = min(lookback_days, 5)
         return s.rolling(lookback_days, min_periods=min_p).apply(lambda x: pd.Series(x).quantile(attention_quantile), raw=False)
 
-    df['w_q'] = rolling_q(df['weighted_attention'])
+    df['w_q'] = rolling_q(df['attention_signal'])
     df['prev_close'] = df['close'].shift(1)
     df['daily_ret'] = (df['close'] / df['prev_close'] - 1.0).fillna(0)
 
@@ -56,7 +88,7 @@ def run_backtest_basic_attention(
     while i < len(df):
         row = df.iloc[i]
         cond = (
-            pd.notna(row['w_q']) and row['weighted_attention'] > row['w_q'] and
+            pd.notna(row['w_q']) and row['attention_signal'] > row['w_q'] and
             row['daily_ret'] <= max_daily_return and
             (row.get('bullish_attention', 0) >= row.get('bearish_attention', 0))
         )
@@ -170,4 +202,8 @@ def run_backtest_basic_attention(
             } for t in trades
         ],
         "equity_curve": equity,
+        "meta": {
+            "attention_source": source_key,
+            "signal_field": signal_column,
+        }
     }

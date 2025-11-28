@@ -253,10 +253,16 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
   "take_profit_pct": 0.1,
   "max_holding_days": 5,
   "position_size": 1.0,
+  "attention_source": "legacy",
   "start": "2024-01-01T00:00:00Z",
   "end": "2024-12-31T23:59:59Z"
 }
 ```
+
+**可选字段 `attention_source`:**
+- `"legacy"`（默认）使用历史 `weighted_attention` 逻辑；
+- `"composite"` 使用多通道融合后的 `composite_attention_score`。
+若指定的通道缺少所需字段，API 会返回错误提示。
 
 **Response:**
 ```json
@@ -305,10 +311,13 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
   "take_profit_pct": 0.1,
   "max_holding_days": 5,
   "position_size": 1.0,
+  "attention_source": "composite",
   "start": "2024-01-01T00:00:00Z",
   "end": "2024-12-31T23:59:59Z"
 }
 ```
+
+与单币端点一致，`attention_source` 支持 `legacy` / `composite`，默认 `legacy`。响应会在 `meta.attention_source` 中注明本次使用的通道。
 
 **Response:**
 
@@ -337,9 +346,21 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
     "BTCUSDT": [
       { "datetime": "2024-02-10T00:00:00Z", "equity": 1.05 }
     ]
+  },
+  "meta": {
+    "attention_source": "composite",
+    "symbols": ["ZECUSDT", "BTCUSDT", "ETHUSDT"]
+  },
+  "per_symbol_meta": {
+    "ZECUSDT": {
+      "attention_source": "composite",
+      "signal_field": "composite_attention_score"
+    }
   }
 }
 ```
+
+`meta` 区域记录了本次批量回测共享的 attention 来源，`per_symbol_meta` 用于排查单个标的的信号字段（例如个别币种缺少 composite 数据时快速定位）。
 
 ---
 

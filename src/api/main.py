@@ -746,6 +746,9 @@ def backtest_basic_attention(
         position_size = float(payload.get("position_size", 1.0))
         start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
         end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        attention_source = (payload.get("attention_source") or "legacy").lower()
+        if attention_source not in {"legacy", "composite"}:
+            attention_source = "legacy"
         res = run_backtest_basic_attention(
             symbol=symbol,
             lookback_days=lookback_days,
@@ -758,6 +761,7 @@ def backtest_basic_attention(
             position_size=position_size,
             start=start,
             end=end,
+            attention_source=attention_source,
         )
         return res
     except Exception as e:
@@ -792,9 +796,13 @@ def backtest_basic_attention_multi(
         position_size = float(payload.get("position_size", 1.0))
         start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
         end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        attention_source = (payload.get("attention_source") or "legacy").lower()
+        if attention_source not in {"legacy", "composite"}:
+            attention_source = "legacy"
 
         per_symbol_summary = {}
         per_symbol_equity_curves = {}
+        per_symbol_meta = {}
 
         for sym in symbols:
             res = run_backtest_basic_attention(
@@ -809,17 +817,25 @@ def backtest_basic_attention_multi(
                 position_size=position_size,
                 start=start,
                 end=end,
+                attention_source=attention_source,
             )
             if "summary" in res and "equity_curve" in res:
                 per_symbol_summary[sym] = res["summary"]
                 per_symbol_equity_curves[sym] = res["equity_curve"]
+                per_symbol_meta[sym] = res.get("meta", {})
             else:
                 per_symbol_summary[sym] = {"error": res.get("error", "unknown error")}
                 per_symbol_equity_curves[sym] = []
+                per_symbol_meta[sym] = res.get("meta", {})
 
         return {
             "per_symbol_summary": per_symbol_summary,
             "per_symbol_equity_curves": per_symbol_equity_curves,
+            "per_symbol_meta": per_symbol_meta,
+            "meta": {
+                "attention_source": attention_source,
+                "symbols": symbols,
+            },
         }
     except HTTPException:
         raise
