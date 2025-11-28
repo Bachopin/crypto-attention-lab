@@ -24,6 +24,7 @@ interface DashboardTabProps {
   summaryStats: SummaryStats
   assetNewsData: NewsItem[]
   priceData: PriceCandle[]
+  overviewPriceData: PriceCandle[]
   attentionData: AttentionData[]
   events: AttentionEvent[]
   selectedTimeframe: Timeframe
@@ -51,6 +52,7 @@ export default function DashboardTab(props: DashboardTabProps) {
     summaryStats,
     assetNewsData,
     priceData,
+    overviewPriceData,
     attentionData,
     events,
     selectedTimeframe,
@@ -70,6 +72,11 @@ export default function DashboardTab(props: DashboardTabProps) {
     onAttentionRangeChange,
     onCrosshairMove,
   } = props
+
+  // Update crosshair handler
+  const handleCrosshairMoveWrapper = React.useCallback((time: Time | null) => {
+    onCrosshairMove(time)
+  }, [onCrosshairMove])
 
   return (
     <div className="space-y-6">
@@ -110,7 +117,7 @@ export default function DashboardTab(props: DashboardTabProps) {
             <TrendingUp className="w-5 h-5 text-primary" />
             Price Overview (90 Days)
           </h2>
-          <PriceOverview priceData={priceData} height={192} />
+          <PriceOverview priceData={overviewPriceData} height={192} />
         </div>
 
         {/* Recent News */}
@@ -136,14 +143,14 @@ export default function DashboardTab(props: DashboardTabProps) {
           <PriceChart
             ref={priceChartRef}
             priceData={priceData}
-            height={600}
+            height={500}
             onVisibleRangeChange={onPriceRangeChange}
             events={events}
             volumeRatio={volumeRatio}
             onVolumeRatioChange={onVolumeRatioChange}
             showEventMarkers={showEventMarkers}
             onShowEventMarkersChange={onShowEventMarkersChange}
-            onCrosshairMove={onCrosshairMove}
+            onCrosshairMove={handleCrosshairMoveWrapper}
           />
         </div>
       </section>

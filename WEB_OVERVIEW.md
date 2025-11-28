@@ -153,10 +153,19 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 
 ### PriceChart Component
 - Uses `lightweight-charts` library
-- Supports candlestick + volume histogram
-- Overlays attention score line on separate scale
-- Auto-resizes on window resize
-- Time conversion (ms → seconds for TradingView)
+- Displays candlestick data
+- Supports event markers overlay
+- Synchronized with Volume and Attention charts via crosshair
+
+### VolumeChart Component (New)
+- Dedicated volume histogram chart
+- Separated from PriceChart for better visibility
+- Synchronized time scale and crosshair with PriceChart
+
+### AttentionRegimePanel Component (New)
+- Multi-symbol attention regime analysis interface
+- Displays regime statistics (avg return, win rate) across different lookahead periods
+- Supports custom parameters (lookahead days, split method)
 
 ### StatCards Components
 - **SummaryCard**: Main asset display with gradient background

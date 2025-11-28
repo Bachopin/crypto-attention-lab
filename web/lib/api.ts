@@ -418,13 +418,15 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const [priceData, attentionData, newsData] = await Promise.all([
+    const [priceData, latestPriceData, attentionData, newsData] = await Promise.all([
       fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }),
+      fetchPrice({ symbol: `${symbol}USDT`, timeframe: '15M', start: yesterday.toISOString() }),
       fetchAttention({ symbol, start: weekAgo.toISOString() }),
       fetchNews({ symbol, start: yesterday.toISOString() }),
     ]);
 
     console.log('[Summary Stats] Price data points:', priceData.length);
+    console.log('[Summary Stats] Latest price data points:', latestPriceData.length);
     console.log('[Summary Stats] Attention data points:', attentionData.length);
     console.log('[Summary Stats] News data points:', newsData.length);
 
@@ -434,15 +436,21 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
     }
 
     // Calculate stats
-    const latestPrice = priceData[priceData.length - 1];
-    const previousPrice = priceData[priceData.length - 2];
+    // Use latest 15m candle for current price if available, otherwise fallback to daily close
+    const latestCandle = latestPriceData.length > 0 ? latestPriceData[latestPriceData.length - 1] : priceData[priceData.length - 1];
+    const current_price = latestCandle?.close || 0;
     
-    const current_price = latestPrice?.close || 0;
+    // Use daily data for previous close (to calculate 24h change relative to daily open/close)
+    // Note: priceData is 1D. The last element is "today" (incomplete). The second to last is "yesterday" (complete).
+    // If we want change vs yesterday close:
+    const previousPrice = priceData.length > 1 ? priceData[priceData.length - 2] : priceData[0];
     const prev_close = previousPrice?.close || current_price;
+    
     const price_change_24h_abs = current_price - prev_close;
     const price_change_24h = prev_close !== 0 ? (price_change_24h_abs / prev_close) * 100 : 0;
     
-    const volume_24h = latestPrice?.volume || 0;
+    // For volume, use the daily volume (volume since 00:00 UTC)
+    const volume_24h = priceData[priceData.length - 1]?.volume || 0;
     
     const current_attention = attentionData[attentionData.length - 1]?.attention_score || 0;
     const avg_attention_7d = attentionData.length > 0

@@ -32,6 +32,7 @@ export default function Home() {
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D')
   const [priceData, setPriceData] = useState<PriceCandle[]>([])
+  const [overviewPriceData, setOverviewPriceData] = useState<PriceCandle[]>([])
   const [attentionData, setAttentionData] = useState<AttentionData[]>([])
   const [newsData, setNewsData] = useState<NewsItem[]>([])
   const [assetNewsData, setAssetNewsData] = useState<NewsItem[]>([])
@@ -92,8 +93,9 @@ export default function Home() {
     }
     setError(null)
     try {
-      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
+      const [price, overviewPrice, attention, news, assetNews, summary, attEvents] = await Promise.all([
         fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }),
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D', limit: 90 }),
         fetchAttention({ symbol: symbol, granularity: '1d' }),
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: symbol }),
@@ -102,6 +104,7 @@ export default function Home() {
       ])
 
       setPriceData(price)
+      setOverviewPriceData(overviewPrice)
       setAttentionData(attention)
       setNewsData(news)
       setAssetNewsData(assetNews)
@@ -130,24 +133,20 @@ export default function Home() {
   // Load data on symbol change (with loading)
   useEffect(() => {
     loadData(selectedSymbol, selectedTimeframe, true)
-  }, [selectedSymbol, selectedTimeframe, loadData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSymbol, loadData])
 
   // Update price only on timeframe change (without loading)
   useEffect(() => {
-    // Avoid running on initial mount if loadData already ran (but loadData runs on symbol change, which happens on mount)
-    // We can just run this. If it's a duplicate request, it's fine, but we want to avoid the loading screen.
-    // However, we need to make sure we don't race with loadData.
-    // Actually, when selectedSymbol changes, loadData runs.
-    // When selectedTimeframe changes, this runs.
-    // They are independent now.
     updatePriceOnly(selectedSymbol, selectedTimeframe)
   }, [selectedTimeframe, updatePriceOnly, selectedSymbol])
 
   // 静默加载数据（不显示 loading 动画）
   const loadDataSilently = useCallback(async () => {
     try {
-      const [price, attention, news, assetNews, summary, attEvents] = await Promise.all([
+      const [price, overviewPrice, attention, news, assetNews, summary, attEvents] = await Promise.all([
         fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: selectedTimeframe }),
+        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: '1D', limit: 90 }),
         fetchAttention({ symbol: selectedSymbol, granularity: '1d' }),
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: selectedSymbol }),
@@ -155,6 +154,7 @@ export default function Home() {
         fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: 30, min_quantile: 0.8 }),
       ])
       if (price.length > 0) setPriceData(price)
+      if (overviewPrice.length > 0) setOverviewPriceData(overviewPrice)
       if (attention.length > 0) setAttentionData(attention)
       if (news.length > 0) setNewsData(news)
       if (assetNews.length > 0) setAssetNewsData(assetNews)
@@ -310,6 +310,7 @@ export default function Home() {
                 summaryStats={summaryStats}
                 assetNewsData={assetNewsData}
                 priceData={priceData}
+                overviewPriceData={overviewPriceData}
                 attentionData={attentionData}
                 events={events}
                 selectedTimeframe={selectedTimeframe}
@@ -331,9 +332,12 @@ export default function Home() {
               />
 
               {/* Attention Events & Backtest */}
-              <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <AttentionEvents events={events} />
                 <BacktestPanel />
+              </section>
+              
+              <section>
                 <AttentionRegimePanel />
               </section>
             </TabsContent>

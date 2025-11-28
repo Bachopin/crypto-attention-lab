@@ -1001,6 +1001,7 @@ def disable_auto_update(
             
             if sym:
                 sym.auto_update_price = False
+                sym.is_active = False
                 disabled.append(symbol_name)
         
         session.commit()

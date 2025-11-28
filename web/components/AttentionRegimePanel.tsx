@@ -68,11 +68,11 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
 
       {data && (
         <div className="overflow-auto text-xs">
-          {Object.entries(data.results).map(([sym, symRes]) => (
+          {Object.entries(data.results).map(([sym, symRes]: [string, any]) => (
             <div key={sym} className="mb-4 rounded border bg-background p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-medium">{sym}</span>
-                {symRes.warning && <span className="text-red-500">{symRes.warning}</span>}
+                {symRes.meta?.error && <span className="text-red-500">{symRes.meta.error}</span>}
               </div>
               <table className="w-full">
                 <thead className="text-muted-foreground">
@@ -88,19 +88,22 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
                   </tr>
                 </thead>
                 <tbody>
-                  {symRes.labels.map(label => {
-                    const r = symRes.regimes[label];
+                  {symRes.regimes && symRes.regimes.map((regime: any) => {
+                    // Get sample count from the first available stats
+                    const firstStatKey = Object.keys(regime.stats)[0];
+                    const sampleCount = firstStatKey ? regime.stats[firstStatKey].sample_count : 0;
+                    
                     return (
-                      <tr key={label} className="border-t border-border/40">
-                        <td className="py-1 font-medium">{label}</td>
-                        <td className="py-1 text-right">{r?.sample_count ?? 0}</td>
+                      <tr key={regime.name} className="border-t border-border/40">
+                        <td className="py-1 font-medium">{regime.name}</td>
+                        <td className="py-1 text-right">{sampleCount}</td>
                         {data.meta.lookahead_days.map(k => {
-                          const stats = r?.[`lookahead_${k}d`];
+                          const stats = regime.stats[String(k)];
                           const v = stats?.avg_return != null ? (stats.avg_return * 100).toFixed(2) + '%' : '-';
                           return <td key={`avg-${k}`} className="py-1 text-right">{v}</td>;
                         })}
                         {data.meta.lookahead_days.map(k => {
-                          const stats = r?.[`lookahead_${k}d`];
+                          const stats = regime.stats[String(k)];
                           const v = stats?.pos_ratio != null ? (stats.pos_ratio * 100).toFixed(1) + '%' : '-';
                           return <td key={`pos-${k}`} className="py-1 text-right">{v}</td>;
                         })}

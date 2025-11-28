@@ -84,11 +84,10 @@ export default function PriceOverview({ priceData, height = 192 }: PriceOverview
   useEffect(() => {
     if (!lineSeriesRef.current) return
 
-    // Convert price data to simple line (use close price, adjust for local timezone)
-    const timezoneOffsetMinutes = new Date().getTimezoneOffset()
-    
+    // Convert price data to simple line (use close price)
+    // Lightweight charts expects UTC timestamp in seconds
     const lineData = priceData.map((d) => ({
-      time: Math.floor(d.timestamp / 1000 - timezoneOffsetMinutes * 60) as any,
+      time: Math.floor(d.timestamp / 1000) as any,
       value: d.close,
     }))
 

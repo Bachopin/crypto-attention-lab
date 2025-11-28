@@ -216,4 +216,14 @@ def analyze_attention_regimes(
             "regimes": regime_list
         }
 
-    return results
+    return {
+        "meta": {
+            "symbols": symbols,
+            "lookahead_days": lookahead_days,
+            "attention_source": attention_source,
+            "split_method": split_method,
+            "start": start.isoformat() if start else None,
+            "end": end.isoformat() if end else None,
+        },
+        "results": results
+    }
