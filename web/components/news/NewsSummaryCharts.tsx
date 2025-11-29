@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -12,15 +12,16 @@ import {
   Line,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  ReferenceLine
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { NewsItem } from '@/lib/api';
-import { format, parseISO, startOfHour, startOfDay } from 'date-fns';
+import { NewsItem, NewsTrendPoint, fetchNewsTrend } from '@/lib/api';
+import { format, parseISO, subDays, subHours } from 'date-fns';
 
 interface NewsSummaryChartsProps {
   news: NewsItem[];
-  timeRange: '24h' | '7d' | '30d';
+  timeRange: '24h' | '7d' | '14d' | '30d';
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -42,47 +43,65 @@ const LANGUAGE_MAP: Record<string, string> = {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
+  // 使用聚合 API 获取趋势数据
+  const [trendData, setTrendData] = useState<NewsTrendPoint[]>([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+
+  useEffect(() => {
+    const loadTrend = async () => {
+      setTrendLoading(true);
+      try {
+        const now = new Date();
+        let start: Date;
+        let interval: '1h' | '1d' = '1d';
+
+        if (timeRange === '24h') {
+          start = subHours(now, 24);
+          interval = '1h';
+        } else if (timeRange === '7d') {
+          start = subDays(now, 7);
+        } else if (timeRange === '14d') {
+          start = subDays(now, 14);
+        } else {
+          start = subDays(now, 30);
+        }
+
+        const data = await fetchNewsTrend({
+          symbol: 'ALL',
+          start: start.toISOString(),
+          end: now.toISOString(),
+          interval
+        });
+        setTrendData(data);
+      } catch (e) {
+        console.error('Failed to fetch news trend:', e);
+        setTrendData([]);
+      } finally {
+        setTrendLoading(false);
+      }
+    };
+    loadTrend();
+  }, [timeRange]);
+
+  // 格式化趋势数据用于图表
   const timeData = useMemo(() => {
-    if (!news.length) return [];
-
-    const grouped = new Map<string, { time: string; count: number; attention: number }>();
-
-    news.forEach(item => {
-      const date = parseISO(item.datetime);
-      let key: string;
-      let displayTime: string;
-
-      if (timeRange === '24h') {
-        const hour = startOfHour(date);
-        key = hour.toISOString();
-        displayTime = format(hour, 'HH:mm');
-      } else {
-        const day = startOfDay(date);
-        key = day.toISOString();
-        displayTime = format(day, 'MM-dd');
-      }
-
-      if (!grouped.has(key)) {
-        grouped.set(key, { time: displayTime, count: 0, attention: 0 });
-      }
-      const entry = grouped.get(key)!;
-      entry.count += 1;
-      entry.attention += (item.source_weight || 1);
-    });
-
-    // Sort by time
-    return Array.from(grouped.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(entry => entry[1]);
-  }, [news, timeRange]);
+    return trendData.map(point => ({
+      time: timeRange === '24h' 
+        ? format(parseISO(point.time), 'HH:mm')
+        : format(parseISO(point.time), 'MM-dd'),
+      count: point.count,
+      attention_score: point.attention_score,
+      z_score: point.z_score
+    }));
+  }, [trendData, timeRange]);
 
   const dateRangeLabel = useMemo(() => {
-    if (!news.length) return '';
-    const dates = news.map(n => new Date(n.datetime).getTime());
-    const min = new Date(Math.min(...dates));
-    const max = new Date(Math.max(...dates));
-    return `${format(min, 'MM-dd HH:mm')} to ${format(max, 'MM-dd HH:mm')}`;
-  }, [news]);
+    if (!trendData.length) return '';
+    const times = trendData.map(p => new Date(p.time).getTime());
+    const min = new Date(Math.min(...times));
+    const max = new Date(Math.max(...times));
+    return `${format(min, 'MM-dd')} to ${format(max, 'MM-dd')}`;
+  }, [trendData]);
 
   const sourceData = useMemo(() => {
     const counts = new Map<string, number>();
@@ -120,32 +139,46 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
       {/* Time Trend */}
       <Card className="col-span-1 md:col-span-3 lg:col-span-1">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">
+                  <CardTitle className="text-sm font-medium">
             News & Attention Trend
             {dateRangeLabel && <span className="ml-2 text-xs font-normal text-muted-foreground">({dateRangeLabel})</span>}
+            <span className="ml-2 text-xs font-normal text-muted-foreground cursor-help" title="Attention Score 基于 Z-Score 标准化(0-100)：50=平均水平，80+=高热度，20-=低热度。与回测策略信号一致。">ⓘ</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={timeData}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="time" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis yAxisId="left" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis yAxisId="right" orientation="right" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-                  itemStyle={{ color: 'hsl(var(--foreground))' }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'Attention') return [value.toFixed(2), name];
-                    return [value, name];
-                  }}
-                />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="count" stroke="#8884d8" name="News Count" dot={false} strokeWidth={2} />
-                <Line yAxisId="right" type="monotone" dataKey="attention" stroke="#82ca9d" name="Attention" dot={false} strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+            {trendLoading ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                Loading trend data...
+              </div>
+            ) : timeData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={timeData}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="time" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="left" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="right" orientation="right" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    itemStyle={{ color: 'hsl(var(--foreground))' }}
+                    formatter={(value: number, name: string) => {
+                      if (name === 'Attention Score') return [`${value.toFixed(1)} (${value >= 80 ? '🔥高' : value >= 60 ? '📈较高' : value >= 40 ? '📊正常' : '📉较低'})`, name];
+                      return [value, name];
+                    }}
+                  />
+                  <Legend />
+                  {/* 参考线：80分为高热度阈值，50分为平均线 */}
+                  <ReferenceLine yAxisId="right" y={80} stroke="#ef4444" strokeDasharray="3 3" label={{ value: '高热度', position: 'right', fontSize: 10, fill: '#ef4444' }} />
+                  <ReferenceLine yAxisId="right" y={50} stroke="#6b7280" strokeDasharray="3 3" opacity={0.5} />
+                  <Line yAxisId="left" type="monotone" dataKey="count" stroke="#8884d8" name="News Count" dot={false} strokeWidth={2} />
+                  <Line yAxisId="right" type="monotone" dataKey="attention_score" stroke="#82ca9d" name="Attention Score" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>

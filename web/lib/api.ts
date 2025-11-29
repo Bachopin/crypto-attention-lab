@@ -56,6 +56,27 @@ export interface NodeInfluenceItem {
   lookback_days: number;
 }
 
+// CoinGecko 市值排行数据
+export interface TopCoin {
+  symbol: string;
+  name: string;
+  market_cap_rank: number | null;
+  market_cap: number | null;
+  current_price: number | null;
+  price_change_24h: number | null;
+  image: string;
+  id: string;  // CoinGecko ID
+}
+
+export interface TopCoinsResponse {
+  coins: TopCoin[];
+  count: number;
+  updated_at: string;
+  cache_hit: boolean;
+  stale?: boolean;
+  error?: string;
+}
+
 /**
  * ==========================================================================
  * Regime-Driven Strategy Preset Types
@@ -407,6 +428,39 @@ export async function fetchNewsCount(params: FetchNewsParams = {}): Promise<{ to
   const { symbol = 'ALL', start, end, before, source } = params;
   const apiParams = { symbol, start, end, before, source };
   return fetchAPI<{ total: number }>('/api/news/count', apiParams);
+}
+
+// 新闻趋势数据点
+export interface NewsTrendPoint {
+  time: string;           // 时间标识，如 "2025-11-28" 或 "2025-11-28T14:00:00Z"
+  count: number;          // 新闻数量
+  attention: number;      // 加权注意力（source_weight 总和）
+  attention_score: number; // 基于 Z-Score 的标准化分数 (0-100)
+  z_score: number;        // 原始 Z-Score
+  avg_sentiment: number;  // 平均情绪
+}
+
+/**
+ * Fetch aggregated news trend data
+ * GET /api/news/trend?symbol=ALL&start=...&end=...&interval=1d
+ */
+export async function fetchNewsTrend(params: { 
+  symbol?: string; 
+  start?: string; 
+  end?: string; 
+  interval?: '1h' | '1d';
+} = {}): Promise<NewsTrendPoint[]> {
+  const { symbol = 'ALL', start, end, interval = '1d' } = params;
+  const apiParams = { symbol, start, end, interval };
+  return fetchAPI<NewsTrendPoint[]>('/api/news/trend', apiParams);
+}
+
+/**
+ * Fetch top coins by market cap from CoinGecko
+ * GET /api/top-coins?limit=100
+ */
+export async function fetchTopCoins(limit: number = 100): Promise<TopCoinsResponse> {
+  return fetchAPI<TopCoinsResponse>('/api/top-coins', { limit });
 }
 
 // ==================== New API: Events & Backtest ====================

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   // --- Radar State ---
-  const [newsRange, setNewsRange] = useState<'24h' | '7d' | '30d'>('7d');
+  const [newsRange, setNewsRange] = useState<'24h' | '7d' | '14d' | '30d'>('14d');
   const [newsSymbolFilter, setNewsSymbolFilter] = useState<string>('ALL');
   const [radarNews, setRadarNews] = useState<NewsItem[]>([]);
   const [radarLoading, setRadarLoading] = useState(false);
@@ -38,6 +38,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
         } else if (newsRange === '7d') {
           start.setDate(now.getDate() - 7);
           start.setHours(0, 0, 0, 0); // Align to start of day for cleaner charts
+        } else if (newsRange === '14d') {
+          start.setDate(now.getDate() - 14);
+          start.setHours(0, 0, 0, 0); // Align to start of day
         } else if (newsRange === '30d') {
           start.setDate(now.getDate() - 30);
           start.setHours(0, 0, 0, 0); // Align to start of day
@@ -67,6 +70,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
       start.setHours(now.getHours() - 24);
     } else if (newsRange === '7d') {
       start.setDate(now.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+    } else if (newsRange === '14d') {
+      start.setDate(now.getDate() - 14);
       start.setHours(0, 0, 0, 0);
     } else if (newsRange === '30d') {
       start.setDate(now.getDate() - 30);
@@ -198,6 +204,7 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
             <SelectContent>
               <SelectItem value="24h">24 Hours</SelectItem>
               <SelectItem value="7d">7 Days</SelectItem>
+              <SelectItem value="14d">14 Days</SelectItem>
               <SelectItem value="30d">30 Days</SelectItem>
             </SelectContent>
            </Select>

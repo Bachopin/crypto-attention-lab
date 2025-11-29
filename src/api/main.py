@@ -583,6 +583,113 @@ def get_news_count(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== 新闻趋势聚合 API ====================
+
+@app.get("/api/news/trend")
+def get_news_trend(
+    symbol: str = Query(default="ALL", description="标的符号，如 ZEC，或 ALL 获取所有"),
+    start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    interval: str = Query(default="1d", description="聚合间隔: 1h（小时）或 1d（天）")
+):
+    """
+    获取新闻趋势聚合数据 - 按时间间隔统计新闻数量和注意力
+    
+    返回格式:
+    [
+        {
+            "time": "2025-11-28",
+            "count": 650,
+            "attention": 1250.5,
+            "avg_sentiment": 0.15
+        }
+    ]
+    """
+    try:
+        start_dt = None
+        end_dt = None
+        
+        if start:
+            try:
+                start_dt = pd.to_datetime(start, utc=True)
+                if start_dt.year < 2009:
+                    raise ValueError(f"Start time {start_dt} is too early")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid start time format: {e}")
+        
+        if end:
+            try:
+                end_dt = pd.to_datetime(end, utc=True)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
+        
+        # 加载新闻数据（无 limit，获取全部）
+        df = load_news_data(symbol, start_dt, end_dt, limit=None)
+        
+        if df.empty:
+            return []
+        
+        # 确保 datetime 列为 datetime 类型
+        df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+        
+        # 按时间间隔分组
+        if interval == '1h':
+            df['time_bucket'] = df['datetime'].dt.floor('h')
+            time_format = '%Y-%m-%dT%H:00:00Z'
+        else:  # 默认按天
+            df['time_bucket'] = df['datetime'].dt.floor('D')
+            time_format = '%Y-%m-%d'
+        
+        # 确保 source_weight 和 sentiment_score 为数值
+        df['source_weight'] = pd.to_numeric(df.get('source_weight', 1), errors='coerce').fillna(1)
+        df['sentiment_score'] = pd.to_numeric(df.get('sentiment_score', 0), errors='coerce').fillna(0)
+        
+        # 聚合统计
+        agg_df = df.groupby('time_bucket').agg(
+            count=('datetime', 'count'),
+            attention=('source_weight', 'sum'),
+            avg_sentiment=('sentiment_score', 'mean')
+        ).reset_index()
+        
+        # 排序
+        agg_df = agg_df.sort_values('time_bucket')
+        
+        # 计算 Z-Score 并转换为 0-100 分数
+        # 使用全量数据的均值和标准差（更稳定）
+        mean_attention = agg_df['attention'].mean()
+        std_attention = agg_df['attention'].std()
+        
+        # 避免除零
+        if std_attention == 0 or pd.isna(std_attention):
+            std_attention = 1
+        
+        # Z-Score 转换为 0-100 分数
+        # Z=0 → 50分, Z=2 → 80分, Z=-2 → 20分
+        agg_df['z_score'] = (agg_df['attention'] - mean_attention) / std_attention
+        agg_df['attention_score'] = (50 + agg_df['z_score'] * 15).clip(0, 100)
+        
+        # 转换为结果列表
+        result = []
+        for _, row in agg_df.iterrows():
+            result.append({
+                "time": row['time_bucket'].strftime(time_format),
+                "count": int(row['count']),
+                "attention": round(float(row['attention']), 2),
+                "attention_score": round(float(row['attention_score']), 1),
+                "z_score": round(float(row['z_score']), 2),
+                "avg_sentiment": round(float(row['avg_sentiment']), 4)
+            })
+        
+        logger.info(f"Returned {len(result)} trend data points for {symbol}")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_news_trend: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== 根路径 ====================
 
 @app.get("/")
@@ -634,6 +741,122 @@ def get_symbols():
         }
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== CoinGecko 市值排行 API ====================
+
+import requests as http_requests
+import time
+
+# 缓存 CoinGecko 市值前100数据（每小时更新一次）
+_top_coins_cache = {
+    "data": [],
+    "timestamp": 0,
+    "ttl": 3600  # 1 hour cache
+}
+
+@app.get("/api/top-coins")
+def get_top_coins(
+    limit: int = Query(100, ge=1, le=250, description="返回的币种数量，最大250"),
+    vs_currency: str = Query("usd", description="计价货币")
+):
+    """
+    获取 CoinGecko 市值排名前 N 的币种列表
+    
+    返回格式:
+    {
+        "coins": [
+            {
+                "symbol": "BTC",
+                "name": "Bitcoin",
+                "market_cap_rank": 1,
+                "market_cap": 1234567890,
+                "current_price": 45000.0,
+                "price_change_24h": 2.5,
+                "image": "https://..."
+            },
+            ...
+        ],
+        "count": 100,
+        "updated_at": "2025-11-29T12:00:00Z",
+        "cache_hit": true
+    }
+    
+    注意：数据每小时缓存一次以避免 API 限流
+    """
+    global _top_coins_cache
+    
+    try:
+        now = time.time()
+        
+        # 检查缓存是否有效
+        if _top_coins_cache["data"] and (now - _top_coins_cache["timestamp"]) < _top_coins_cache["ttl"]:
+            cached_data = _top_coins_cache["data"][:limit]
+            return {
+                "coins": cached_data,
+                "count": len(cached_data),
+                "updated_at": datetime.fromtimestamp(_top_coins_cache["timestamp"]).isoformat(),
+                "cache_hit": True
+            }
+        
+        # 从 CoinGecko 获取数据
+        url = "https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            "vs_currency": vs_currency,
+            "order": "market_cap_desc",
+            "per_page": 250,  # 获取更多以便缓存
+            "page": 1,
+            "sparkline": False,
+            "price_change_percentage": "24h"
+        }
+        
+        resp = http_requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # 处理数据
+        coins = []
+        for coin in data:
+            coins.append({
+                "symbol": coin.get("symbol", "").upper(),
+                "name": coin.get("name", ""),
+                "market_cap_rank": coin.get("market_cap_rank"),
+                "market_cap": coin.get("market_cap"),
+                "current_price": coin.get("current_price"),
+                "price_change_24h": coin.get("price_change_percentage_24h"),
+                "image": coin.get("image"),
+                "id": coin.get("id")  # CoinGecko ID, 用于详细查询
+            })
+        
+        # 更新缓存
+        _top_coins_cache["data"] = coins
+        _top_coins_cache["timestamp"] = now
+        
+        result_coins = coins[:limit]
+        return {
+            "coins": result_coins,
+            "count": len(result_coins),
+            "updated_at": datetime.fromtimestamp(now).isoformat(),
+            "cache_hit": False
+        }
+        
+    except http_requests.exceptions.RequestException as e:
+        logger.error(f"CoinGecko API request failed: {e}")
+        # 如果有缓存数据，返回缓存（即使过期）
+        if _top_coins_cache["data"]:
+            cached_data = _top_coins_cache["data"][:limit]
+            return {
+                "coins": cached_data,
+                "count": len(cached_data),
+                "updated_at": datetime.fromtimestamp(_top_coins_cache["timestamp"]).isoformat(),
+                "cache_hit": True,
+                "stale": True,
+                "error": str(e)
+            }
+        raise HTTPException(status_code=503, detail=f"CoinGecko API unavailable: {e}")
+    except Exception as e:
+        logger.error(f"Error fetching top coins: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

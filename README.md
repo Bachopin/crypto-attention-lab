@@ -162,6 +162,13 @@ npm run dev
 - ✅ **GET /api/news/count** - 获取新闻总数
   - 参数: `symbol`, `start`, `end`, `source`
   - 返回: `{ total: number }`
+- ✅ **GET /api/news/trend** - 获取新闻趋势聚合数据 🆕
+  - 参数: `symbol`, `start`, `end`, `interval` (1h/1d)
+  - 返回: `[{ time, count, attention, attention_score, z_score, avg_sentiment }]`
+  - 说明: 使用 Z-Score 标准化的 Attention Score (0-100)，与回测策略信号一致
+- ✅ **GET /api/top-coins** - 获取 CoinGecko 市值前 N 的代币 🆕
+  - 参数: `limit` (默认 100)
+  - 返回: `{ coins: [...], count, updated_at, cache_hit }`
 - ✅ **GET /api/attention-events** - 获取注意力事件
   - 参数: `symbol`, `start`, `end`, `lookback_days`, `min_quantile`
   - 返回: `[{ datetime, event_type, intensity, summary }]`
@@ -210,7 +217,10 @@ npm run dev
   - 提供基于历史数据的客观参考，辅助判断当前市场所处阶段
 - ✅ **News & Attention Radar (新闻雷达)** (新增)
   - 多维度新闻统计图表（时间分布、来源分布、语言分布）
-  - 实时代币热度热力表 (Heatmap)
+  - **Attention Score 基于 Z-Score 标准化 (0-100)**，与回测策略信号一致 🆕
+    - 50 = 平均水平, 80+ = 高热度 (Z > 2), 20- = 低热度
+  - 支持 24h/7d/14d/30d 时间范围，数据与图表同步
+  - 实时代币热度热力表 (Heatmap)，支持 CoinGecko Top 100 动态列表
   - 交互式新闻筛选与搜索
 - ✅ **Settings & Preferences (系统设置)** (新增)
   - 全局配置管理（默认时间周期、注意力源、分析窗口）
@@ -555,15 +565,18 @@ export http_proxy=http://127.0.0.1:7890
 - [x] 专业级 Next.js 前端
 - [x] FastAPI 后端实现
 - [x] 前后端完整集成
-- [x] 多维注意力特征工程 🆕
-- [x] 注意力事件检测 🆕
-- [x] 基础注意力策略回测 🆕
-- [x] 数据库存储（SQLite + 多币种支持）🆕
-- [x] 前端事件可视化与交互式回测 🆕
-- [x] 高级回测框架（止损/止盈/仓位管理）🆕
-- [x] 多币种对比分析 🆕
-- [x] 相似状态分析 (Scenario Analysis) 🆕
-- [x] WebSocket 实时数据流 🆕
+- [x] 多维注意力特征工程
+- [x] 注意力事件检测
+- [x] 基础注意力策略回测
+- [x] 数据库存储（SQLite + 多币种支持）
+- [x] 前端事件可视化与交互式回测
+- [x] 高级回测框架（止损/止盈/仓位管理）
+- [x] 多币种对比分析
+- [x] 相似状态分析 (Scenario Analysis)
+- [x] WebSocket 实时数据流
+- [x] **Z-Score 标准化 Attention Score** 🆕 - 统一 News Radar 与回测策略的信号计算
+- [x] **CoinGecko Top 100 动态代币列表** 🆕
+- [x] **测试优化与内存泄漏修复** 🆕
 - [ ] 机器学习预测模型集成
 - [ ] 用户认证与个人策略保存
 - [ ] 实盘信号推送

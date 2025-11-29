@@ -214,9 +214,9 @@ App (page.tsx)
 - [x] 外链安全 (noopener noreferrer)
 
 ### 待增强 (可选)
-- [ ] 骨架屏加载动画
-- [ ] 错误边界组件
-- [ ] 图表数据缓存
+- [x] 骨架屏加载动画 ✅ (app/page.tsx - animate-pulse 骨架屏)
+- [x] 错误边界组件 ✅ (components/ErrorBoundary.tsx)
+- [x] 图表数据缓存 ✅ (lib/api.ts - 30秒 TTL 内存缓存)
 - [x] WebSocket 实时更新 ✅ (已实现 /ws/price 和 /ws/attention)
 - [ ] 用户偏好保存 (LocalStorage)
 - [ ] 多语言支持 (i18n)

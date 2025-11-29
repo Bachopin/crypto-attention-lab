@@ -9,8 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, RefreshCw, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, RefreshCw, Activity, Info } from 'lucide-react';
 import ScenarioPanel from '@/components/ScenarioPanel';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type Props = {
   defaultSymbol?: string;
@@ -38,6 +44,8 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   const { settings } = useSettings();
   const [primarySymbol, setPrimarySymbol] = useState<string>(defaultSymbol);
   const [compareSymbolsInput, setCompareSymbolsInput] = useState<string>('BTC, ETH, SOL');
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [loadingSymbols, setLoadingSymbols] = useState(true);
   
   // Map global timeframe to local supported timeframe
   const initialTimeframe = settings.defaultTimeframe.toLowerCase();
@@ -51,11 +59,49 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   const [loadingCompare, setLoadingCompare] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
 
+  // 获取自动更新的代币列表
+  useEffect(() => {
+    const fetchSymbols = async () => {
+      setLoadingSymbols(true);
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`);
+        const data = await response.json();
+        if (data.symbols && data.symbols.length > 0) {
+          setAvailableSymbols(data.symbols);
+          // 如果当前选中的不在列表中，自动切换到第一个
+          if (!data.symbols.includes(primarySymbol)) {
+            setPrimarySymbol(data.symbols[0]);
+          }
+          // 更新对比列表只包含可用的代币（排除主代币）
+          const defaultCompare = data.symbols
+            .filter((s: string) => s !== primarySymbol)
+            .slice(0, 3);
+          if (defaultCompare.length > 0) {
+            setCompareSymbolsInput(defaultCompare.join(', '));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch symbols:', e);
+      } finally {
+        setLoadingSymbols(false);
+      }
+    };
+    fetchSymbols();
+  }, []);
+
   // Primary symbol data is handled by ScenarioPanel, but we need to handle comparison here
 
   async function handleLoadCompare() {
-    const symbols = compareSymbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
-    if (symbols.length === 0) return;
+    // 过滤只使用可用的代币
+    const symbols = compareSymbolsInput
+      .split(',')
+      .map(s => s.trim().toUpperCase())
+      .filter(s => s.length > 0 && availableSymbols.includes(s));
+    
+    if (symbols.length === 0) {
+      setCompareError('请输入有效的代币符号（仅支持已启用自动更新的代币）');
+      return;
+    }
 
     setLoadingCompare(true);
     setCompareError(null);
@@ -111,13 +157,37 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="primarySymbol">主分析代币</Label>
-                <Input 
-                  id="primarySymbol" 
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="primarySymbol">主分析代币</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p>仅支持已启用自动更新的代币，确保数据完整性</p>
+                        <p className="text-xs mt-1 text-muted-foreground">如需添加新代币，请前往&ldquo;系统设置&rdquo;页面启用</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Select 
                   value={primarySymbol} 
-                  onChange={(e) => setPrimarySymbol(e.target.value.toUpperCase())} 
-                  placeholder="e.g. ZEC"
-                />
+                  onValueChange={(v) => setPrimarySymbol(v)}
+                  disabled={loadingSymbols || availableSymbols.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingSymbols ? "加载中..." : "选择代币"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSymbols.map((sym) => (
+                      <SelectItem key={sym} value={sym}>{sym}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {availableSymbols.length === 0 && !loadingSymbols && (
+                  <p className="text-xs text-muted-foreground">暂无可用代币，请在系统设置中启用</p>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -181,19 +251,26 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
         <CardHeader className="flex flex-row items-center justify-between">
           <div className="space-y-1">
             <CardTitle>多标情景对比</CardTitle>
-            <CardDescription>对比不同代币在当前参数下的情景特征</CardDescription>
+            <CardDescription>
+              对比不同代币在当前参数下的情景特征
+              {availableSymbols.length > 0 && (
+                <span className="ml-2 text-xs">
+                  可用: {availableSymbols.join(', ')}
+                </span>
+              )}
+            </CardDescription>
           </div>
           <div className="flex items-center gap-2">
              <Input 
                 className="w-64"
                 value={compareSymbolsInput}
                 onChange={(e) => setCompareSymbolsInput(e.target.value)}
-                placeholder="BTC, ETH, SOL..."
+                placeholder={availableSymbols.slice(0, 3).join(', ') || "BTC, ETH, SOL..."}
              />
             <Button
               onClick={handleLoadCompare}
               size="sm"
-              disabled={loadingCompare}
+              disabled={loadingCompare || availableSymbols.length === 0}
               className="gap-2"
             >
               <RefreshCw className={`w-4 h-4 ${loadingCompare ? 'animate-spin' : ''}`} />

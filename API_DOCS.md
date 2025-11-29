@@ -426,6 +426,117 @@ curl "http://localhost:8000/api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2
 
 ---
 
+### 5.1 News Trend (Aggregated)
+
+#### `GET /api/news/trend`
+
+获取新闻趋势聚合数据，按时间间隔统计新闻数量和 Attention Score。
+
+**Query Parameters:**
+
+| Parameter  | Type   | Required | Default | Description                        |
+|------------|--------|----------|---------|------------------------------------|
+| `symbol`   | string | No       | ALL     | 币种符号 (e.g., ZEC, BTC, ALL)     |
+| `start`    | string | No       | -       | 开始时间 (ISO 8601 格式)           |
+| `end`      | string | No       | -       | 结束时间 (ISO 8601 格式)           |
+| `interval` | string | No       | 1d      | 聚合间隔: `1h` (小时) 或 `1d` (天) |
+
+**Example Request:**
+```bash
+curl "http://localhost:8000/api/news/trend?symbol=ALL&start=2025-11-15T00:00:00Z&interval=1d"
+```
+
+**Response:**
+```json
+[
+  {
+    "time": "2025-11-27",
+    "count": 942,
+    "attention": 476.9,
+    "attention_score": 81.5,
+    "z_score": 2.1,
+    "avg_sentiment": 0.05
+  },
+  {
+    "time": "2025-11-28",
+    "count": 1023,
+    "attention": 517.6,
+    "attention_score": 85.1,
+    "z_score": 2.34,
+    "avg_sentiment": 0.02
+  }
+]
+```
+
+**Response Fields:**
+
+| Field             | Type   | Description                                          |
+|-------------------|--------|------------------------------------------------------|
+| `time`            | string | 时间标识 (格式: YYYY-MM-DD 或 ISO 8601)              |
+| `count`           | int    | 该时间段内的新闻数量                                 |
+| `attention`       | float  | 原始加权 Attention (Σ source_weight)                 |
+| `attention_score` | float  | **Z-Score 标准化后的分数 (0-100)**                   |
+| `z_score`         | float  | 原始 Z-Score 值                                      |
+| `avg_sentiment`   | float  | 平均情绪分数 (-1 to 1)                               |
+
+**Attention Score 说明:**
+
+Attention Score 基于 Z-Score 标准化，计算公式：
+
+```
+attention_score = 50 + z_score * 15
+```
+
+| 分数范围 | Z-Score | 含义            |
+|----------|---------|-----------------|
+| 80-100   | > 2.0   | 🔥 高热度       |
+| 60-80    | 0.67-2  | 📈 较高         |
+| 40-60    | ±0.67   | 📊 正常水平     |
+| 20-40    | -2 to -0.67 | 📉 较低     |
+| 0-20     | < -2    | 🧊 异常冷清     |
+
+---
+
+### 5.2 Top Coins by Market Cap
+
+#### `GET /api/top-coins`
+
+获取 CoinGecko 市值排行前 N 的代币列表（带 1 小时缓存）。
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description          |
+|-----------|------|----------|---------|----------------------|
+| `limit`   | int  | No       | 100     | 返回代币数量 (1-250) |
+
+**Example Request:**
+```bash
+curl "http://localhost:8000/api/top-coins?limit=100"
+```
+
+**Response:**
+```json
+{
+  "coins": [
+    {
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "market_cap_rank": 1,
+      "market_cap": 1850000000000,
+      "current_price": 95000,
+      "price_change_24h": 2.5,
+      "image": "https://...",
+      "id": "bitcoin"
+    }
+  ],
+  "count": 100,
+  "updated_at": "2025-11-29T12:00:00Z",
+  "cache_hit": true
+}
+```
+
+---
+
 ### 6. Attention Events
 
 #### `GET /api/attention-events`
