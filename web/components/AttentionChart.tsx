@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, Range, Time } from 'lightweight-charts'
 import type { AttentionData } from '@/lib/api'
 
@@ -164,18 +164,20 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       }
     }, [height]) // 只依赖 height，回调通过 ref 处理
 
+    // Memoize data transformation
+    const attentionChartData = useMemo(() => {
+      return attentionData.map((d) => ({
+        time: Math.floor(d.timestamp / 1000) as any,
+        value: (d.composite_attention_score ?? d.attention_score ?? 0),
+      }))
+    }, [attentionData])
+
     // Update data
     useEffect(() => {
       if (isDisposedRef.current) return
       if (!lineSeriesRef.current || !chartRef.current) return
 
       try {
-        // Use UTC timestamps (seconds); prefer composite score
-        const attentionChartData = attentionData.map((d) => ({
-          time: Math.floor(d.timestamp / 1000) as any,
-          value: (d.composite_attention_score ?? d.attention_score ?? 0),
-        }))
-
         lineSeriesRef.current.setData(attentionChartData)
 
         // Fit content - 只有在有数据时才执行
@@ -185,7 +187,7 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       } catch (err) {
         // Chart may be disposed, ignore
       }
-    }, [attentionData])
+    }, [attentionChartData])
 
     return (
       <div className="relative w-full">

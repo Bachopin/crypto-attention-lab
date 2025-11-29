@@ -1,18 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import PriceChart, { PriceChartRef } from '@/components/PriceChart'
 import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
-import AttentionEvents from '@/components/AttentionEvents'
-import BacktestPanel from '@/components/BacktestPanel'
-import AttentionRegimePanel from '@/components/AttentionRegimePanel'
-import { ScenarioTab } from '@/components/tabs/ScenarioTab'
 import DashboardTab from '@/components/tabs/DashboardTab'
-import MarketOverviewTab from '@/components/tabs/MarketOverviewTab'
-import NewsTab from '@/components/tabs/NewsTab'
-import SettingsTab from '@/components/tabs/SettingsTab'
 import {
   fetchPrice,
   fetchAttention,
@@ -30,6 +23,25 @@ import { Range, Time } from 'lightweight-charts'
 import Link from 'next/link'
 
 import { SettingsProvider, useSettings } from '@/components/SettingsProvider'
+
+// 懒加载非首屏组件
+const MarketOverviewTab = lazy(() => import('@/components/tabs/MarketOverviewTab'))
+const NewsTab = lazy(() => import('@/components/tabs/NewsTab'))
+const SettingsTab = lazy(() => import('@/components/tabs/SettingsTab'))
+const ScenarioTab = lazy(() => import('@/components/tabs/ScenarioTab'))
+const BacktestPanel = lazy(() => import('@/components/BacktestPanel'))
+const AttentionRegimePanel = lazy(() => import('@/components/AttentionRegimePanel'))
+const AttentionEvents = lazy(() => import('@/components/AttentionEvents'))
+
+// 加载占位符
+function TabLoading() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      <div className="h-8 bg-muted/50 rounded w-1/4" />
+      <div className="h-[300px] bg-muted/50 rounded" />
+    </div>
+  )
+}
 
 export default function Page() {
   return (
@@ -299,9 +311,11 @@ function Home() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6 space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* 市场概况 - 独立加载，不依赖主页面数据 */}
+          {/* 市场概况 - 懒加载 */}
           <TabsContent value="overview" className="mt-0 space-y-6">
-            <MarketOverviewTab />
+            <Suspense fallback={<TabLoading />}>
+              <MarketOverviewTab />
+            </Suspense>
           </TabsContent>
 
           {/* 代币看板 - 需要等待数据加载 */}
@@ -381,32 +395,44 @@ function Home() {
                   onCrosshairMove={handleCrosshairMove}
                 />
 
-                {/* Attention Events & Backtest */}
+                {/* Attention Events & Backtest - 懒加载 */}
                 <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <AttentionEvents events={events} />
-                  <BacktestPanel />
+                  <Suspense fallback={<div className="h-[200px] bg-muted/50 rounded animate-pulse" />}>
+                    <AttentionEvents events={events} />
+                  </Suspense>
+                  <Suspense fallback={<div className="h-[200px] bg-muted/50 rounded animate-pulse" />}>
+                    <BacktestPanel />
+                  </Suspense>
                 </section>
                 
                 <section>
-                  <AttentionRegimePanel />
+                  <Suspense fallback={<div className="h-[300px] bg-muted/50 rounded animate-pulse" />}>
+                    <AttentionRegimePanel />
+                  </Suspense>
                 </section>
               </>
             )}
           </TabsContent>
 
-          {/* 情景分析 */}
+          {/* 情景分析 - 懒加载 */}
           <TabsContent value="scenario" className="mt-0 space-y-6">
-            <ScenarioTab defaultSymbol={selectedSymbol} />
+            <Suspense fallback={<TabLoading />}>
+              <ScenarioTab defaultSymbol={selectedSymbol} />
+            </Suspense>
           </TabsContent>
 
-          {/* 新闻概览 */}
+          {/* 新闻概览 - 懒加载 */}
           <TabsContent value="news" className="mt-0 space-y-6">
-            <NewsTab news={newsData} />
+            <Suspense fallback={<TabLoading />}>
+              <NewsTab news={newsData} />
+            </Suspense>
           </TabsContent>
 
-          {/* 系统设置 */}
+          {/* 系统设置 - 懒加载 */}
           <TabsContent value="settings" className="mt-0 space-y-6">
-            <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
+            <Suspense fallback={<TabLoading />}>
+              <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
+            </Suspense>
           </TabsContent>
         </Tabs>
       </main>

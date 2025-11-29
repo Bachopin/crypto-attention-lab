@@ -222,6 +222,47 @@ const TIMEFRAME_MAP: Record<Timeframe, string> = {
   '15M': '15m',
 };
 
+// ==================== Request Cache ====================
+
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+// 简单的内存缓存，TTL 30秒（适合实时数据）
+const requestCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
+function getCacheKey(endpoint: string, params: Record<string, any>): string {
+  return `${endpoint}:${JSON.stringify(params)}`;
+}
+
+function getFromCache<T>(key: string): T | null {
+  const entry = requestCache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.data as T;
+  }
+  // 清除过期缓存
+  if (entry) {
+    requestCache.delete(key);
+  }
+  return null;
+}
+
+function setToCache<T>(key: string, data: T): void {
+  // 限制缓存大小，防止内存泄漏
+  if (requestCache.size > 100) {
+    const firstKey = requestCache.keys().next().value;
+    if (firstKey) requestCache.delete(firstKey);
+  }
+  requestCache.set(key, { data, timestamp: Date.now() });
+}
+
+// 清除所有缓存（用于强制刷新）
+export function clearApiCache(): void {
+  requestCache.clear();
+}
+
 // ==================== Helper Functions ====================
 
 function buildQueryString(params: Record<string, any>): string {
@@ -237,7 +278,17 @@ function buildQueryString(params: Record<string, any>): string {
   return queryString ? `?${queryString}` : '';
 }
 
-async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
+async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, useCache = true): Promise<T> {
+  const cacheKey = getCacheKey(endpoint, params);
+  
+  // 检查缓存
+  if (useCache) {
+    const cached = getFromCache<T>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
+  }
+  
   const url = `${API_BASE_URL}${endpoint}${buildQueryString(params)}`;
   
   try {
@@ -248,7 +299,14 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}): 
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
     
-    return await response.json();
+    const data = await response.json();
+    
+    // 缓存成功的响应
+    if (useCache) {
+      setToCache(cacheKey, data);
+    }
+    
+    return data;
   } catch (error) {
     console.error(`API request failed: ${url}`, error);
     throw error;

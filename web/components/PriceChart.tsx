@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo } from 'react'
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState, useMemo, useCallback } from 'react'
 import { createChart, ColorType, IChartApi, ISeriesApi, Range, Time } from 'lightweight-charts'
 import type { PriceCandle, AttentionEvent } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -208,87 +208,86 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     }
   }, [volumeRatio])
 
+  // Memoize data transformations to avoid recalculating on every render
+  const { candleData, volumeData } = useMemo(() => {
+    const candles = priceData.map((d) => ({
+      time: Math.floor(d.timestamp / 1000) as any,
+      open: d.open,
+      high: d.high,
+      low: d.low,
+      close: d.close,
+    }))
+
+    const volumes = priceData.map((d) => ({
+      time: Math.floor(d.timestamp / 1000) as any,
+      value: d.volume,
+      color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
+    }))
+
+    return { candleData: candles, volumeData: volumes }
+  }, [priceData])
+
+  // Memoize event markers
+  const eventMarkers = useMemo(() => {
+    if (!showEventMarkers || !events || events.length === 0) return []
+    
+    return events.map((e) => {
+      const dt = new Date(e.datetime)
+      const time = Math.floor(dt.getTime() / 1000) as any
+      let position: 'aboveBar' | 'belowBar' = 'aboveBar'
+      let color = '#f59e0b'
+      let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
+      let text = 'E'
+
+      switch (e.event_type) {
+        case 'high_bullish':
+          position = 'aboveBar'
+          color = '#22c55e'
+          shape = 'arrowUp'
+          text = 'Bull'
+          break
+        case 'high_bearish':
+          position = 'belowBar'
+          color = '#ef4444'
+          shape = 'arrowDown'
+          text = 'Bear'
+          break
+        case 'high_weighted_event':
+          position = 'aboveBar'
+          color = '#3b82f6'
+          shape = 'circle'
+          text = 'Wt'
+          break
+        case 'attention_spike':
+          position = 'aboveBar'
+          color = '#f59e0b'
+          shape = 'circle'
+          text = 'Spike'
+          break
+        case 'event_intensity':
+          position = 'aboveBar'
+          color = '#eab308'
+          shape = 'circle'
+          text = 'Evt'
+          break
+      }
+
+      return { time, position, color, shape, text } as any
+    })
+  }, [events, showEventMarkers])
+
   // Update data & markers
   useEffect(() => {
     if (isDisposedRef.current) return
     if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
     try {
-      // Use UTC timestamps (seconds) - Chart library handles local time conversion by default
-      const candleData = priceData.map((d) => ({
-        time: Math.floor(d.timestamp / 1000) as any,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close,
-      }))
-
-      const volumeData = priceData.map((d) => ({
-        time: Math.floor(d.timestamp / 1000) as any,
-        value: d.volume,
-        color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
-      }))
-
       candlestickSeriesRef.current.setData(candleData)
       volumeSeriesRef.current.setData(volumeData)
 
-      // Set event markers on candles
+      // Set event markers
       if (candlestickSeriesRef.current) {
-        if (showEventMarkers && events && events.length > 0) {
-          const markers = events.map((e) => {
-            const dt = new Date(e.datetime)
-            const time = Math.floor(dt.getTime() / 1000) as any
-            // Map event type to style
-            let position: 'aboveBar' | 'belowBar' = 'aboveBar'
-            let color = '#f59e0b' // amber for generic
-            let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
-            let text = 'E'
-
-            switch (e.event_type) {
-              case 'high_bullish':
-                position = 'aboveBar'
-                color = '#22c55e'
-                shape = 'arrowUp'
-                text = 'Bull'
-                break
-              case 'high_bearish':
-                position = 'belowBar'
-                color = '#ef4444'
-                shape = 'arrowDown'
-                text = 'Bear'
-                break
-              case 'high_weighted_event':
-                position = 'aboveBar'
-                color = '#3b82f6'
-                shape = 'circle'
-                text = 'Wt'
-                break
-              case 'attention_spike':
-                position = 'aboveBar'
-                color = '#f59e0b'
-                shape = 'circle'
-                text = 'Spike'
-                break
-              case 'event_intensity':
-                position = 'aboveBar'
-                color = '#eab308'
-                shape = 'circle'
-                text = 'Evt'
-                break
-            }
-
-            return {
-              time,
-              position,
-              color,
-              shape,
-              text,
-            } as any
-          })
-          candlestickSeriesRef.current.setMarkers(markers)
-        } else {
-          candlestickSeriesRef.current.setMarkers([])
-        }
+        candlestickSeriesRef.current.setMarkers(eventMarkers)
       }
 
       // Fit content - 只有在有数据时才执行
@@ -298,7 +297,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     } catch (err) {
       // Chart may be disposed, ignore
     }
-  }, [priceData, events, showEventMarkers])
+  }, [candleData, volumeData, eventMarkers])
 
   return (
     <div className="relative w-full">

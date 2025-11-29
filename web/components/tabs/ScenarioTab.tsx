@@ -272,7 +272,7 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              输入代币列表并点击“运行对比”以查看多标的分析结果
+              输入代币列表并点击&ldquo;运行对比&rdquo;以查看多标的分析结果
             </div>
           )}
         </CardContent>
@@ -280,3 +280,6 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
     </div>
   );
 }
+
+// 默认导出，支持懒加载
+export default ScenarioTab;
