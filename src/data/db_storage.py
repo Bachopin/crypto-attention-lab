@@ -22,6 +22,35 @@ logger = logging.getLogger(__name__)
 USE_DATABASE = True  # 设为 False 将回退到 CSV 模式
 DISABLE_CSV_FALLBACK = os.getenv("DISABLE_CSV_FALLBACK", "false").lower() == "true"
 
+# 代币符号到全名的映射，用于新闻搜索时扩展匹配
+# 这样搜索 "ZEC" 时也会匹配包含 "Zcash" 的新闻
+SYMBOL_NAME_MAP = {
+    "ZEC": ["Zcash"],
+    "BTC": ["Bitcoin"],
+    "ETH": ["Ethereum"],
+    "SOL": ["Solana"],
+    "BNB": ["Binance Coin", "BNB Chain"],
+    "XRP": ["Ripple"],
+    "ADA": ["Cardano"],
+    "AVAX": ["Avalanche"],
+    "DOGE": ["Dogecoin"],
+    "DOT": ["Polkadot"],
+    "MATIC": ["Polygon"],
+    "LTC": ["Litecoin"],
+    "SHIB": ["Shiba Inu"],
+    "UNI": ["Uniswap"],
+    "ATOM": ["Cosmos"],
+    "LINK": ["Chainlink"],
+    "XMR": ["Monero"],
+    "NEAR": ["NEAR Protocol"],
+    "APT": ["Aptos"],
+    "ARB": ["Arbitrum"],
+    "OP": ["Optimism"],
+    "SUI": ["Sui"],
+    "PEPE": ["Pepe"],
+    "INJ": ["Injective"],
+}
+
 
 class DatabaseStorage:
     """数据库存储后端"""
@@ -148,16 +177,43 @@ class DatabaseStorage:
         symbols: List[str] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        search_title: bool = True
     ) -> pd.DataFrame:
-        """查询新闻数据"""
+        """
+        查询新闻数据
+        
+        Args:
+            symbols: 要过滤的代币列表，如 ['ZEC', 'BTC']
+            start: 开始时间
+            end: 结束时间
+            limit: 返回数量限制
+            search_title: 是否同时搜索标题文本（默认 True）
+                         这对于新代币很重要，因为它们可能不在预定义的 symbols 检测列表中
+        """
         session = get_session(self.news_engine)
         try:
             query = session.query(News)
             
             if symbols:
-                # 支持多币种查询（OR 条件）
-                symbol_filters = [News.symbols.contains(sym.upper()) for sym in symbols]
+                # 构建过滤条件：symbols 字段包含 OR 标题包含代币名称/全名
+                symbol_filters = []
+                for sym in symbols:
+                    sym_upper = sym.upper()
+                    # 1. symbols 字段包含该代币（预先检测到的）
+                    symbol_filters.append(News.symbols.contains(sym_upper))
+                    
+                    if search_title:
+                        # 2. 标题文本包含该代币符号（支持新代币）
+                        # 使用 LIKE 进行不区分大小写的搜索
+                        symbol_filters.append(News.title.ilike(f'%{sym}%'))
+                        symbol_filters.append(News.title.ilike(f'%{sym_upper}%'))
+                        
+                        # 3. 标题包含代币全名（如 Zcash, Bitcoin 等）
+                        if sym_upper in SYMBOL_NAME_MAP:
+                            for full_name in SYMBOL_NAME_MAP[sym_upper]:
+                                symbol_filters.append(News.title.ilike(f'%{full_name}%'))
+                
                 query = query.filter(or_(*symbol_filters))
             
             if start:
