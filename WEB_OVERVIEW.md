@@ -53,7 +53,22 @@ crypto-attention-lab/
 - Combined candlestick + volume + attention line
 - Full news list
 
-### 3. **Technology Stack**
+### 3. **News & Attention Radar (New)**
+- **News Summary Charts**: Visualizes news volume and attention over time (24h/7d/30d), source distribution, and language distribution.
+- **Symbol Heatmap**: Aggregates news stats per symbol (News Count, Weighted Attention, Sentiment) to identify hot assets.
+- **Interactive Filtering**: Clicking a symbol in the heatmap filters the news list below.
+- **Enhanced News List**: Supports filtering by source, date range, and symbol.
+
+### 4. **Settings & Preferences (New)**
+- **Global Configuration**: Centralized management of application-wide settings.
+- **Research Preferences**:
+  - **Default Attention Source**: Choose between "Composite" (News + Social) or "News Channel Only".
+  - **Default Timeframe**: Set preferred chart granularity (1D/4H).
+  - **Analysis Window**: Configure default lookback period (e.g., 30 days) for backtests and regime analysis.
+- **Persistence**: Settings are saved to `localStorage` and persist across sessions.
+- **Auto-Sync**: Changes in settings automatically update relevant modules (Charts, Scenarios, Backtests).
+
+### 5. **Technology Stack**
 - **Framework**: Next.js 15 (App Router)
 - **Language**: TypeScript (full type safety)
 - **Styling**: Tailwind CSS + CSS Variables

@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { StatCard, SummaryCard } from '@/components/StatCards'
 import PriceChart, { PriceChartRef } from '@/components/PriceChart'
@@ -17,6 +17,7 @@ import type {
   AttentionEvent,
 } from '@/lib/api'
 import type { Range, Time } from 'lightweight-charts'
+import { useSettings } from '@/components/SettingsProvider'
 
 interface DashboardTabProps {
   selectedSymbol: string
@@ -72,6 +73,8 @@ export default function DashboardTab(props: DashboardTabProps) {
     onAttentionRangeChange,
     onCrosshairMove,
   } = props
+
+  const { settings } = useSettings();
 
   // Update crosshair handler
   const handleCrosshairMoveWrapper = React.useCallback((time: Time | null) => {

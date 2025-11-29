@@ -454,6 +454,8 @@ def get_news_data(
                 "source_weight": float(row.get('source_weight', 0) or 0),
                 "sentiment_score": float(row.get('sentiment_score', 0) or 0),
                 "tags": str(row.get('tags', '')),
+                "symbols": str(row.get('symbols', '')),
+                "language": str(row.get('language', '')),
             })
         
         logger.info(f"Returned {len(result)} news items for {symbol}")

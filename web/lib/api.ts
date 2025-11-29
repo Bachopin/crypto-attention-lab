@@ -41,6 +41,8 @@ export interface NewsItem {
   source_weight?: number;
   sentiment_score?: number;
   tags?: string;
+  symbols?: string;
+  language?: string;
 }
 
 export interface NodeInfluenceItem {

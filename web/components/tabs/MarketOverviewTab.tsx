@@ -13,6 +13,7 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import { Calendar, Clock } from 'lucide-react'
 import type { Timeframe } from '@/lib/api'
 import { Time } from 'lightweight-charts'
+import { useSettings } from '@/components/SettingsProvider'
 
 // 主流币列表
 const MAJOR_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL'] as const
@@ -46,8 +47,15 @@ function getStartDate(range: TimeRange): string | undefined {
 }
 
 export default function MarketOverviewTab() {
+  const { settings } = useSettings();
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('6M')
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D')
+
+  // Check if global setting is supported here
+  const initialTimeframe = (settings.defaultTimeframe === '1D' || settings.defaultTimeframe === '4H') 
+    ? settings.defaultTimeframe 
+    : '1D';
+
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>(initialTimeframe)
   const [crosshairTime, setCrosshairTime] = useState<Time | null>(null)
 
   const dateRange = useMemo(() => ({

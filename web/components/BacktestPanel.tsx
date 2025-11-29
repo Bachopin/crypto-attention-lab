@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint, AttentionCondition, StrategyPreset } from '@/lib/api';
 import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
 import { useStrategyPresets, formatConditionSummary } from '@/lib/presets';
+import { useSettings } from '@/components/SettingsProvider';
 
 type AttentionSource = 'legacy' | 'composite';
 
@@ -49,9 +50,10 @@ interface PanelParams {
 }
 
 export default function BacktestPanel() {
+  const { settings } = useSettings();
   const [params, setParams] = useState<PanelParams>({
     symbol: 'ZECUSDT',
-    lookback_days: 30,
+    lookback_days: settings.defaultWindowDays,
     attention_quantile: 0.8,
     max_daily_return: 0.05,
     holding_days: 3,
@@ -61,7 +63,10 @@ export default function BacktestPanel() {
     position_size: 1.0,
     attention_source: 'legacy',
   });
-  const [attCond, setAttCond] = useState<AttentionConditionState>(DEFAULT_CONDITION);
+  const [attCond, setAttCond] = useState<AttentionConditionState>({
+    ...DEFAULT_CONDITION,
+    lookback_days: settings.defaultWindowDays,
+  });
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResult, setMultiResult] = useState<MultiBacktestResult | null>(null);
   const [selectedMultiSymbol, setSelectedMultiSymbol] = useState<string | null>(null);

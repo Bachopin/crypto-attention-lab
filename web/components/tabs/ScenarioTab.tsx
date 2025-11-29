@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { fetchStateScenarios, StateScenarioResponse, ScenarioSummary } from '@/lib/api';
+import { useSettings } from '@/components/SettingsProvider';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,10 +35,16 @@ const getDominantScenario = (scenarios: ScenarioSummary[]) => {
 };
 
 export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
+  const { settings } = useSettings();
   const [primarySymbol, setPrimarySymbol] = useState<string>(defaultSymbol);
   const [compareSymbolsInput, setCompareSymbolsInput] = useState<string>('BTC, ETH, SOL');
-  const [timeframe, setTimeframe] = useState<'1d' | '4h'>('1d');
-  const [windowDays, setWindowDays] = useState<string>('30');
+  
+  // Map global timeframe to local supported timeframe
+  const initialTimeframe = settings.defaultTimeframe.toLowerCase();
+  const validTimeframe = (initialTimeframe === '1d' || initialTimeframe === '4h') ? initialTimeframe : '1d';
+
+  const [timeframe, setTimeframe] = useState<'1d' | '4h'>(validTimeframe as '1d' | '4h');
+  const [windowDays, setWindowDays] = useState<string>(settings.defaultWindowDays.toString());
   const [topK, setTopK] = useState<string>('100');
 
   const [compareData, setCompareData] = useState<StateScenarioResponse[]>([]);

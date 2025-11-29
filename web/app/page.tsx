@@ -29,10 +29,21 @@ import { Activity, TrendingUp, Newspaper, Settings, Network, LayoutGrid } from '
 import { Range, Time } from 'lightweight-charts'
 import Link from 'next/link'
 
-export default function Home() {
+import { SettingsProvider, useSettings } from '@/components/SettingsProvider'
+
+export default function Page() {
+  return (
+    <SettingsProvider>
+      <Home />
+    </SettingsProvider>
+  )
+}
+
+function Home() {
+  const { settings } = useSettings()
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D')
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>(settings.defaultTimeframe)
   const [priceData, setPriceData] = useState<PriceCandle[]>([])
   const [overviewPriceData, setOverviewPriceData] = useState<PriceCandle[]>([])
   const [attentionData, setAttentionData] = useState<AttentionData[]>([])
@@ -102,7 +113,7 @@ export default function Home() {
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: symbol }),
         fetchSummaryStats(symbol),
-        fetchAttentionEvents({ symbol: symbol, lookback_days: 30, min_quantile: 0.8 }),
+        fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.8 }),
       ])
 
       setPriceData(price)
@@ -120,7 +131,7 @@ export default function Home() {
         setLoading(false)
       }
     }
-  }, [])
+  }, [settings.defaultWindowDays])
 
   // 仅更新价格数据（用于时间周期切换，无闪烁）
   const updatePriceOnly = useCallback(async (symbol: string, timeframe: Timeframe) => {
@@ -153,7 +164,7 @@ export default function Home() {
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: selectedSymbol }),
         fetchSummaryStats(selectedSymbol),
-        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: 30, min_quantile: 0.8 }),
+        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.8 }),
       ])
       if (price.length > 0) setPriceData(price)
       if (overviewPrice.length > 0) setOverviewPriceData(overviewPrice)
@@ -165,34 +176,38 @@ export default function Home() {
     } catch (err) {
       console.error('[loadDataSilently] Failed:', err)
     }
-  }, [selectedTimeframe, selectedSymbol])
+  }, [selectedTimeframe, selectedSymbol, settings.defaultWindowDays])
+
+  // Countdown effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout
+    if (updating && updateCountdown > 0) {
+      interval = setInterval(() => {
+        setUpdateCountdown(prev => (prev > 0 ? prev - 1 : 0))
+      }, 1000)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [updating, updateCountdown])
 
   // 刷新当前标的数据
   const refreshCurrentSymbol = useCallback(async () => {
     setUpdating(true)
     setUpdateCountdown(20)
-    const countdownInterval = setInterval(() => {
-      setUpdateCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
+    
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/update-data`,
         { method: 'POST' }
       )
-      clearInterval(countdownInterval)
+      
       if (response.ok) {
         await new Promise(resolve => setTimeout(resolve, 500))
         await loadDataSilently()
       }
     } catch (err) {
       console.error('[refreshCurrentSymbol] Error:', err)
-      clearInterval(countdownInterval)
     } finally {
       setUpdating(false)
       setUpdateCountdown(0)
