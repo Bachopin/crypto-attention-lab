@@ -258,7 +258,13 @@ export default function ScenarioPanel({ symbol, timeframe = '1d', windowDays = 3
       });
       setData(res);
     } catch (e: any) {
-      setError(e?.message || '情景分析失败');
+      // 更友好的错误提示
+      const msg = e?.message || '情景分析失败';
+      if (msg.includes('No data available')) {
+        setError(`代币 ${symbol} 暂无数据。请等待数据同步完成，或检查该代币是否在 Binance 上存在。`);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }

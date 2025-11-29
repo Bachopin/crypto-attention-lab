@@ -113,13 +113,24 @@ export default function AutoUpdateManager({
         body: JSON.stringify({ symbols: [newSymbol.toUpperCase()] })
       });
       
+      const data = await res.json();
+      
       if (res.ok) {
         setNewSymbol('');
         await loadStatus();
         onUpdate?.();
+        
+        // 如果有无效代币，显示提示
+        if (data.invalid && data.invalid.length > 0) {
+          alert(`以下代币在 Binance 上不存在: ${data.invalid.join(', ')}`);
+        }
+      } else {
+        // 处理错误
+        alert(data.detail || '添加失败');
       }
     } catch (err) {
       console.error('Failed to add symbol:', err);
+      alert('添加失败，请检查网络连接');
     } finally {
       setActionLoading(null);
     }

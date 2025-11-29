@@ -1087,11 +1087,13 @@ async def enable_auto_update(
         {
             "status": "success",
             "enabled": ["BTC", "ETH", "SOL"],
+            "invalid": ["INVALID_SYMBOL"],
             "message": "Auto-update enabled and initial data fetch triggered"
         }
     """
     from src.features.attention_features import process_attention_features
     from src.data.realtime_price_updater import get_realtime_updater
+    import requests
     
     try:
         symbols = payload.get("symbols", [])
@@ -1101,9 +1103,23 @@ async def enable_auto_update(
         db = get_db()
         session = get_session()
         enabled = []
+        invalid = []
         
         for symbol_name in symbols:
             symbol_name = symbol_name.upper()
+            
+            # 验证交易对在 Binance 上是否存在
+            try:
+                test_url = f"https://api.binance.com/api/v3/klines?symbol={symbol_name}USDT&interval=1d&limit=1"
+                resp = requests.get(test_url, timeout=5)
+                if resp.status_code != 200 or not resp.json():
+                    logger.warning(f"[Enable] {symbol_name}USDT not found on Binance")
+                    invalid.append(symbol_name)
+                    continue
+            except Exception as e:
+                logger.warning(f"[Enable] Failed to validate {symbol_name} on Binance: {e}")
+                invalid.append(symbol_name)
+                continue
             
             # 获取或创建 Symbol 记录
             sym = db.get_or_create_symbol(session, symbol_name)
@@ -1115,6 +1131,15 @@ async def enable_auto_update(
         
         session.commit()
         session.close()
+        
+        if invalid:
+            logger.warning(f"Invalid symbols (not on Binance): {invalid}")
+        
+        if not enabled:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No valid symbols to enable. Invalid: {invalid}"
+            )
         
         logger.info(f"Enabled auto-update for: {enabled}")
         
@@ -1168,8 +1193,9 @@ async def enable_auto_update(
         return {
             "status": "success",
             "enabled": enabled,
+            "invalid": invalid,
             "initialized": initialized,
-            "message": f"Enabled and initialized {len(initialized)}/{len(enabled)} symbols"
+            "message": f"Enabled and initialized {len(initialized)}/{len(enabled)} symbols" + (f". Invalid symbols: {invalid}" if invalid else "")
         }
         
     except Exception as e:

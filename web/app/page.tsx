@@ -121,9 +121,19 @@ function Home() {
     try {
       // 第一阶段：优先加载核心数据（价格 + 概览），快速显示主界面
       const [price, overviewPrice] = await Promise.all([
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }),
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }),
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }).catch(() => []),
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }).catch(() => []),
       ])
+      
+      // 检查是否有数据
+      if (price.length === 0 && overviewPrice.length === 0) {
+        setError(`代币 ${symbol} 暂无数据。请等待数据同步完成，或检查该代币是否在 Binance 上存在。`)
+        if (showLoading) {
+          setLoading(false)
+        }
+        return
+      }
+      
       setPriceData(price)
       setOverviewPriceData(overviewPrice)
       
@@ -132,19 +142,19 @@ function Home() {
         setLoading(false)
       }
       
-      // 第二阶段：后台加载其他数据（注意力、新闻、事件等）
+      // 第二阶段：后台加载其他数据（注意力、新闻、事件等）- 容错处理
       const [attention, news, assetNews, summary, attEvents] = await Promise.all([
-        fetchAttention({ symbol: symbol, granularity: '1d' }),
-        fetchNews({ symbol: 'ALL', limit: 100 }),
-        fetchNews({ symbol: symbol }),
-        fetchSummaryStats(symbol),
-        fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.9 }),
+        fetchAttention({ symbol: symbol, granularity: '1d' }).catch(() => []),
+        fetchNews({ symbol: 'ALL', limit: 100 }).catch(() => []),
+        fetchNews({ symbol: symbol }).catch(() => []),
+        fetchSummaryStats(symbol).catch(() => null),
+        fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.9 }).catch(() => []),
       ])
       
       setAttentionData(attention)
       setNewsData(news)
       setAssetNewsData(assetNews)
-      setSummaryStats(summary)
+      if (summary) setSummaryStats(summary)
       setEvents(attEvents)
     } catch (error) {
       console.error('Failed to load data:', error)
