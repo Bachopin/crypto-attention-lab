@@ -2,9 +2,23 @@ import os
 import requests
 import pandas as pd
 import random
+import warnings
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from src.config.settings import RAW_DATA_DIR
+
+
+# ==============================================================================
+# 废弃警告：此模块中的函数仅获取 ZEC 相关新闻，已被更完善的实现替代。
+#
+# 新的新闻获取流程：
+# - 使用 scripts/fetch_news_data.py 获取所有加密货币新闻（全局获取，按 URL 去重）
+# - 新闻存储在数据库中，通过 symbols 字段标记涉及的代币
+# - Attention 计算时使用 src/data/db_storage.load_news_data(symbol, start, end) 
+#   按代币符号和时间过滤新闻
+#
+# 此模块保留仅为兼容旧代码，请勿在新代码中使用。
+# ==============================================================================
 
 
 def _dt_or_default(value, default_days=365):
@@ -150,7 +164,18 @@ def fetch_zec_news(since: Optional[datetime] = None, until: Optional[datetime] =
     """
     获取 ZEC/Zcash 相关新闻：优先 CryptoPanic，其次 NewsAPI；都不可用时使用 Mock。
     返回标准字段：timestamp(ms), datetime(str, UTC), title, source, url
+    
+    .. deprecated::
+        此函数仅获取 ZEC 相关新闻，已废弃。
+        请使用 scripts/fetch_news_data.py 全局获取新闻，
+        然后通过 src/data/db_storage.load_news_data(symbol, start, end) 按代币过滤。
     """
+    warnings.warn(
+        "fetch_zec_news is deprecated. Use scripts/fetch_news_data.py for global news fetching, "
+        "and src/data/db_storage.load_news_data(symbol, start, end) for symbol-filtered queries.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     until = until if until else datetime.now(timezone.utc)
     since = _dt_or_default(since, default_days=365)
 

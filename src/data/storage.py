@@ -175,31 +175,51 @@ def ensure_attention_data_exists(symbol: str) -> bool:
     """
     确保注意力数据存在，如果不存在则尝试获取并处理
     
+    数据库优先模式：检查数据库中是否有对应 symbol 的 attention features。
+    如果没有，则触发 attention features 的计算。
+    
+    注意：新闻数据是全局获取的，不限于特定代币。
+    Attention 计算时会按代币符号和时间过滤相关新闻。
+    
     Args:
         symbol: 标的符号，如 "ZEC"
         
     Returns:
         bool: 数据是否可用
     """
+    from src.data.db_storage import USE_DATABASE, get_db
+    
+    if USE_DATABASE:
+        try:
+            db = get_db()
+            df = db.get_attention_features(symbol)
+            if not df.empty:
+                return True
+            
+            # 数据库中没有数据，尝试计算
+            logger.info(f"No attention data in DB for {symbol}, generating...")
+            from src.features.attention_features import process_attention_features
+            result = process_attention_features(symbol=symbol)
+            return result is not None and not result.empty
+        except Exception as e:
+            logger.error(f"Failed to check/generate attention data from DB: {e}")
+            return False
+    
+    # CSV fallback 模式
     symbol_lower = symbol.lower()
     attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
     
     if attention_file.exists():
         return True
     
-    # 尝试获取并处理数据
+    # 尝试计算 attention features
     try:
-        from src.data.attention_fetcher import fetch_zec_news, save_attention_data
         from src.features.attention_features import process_attention_features
         
-        logger.info(f"Fetching news data for {symbol}")
-        news_list = fetch_zec_news()
-        save_attention_data(news_list)
-        
         logger.info(f"Processing attention features for {symbol}")
-        process_attention_features()
+        result = process_attention_features(symbol=symbol)
         
-        return True
+        return result is not None and not result.empty
     except Exception as e:
-        logger.error(f"Failed to fetch/process attention data: {e}")
+        logger.error(f"Failed to process attention data: {e}")
         return False
