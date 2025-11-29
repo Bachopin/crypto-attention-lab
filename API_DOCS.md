@@ -547,6 +547,81 @@ curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahea
 
 ---
 
+  }
+}
+
+---
+
+### 9. Scenario Analysis (Similar States)
+
+#### `GET /api/state/scenarios`
+
+基于当前市场状态（价格趋势、波动率、注意力特征）寻找历史相似时刻，并统计后续走势分布。
+
+**Query Parameters:**
+
+| Parameter | Type   | Required | Default | Description                    |
+|-----------|--------|----------|---------|--------------------------------|
+| `symbol`  | string | No       | ZEC     | 币种符号                       |
+| `top_k`   | int    | No       | 50      | 选取最相似的历史状态数量       |
+| `lookahead`| int   | No       | 5       | 统计未来 N 天的收益表现        |
+
+**Example Request:**
+
+```bash
+curl "http://localhost:8000/api/state/scenarios?symbol=ZEC&top_k=50&lookahead=5"
+```
+
+**Response:**
+
+```json
+{
+  "current_state": {
+    "date": "2024-03-20T00:00:00",
+    "price": 150.5,
+    "features": {
+      "trend_7d": 0.05,
+      "volatility_30d": 0.02,
+      "attention_score": 75.0
+    }
+  },
+  "scenarios": [
+    {
+      "label": "trend_up",
+      "probability": 0.45,
+      "avg_return": 0.08,
+      "count": 22
+    },
+    {
+      "label": "sideways",
+      "probability": 0.35,
+      "avg_return": 0.01,
+      "count": 18
+    },
+    {
+      "label": "trend_down",
+      "probability": 0.20,
+      "avg_return": -0.05,
+      "count": 10
+    }
+  ],
+  "similar_dates": [
+    {
+      "date": "2023-05-15T00:00:00",
+      "similarity": 0.95,
+      "return_lookahead": 0.07
+    },
+    {
+      "date": "2022-11-08T00:00:00",
+      "similarity": 0.92,
+      "return_lookahead": -0.02
+    }
+  ]
+}
+```
+
+---
+
 ## 🔧 Error Handling
 
 所有端点在出错时返回标准的 HTTP 错误响应:

@@ -163,6 +163,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 - Supports custom parameters (lookahead days, split method)
 - **Smart Analysis Report**: Automatically generates text-based insights (Momentum/Reversal/Diminishing Returns) based on regime performance differences
 
+### ScenarioPanel Component (New)
+- **Similar State Analysis**: Visualizes the probability of future price movements based on historical similar states.
+- **Scenario Cards**: Displays "Trend Up", "Sideways", "Trend Down", "Crash" scenarios with their probabilities and historical average returns.
+- **Similar Dates List**: Shows the top historical dates that match the current market state, including their similarity score and subsequent return.
+- **Interactive**: Allows users to adjust `top_k` (number of similar states) and `lookahead` (forecast horizon).
+
 ### StatCards Components
 - **SummaryCard**: Main asset display with gradient background
 - **StatCard**: Reusable metric card with optional change indicator
