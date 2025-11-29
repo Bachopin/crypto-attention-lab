@@ -540,7 +540,7 @@ def root():
 @app.get("/api/symbols")
 def get_symbols():
     """
-    获取所有可用币种列表
+    获取正在自动更新的币种列表（用于代币看板选择）
     
     返回格式:
     {
@@ -549,7 +549,17 @@ def get_symbols():
     }
     """
     try:
-        symbols = get_available_symbols()
+        # 只返回正在自动更新的代币
+        session = get_session()
+        symbols = [s.symbol for s in session.query(Symbol).filter(
+            Symbol.auto_update_price == True
+        ).order_by(Symbol.symbol).all()]
+        session.close()
+        
+        # 如果没有自动更新的代币，返回默认列表
+        if not symbols:
+            symbols = get_available_symbols()
+        
         return {
             "symbols": symbols,
             "count": len(symbols)
@@ -1129,6 +1139,9 @@ async def enable_auto_update(
                 # 如果没有数据或数据过旧（超过7天），拉取历史数据
                 if not needs_price_fetch and not df.empty:
                     last_date = pd.to_datetime(df['datetime']).max()
+                    # 确保时区一致进行比较
+                    if last_date.tzinfo is None:
+                        last_date = last_date.tz_localize('UTC')
                     days_old = (pd.Timestamp.now(tz='UTC') - last_date).days
                     if days_old > 7:
                         needs_price_fetch = True
