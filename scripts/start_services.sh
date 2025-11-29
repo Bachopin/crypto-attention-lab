@@ -1,34 +1,54 @@
 #!/bin/bash
 
-# Crypto Attention Lab - 启动前后端服务（Dev Container 专用）
+# Crypto Attention Lab - 启动前后端服务（后台模式）
 # 服务以后台方式运行，日志输出到 logs/ 目录
 
 cd "$(dirname "$0")/.."
+PROJECT_ROOT=$(pwd)
+
+# 设置 NO_PROXY 避免本地通信走代理
+export NO_PROXY="localhost,127.0.0.1,0.0.0.0,host.docker.internal,*.local"
+export no_proxy="$NO_PROXY"
 
 # 创建日志目录
 mkdir -p logs
 
 echo "🚀 启动 Crypto Attention Lab 服务..."
-BACKOFF_RETRIES=10
-BACKOFF_DELAY=3
+echo ""
 
-# 检查并停止已有进程
-if pgrep -f "uvicorn src.api.main" > /dev/null; then
-    echo "⚠️  停止现有后端服务..."
-    pkill -f "uvicorn src.api.main"
-    sleep 1
-fi
+BACKOFF_RETRIES=15
+BACKOFF_DELAY=2
 
-if pgrep -f "next dev" > /dev/null; then
-    echo "⚠️  停止现有前端服务..."
-    pkill -f "next dev"
-    sleep 1
-fi
+# ========================================
+# 第一步：彻底清理所有现有服务
+# ========================================
+echo "🧹 彻底清理所有旧服务..."
 
+# 停止后端进程
+pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null || true
+pkill -9 -f "python.*src.api" 2>/dev/null || true
+
+# 停止前端进程
+pkill -9 -f "next dev" 2>/dev/null || true
+pkill -9 -f "next-server" 2>/dev/null || true
+pkill -9 -f "node.*next" 2>/dev/null || true
+pkill -9 -f "node.*turbopack" 2>/dev/null || true
+
+# 强制释放端口
+lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
+lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+
+sleep 1
+echo "✅ 所有旧服务已清理"
+echo ""
+
+# ========================================
 # 启动后端 API
+# ========================================
 echo "📡 启动后端 API (端口 8000)..."
 nohup uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/api.log 2>&1 &
 BACKEND_PID=$!
+
 BACKEND_READY=false
 for ((i=1; i<=BACKOFF_RETRIES; i++)); do
     if curl -s http://localhost:8000/health > /dev/null 2>&1; then
@@ -45,16 +65,19 @@ else
     exit 1
 fi
 
-# 启动前端 (使用 Turbopack 加速开发，已在 package.json 配置)
+# ========================================
+# 启动前端 (Turbopack 已在 package.json 配置)
+# ========================================
 echo "🌐 启动前端 Next.js (Turbopack, 端口 3000)..."
 cd web
-nohup npm run dev -- -p 3000 > ../logs/frontend.log 2>&1 &
+PORT=3000 nohup npm run dev > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 cd ..
+
 FRONTEND_READY=false
 for ((i=1; i<=BACKOFF_RETRIES; i++)); do
-    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
-    if [ "$STATUS_CODE" = "200" ] || [ "$STATUS_CODE" = "302" ]; then
+    STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null)
+    if [ "$STATUS_CODE" = "200" ] || [ "$STATUS_CODE" = "302" ] || [ "$STATUS_CODE" = "307" ]; then
         FRONTEND_READY=true
         break
     fi
@@ -80,5 +103,5 @@ echo "📋 查看日志:"
 echo "   后端: tail -f logs/api.log"
 echo "   前端: tail -f logs/frontend.log"
 echo ""
-echo "🛑 停止服务: ./scripts/stop_services.sh"
+echo "🛑 停止服务: ./scripts/stop_all.sh"
 echo ""

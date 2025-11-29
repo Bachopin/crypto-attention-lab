@@ -70,31 +70,31 @@ from contextlib import asynccontextmanager
 async def scheduled_news_update():
     """
     后台任务：定期更新新闻数据
-    每小时运行一次
+    每 30 分钟运行一次
     """
     from scripts.fetch_news_data import run_news_fetch_pipeline
     
     while True:
         try:
-            logger.info("[Scheduler] Starting hourly news update...")
+            logger.info("[Scheduler] Starting news update...")
             # 在线程池中运行同步函数，避免阻塞事件循环
             await asyncio.to_thread(run_news_fetch_pipeline, days=1)
-            logger.info("[Scheduler] News update completed. Sleeping for 1 hour.")
+            logger.info("[Scheduler] News update completed. Sleeping for 30 minutes.")
         except Exception as e:
             logger.error(f"[Scheduler] News update failed: {e}")
         
-        # 等待 1 小时
-        await asyncio.sleep(3600)
+        # 等待 30 分钟
+        await asyncio.sleep(1800)
 
 
 async def scheduled_price_update():
     """
     后台任务：实时价格更新
-    每 2 分钟运行一次
+    每 5 分钟运行一次（K线最小粒度 15 分钟，5 分钟间隔足够）
     """
     from src.data.realtime_price_updater import get_realtime_updater
     
-    updater = get_realtime_updater(update_interval=120)
+    updater = get_realtime_updater(update_interval=300)  # 5 分钟
     await updater.run()
 
 
@@ -109,8 +109,8 @@ async def lifespan(app: FastAPI):
     启动时开启后台任务
     
     后台任务说明：
-    - news_task: 每小时拉取全局新闻数据到数据库
-    - price_task: 每2分钟更新价格，并在更新后立即计算 Attention Features
+    - news_task: 每30分钟拉取全局新闻数据到数据库
+    - price_task: 每5分钟更新价格，并在更新后立即计算 Attention Features
     - websocket: Binance WebSocket 实时价格流（按需启动，可选功能）
     
     数据流说明：

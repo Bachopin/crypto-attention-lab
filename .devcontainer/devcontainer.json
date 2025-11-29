@@ -7,9 +7,12 @@
       "version": "20"
     }
   },
+  
+  // 代理配置：排除本地通信
   "remoteEnv": {
     "HTTP_PROXY": "http://host.docker.internal:7890",
-    "HTTPS_PROXY": "http://host.docker.internal:7890"
+    "HTTPS_PROXY": "http://host.docker.internal:7890",
+    "NO_PROXY": "localhost,127.0.0.1,0.0.0.0,host.docker.internal,*.local"
   },
 
   "forwardPorts": [3000, 8000],

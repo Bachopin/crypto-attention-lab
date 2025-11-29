@@ -129,6 +129,8 @@ class RealtimePriceUpdater:
         - 首次更新（last_update 为 None）：需要检查
         - 距离上次更新超过 24 小时：需要检查
         - 其他情况：跳过检查，直接增量更新
+        
+        注意：即使需要检查，也应该只抓取缺失的数据，而不是每次都全量抓取
         """
         if last_update is None:
             return True
@@ -196,22 +198,26 @@ class RealtimePriceUpdater:
                     # 检查该 timeframe 的数据完整性
                     completeness = self.check_data_completeness(symbol, timeframe)
                     
-                    if force_full or completeness['needs_full_fetch'] or completeness.get('earliest_date') is None:
-                        # 需要全量抓取
+                    if force_full:
+                        # 强制全量抓取（仅在用户手动触发时使用）
                         days = 500
-                        logger.info(f"[Updater] {symbol} {timeframe}: needs full fetch (500 days)")
-                    elif completeness['has_gaps'] and completeness.get('completeness_ratio', 1) < 0.9:
-                        # 数据有较大缺口，重新抓取完整历史
+                        logger.info(f"[Updater] {symbol} {timeframe}: forced full fetch (500 days)")
+                    elif completeness.get('earliest_date') is None:
+                        # 首次抓取该 symbol/timeframe，需要全量
                         days = 500
-                        logger.info(f"[Updater] {symbol} {timeframe}: data gaps detected (ratio={completeness.get('completeness_ratio', 0):.2f}), refetching")
+                        logger.info(f"[Updater] {symbol} {timeframe}: initial fetch (500 days)")
+                    elif completeness['needs_full_fetch'] and completeness.get('completeness_ratio', 1) < 0.5:
+                        # 数据严重缺失（<50%），才考虑全量抓取
+                        days = 500
+                        logger.info(f"[Updater] {symbol} {timeframe}: severe data gaps (ratio={completeness.get('completeness_ratio', 0):.2f}), refetching")
                     else:
-                        # 数据完整，正常增量更新
+                        # 数据基本完整，正常增量更新（只抓最近几天）
                         range_info = self.calculate_fetch_range(last_update)
-                        days = range_info['days']
+                        days = min(range_info['days'], 7)  # 增量更新最多 7 天
                 else:
-                    # 跳过完整性检查，直接增量更新
+                    # 跳过完整性检查，直接增量更新（常规定时更新）
                     range_info = self.calculate_fetch_range(last_update)
-                    days = range_info['days']
+                    days = min(range_info['days'], 3)  # 常规更新最多 3 天
                 
                 # 抓取数据
                 klines = self.fetcher.fetch_historical_klines_batch(

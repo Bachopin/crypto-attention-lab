@@ -7,11 +7,17 @@ set -e
 
 # 切换到项目根目录
 cd "$(dirname "$0")/.."
+PROJECT_ROOT=$(pwd)
+
+# 设置 NO_PROXY 避免本地通信走代理
+export NO_PROXY="localhost,127.0.0.1,0.0.0.0,host.docker.internal,*.local"
+export no_proxy="$NO_PROXY"
 
 # 颜色输出
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 echo -e "${BLUE}========================================${NC}"
@@ -19,24 +25,28 @@ echo -e "${BLUE}Crypto Attention Lab - 启动服务${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# 清理旧进程
-echo -e "${YELLOW}[清理] 停止旧的服务进程...${NC}"
-pkill -f "uvicorn.*src.api.main:app" 2>/dev/null || true
-pkill -f "next dev" 2>/dev/null || true
+# ========================================
+# 第一步：彻底清理所有现有服务
+# ========================================
+echo -e "${YELLOW}[清理] 彻底停止所有旧服务...${NC}"
+
+# 停止后端进程
+pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null || true
+pkill -9 -f "python.*src.api" 2>/dev/null || true
+
+# 停止前端进程
+pkill -9 -f "next dev" 2>/dev/null || true
+pkill -9 -f "next-server" 2>/dev/null || true
+pkill -9 -f "node.*next" 2>/dev/null || true
+pkill -9 -f "node.*turbopack" 2>/dev/null || true
+
+# 强制释放端口
+lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
+lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+
 sleep 1
-
-# 检查端口占用
-if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-    echo -e "${YELLOW}[警告] 端口 8000 被占用，尝试释放...${NC}"
-    lsof -ti:8000 | xargs kill -9 2>/dev/null || true
-    sleep 1
-fi
-
-if lsof -Pi :3000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
-    echo -e "${YELLOW}[警告] 端口 3000 被占用，尝试释放...${NC}"
-    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-    sleep 1
-fi
+echo -e "${GREEN}✓ 所有旧服务已清理${NC}"
+echo ""
 
 # 启动后端
 echo -e "${GREEN}[1/2] 启动 FastAPI 后端...${NC}"
