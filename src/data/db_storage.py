@@ -4,6 +4,7 @@ Database storage layer with backward compatibility
 """
 import os
 import pandas as pd
+import requests
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict
@@ -26,6 +27,59 @@ DISABLE_CSV_FALLBACK = os.getenv("DISABLE_CSV_FALLBACK", "false").lower() == "tr
 _SYMBOL_NAME_CACHE: Dict[str, List[str]] = {}
 _SYMBOL_NAME_CACHE_TIME: Optional[datetime] = None
 _CACHE_TTL_SECONDS = 3600  # 缓存 1 小时
+
+
+def fetch_symbol_aliases_from_coingecko(symbol: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    从 CoinGecko 获取代币的名称和别名
+    
+    Args:
+        symbol: 代币符号 (如 'BTC')
+        
+    Returns:
+        (name, coingecko_id, aliases_str) 或 (None, None, None) 如果失败
+    """
+    try:
+        # 搜索代币
+        url = "https://api.coingecko.com/api/v3/search"
+        resp = requests.get(url, params={"query": symbol}, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        coins = data.get('coins', [])
+        if not coins:
+            logger.debug(f"CoinGecko 未找到代币: {symbol}")
+            return None, None, None
+        
+        # 找到符号完全匹配的
+        matched = None
+        for coin in coins:
+            if coin.get('symbol', '').upper() == symbol.upper():
+                matched = coin
+                break
+        
+        if not matched:
+            # 没有完全匹配，取第一个
+            matched = coins[0]
+        
+        name = matched.get('name', symbol)
+        coingecko_id = matched.get('id', '')
+        
+        # 生成别名
+        aliases = set()
+        aliases.add(name)
+        aliases.add(name.lower())
+        aliases.add(name.replace(' ', ''))
+        aliases.add(name.replace(' ', '-'))
+        
+        aliases_str = ','.join(sorted(aliases))
+        
+        logger.info(f"从 CoinGecko 获取到 {symbol} 的信息: name={name}, id={coingecko_id}")
+        return name, coingecko_id, aliases_str
+        
+    except Exception as e:
+        logger.warning(f"从 CoinGecko 获取 {symbol} 信息失败: {e}")
+        return None, None, None
 
 
 def get_symbol_name_map(engine=None, symbols_filter: List[str] = None) -> Dict[str, List[str]]:
@@ -187,16 +241,33 @@ class DatabaseStorage:
             logger.debug("Could not update NULL timeframes: %s", exc)
     
     def get_or_create_symbol(self, session, symbol: str, name: str = None, category: str = None) -> Symbol:
-        """获取或创建币种记录"""
+        """获取或创建币种记录，如果是新代币且没有别名则从网络获取"""
         sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
         if not sym:
+            # 新代币，尝试从 CoinGecko 获取信息
+            fetched_name, coingecko_id, aliases = fetch_symbol_aliases_from_coingecko(symbol)
+            
             sym = Symbol(
                 symbol=symbol.upper(),
-                name=name or symbol,
-                category=category
+                name=name or fetched_name or symbol,
+                category=category,
+                coingecko_id=coingecko_id,
+                aliases=aliases
             )
             session.add(sym)
             session.commit()
+            logger.info(f"创建新代币: {symbol.upper()}, name={sym.name}, aliases={aliases}")
+        elif not sym.aliases:
+            # 已存在但没有别名，尝试补充
+            fetched_name, coingecko_id, aliases = fetch_symbol_aliases_from_coingecko(symbol)
+            if aliases:
+                sym.aliases = aliases
+                if not sym.coingecko_id and coingecko_id:
+                    sym.coingecko_id = coingecko_id
+                if fetched_name and (not sym.name or sym.name == symbol.upper()):
+                    sym.name = fetched_name
+                session.commit()
+                logger.info(f"更新代币别名: {symbol.upper()}, aliases={aliases}")
         return sym
     
     def save_news(self, news_records: List[dict]):
