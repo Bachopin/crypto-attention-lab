@@ -132,11 +132,35 @@ def get_source_base_weight(source: Optional[str]) -> float:
 
 
 def get_symbol_attention_config(symbol: str) -> SymbolAttentionConfig:
+    """
+    获取符号的注意力配置，优先使用预定义配置，否则从数据库获取别名
+    """
     symbol_up = (symbol or "").upper()
-    return SYMBOL_ATTENTION_CONFIG.get(
-        symbol_up,
-        SymbolAttentionConfig(
-            google_trends_keywords=[symbol_up],
-            twitter_query=f"${symbol_up} OR {symbol_up}",
-        ),
+    
+    # 优先使用预定义配置
+    if symbol_up in SYMBOL_ATTENTION_CONFIG:
+        return SYMBOL_ATTENTION_CONFIG[symbol_up]
+    
+    # 尝试从数据库获取别名作为关键词
+    keywords = [symbol_up]  # 默认至少包含符号本身
+    
+    try:
+        from src.data.db_storage import get_symbol_name_map
+        mapping = get_symbol_name_map(symbols_filter=[symbol_up])
+        if symbol_up in mapping:
+            aliases = mapping[symbol_up]
+            # 添加代币全称和别名作为关键词
+            for alias in aliases:
+                if alias and len(alias) > 1:
+                    # 过滤太短或太长的别名
+                    if 2 <= len(alias) <= 50:
+                        keywords.append(alias)
+            # 去重并限制数量（Google Trends API 限制 5 个关键词）
+            keywords = list(dict.fromkeys(keywords))[:5]
+    except Exception:
+        pass  # 数据库不可用时使用默认值
+    
+    return SymbolAttentionConfig(
+        google_trends_keywords=keywords,
+        twitter_query=f"${symbol_up} OR {' OR '.join(keywords[:3])}",
     )

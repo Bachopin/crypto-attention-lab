@@ -99,9 +99,11 @@ def _fetch_single_chunk(
 
     data = data.drop(columns=[c for c in data.columns if c.lower() == "ispartial"], errors="ignore")
     data.index = pd.to_datetime(data.index, utc=True)
-    series = data.mean(axis=1)
+    # 使用最大值而非平均值聚合多个关键词
+    # 原因：不同别名可能覆盖不同受众，取最大值反映峰值关注度
+    series = data.max(axis=1)
     df = pd.DataFrame({"datetime": series.index.normalize(), "value": series.values})
-    df = df.groupby("datetime", as_index=False).mean()
+    df = df.groupby("datetime", as_index=False).max()
     return df
 
 
