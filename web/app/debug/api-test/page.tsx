@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { buildApiUrl, getApiBaseUrl } from '@/lib/api'
-import { ChevronDown, ChevronRight, Play, RotateCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Play, RotateCw, Wifi, WifiOff, Radio, Clock } from 'lucide-react'
+import { RealtimePriceTicker } from '@/components/RealtimePrice'
+import { useWebSocketStatus } from '@/lib/websocket'
 
 interface ApiRequestConfig {
   key: string
@@ -67,6 +69,16 @@ const REQUESTS: ApiRequestConfig[] = [
 ]
 
 const CATEGORIES = ['基础', '价格', '注意力', '新闻', '研究', '管理']
+
+// 实时更新测试配置
+const REALTIME_TEST_SYMBOLS = ['BTC', 'ETH', 'SOL', 'BNB']
+
+// 更新频率配置（与实际实现保持一致）
+const UPDATE_INTERVALS = [
+  { name: '实时价格', source: 'WebSocket', interval: '实时推送', description: 'Dashboard SummaryCard 价格' },
+  { name: 'K线/注意力', source: 'REST API', interval: '5 分钟', description: 'Dashboard 和 Market Overview 数据' },
+  { name: '新闻数据', source: 'REST API', interval: '30 分钟', description: 'News Radar 雷达图数据' },
+]
 
 const MAX_BODY_LENGTH = 1500
 const REQUEST_TIMEOUT_MS = 10000
@@ -181,6 +193,15 @@ export default function ApiTestPage() {
   }
 
   const getResultForKey = (key: string) => results.get(key)
+  
+  // 检测是否在 Codespaces 环境
+  const [isCodespaces, setIsCodespaces] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsCodespaces(window.location.hostname.includes('github.dev') || 
+                      window.location.hostname.includes('app.github.dev'))
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-background">
@@ -203,6 +224,21 @@ export default function ApiTestPage() {
       </header>
 
       <main className="container mx-auto px-4 py-4 space-y-4">
+        {/* Codespaces 环境提示 */}
+        {isCodespaces && (
+          <Card className="border-yellow-500/50 bg-yellow-500/10">
+            <CardContent className="py-3">
+              <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                ⚠️ <strong>Codespaces 环境</strong>：外部浏览器访问时，API 请求需要通过 Codespaces 端口转发。
+                请确保端口 3000 和 8000 已设置为 Public，或使用 VS Code 内置浏览器测试。
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* 实时更新测试区域 */}
+        <RealtimeUpdateTestSection />
+        
         {CATEGORIES.map(category => {
           const categoryRequests = REQUESTS.filter(r => r.category === category)
           const categoryResults = categoryRequests.map(r => getResultForKey(r.key)).filter(Boolean)
@@ -318,5 +354,157 @@ export default function ApiTestPage() {
         })}
       </main>
     </div>
+  )
+}
+
+/**
+ * 实时更新测试区域
+ * 测试 WebSocket 连接和自动刷新功能
+ */
+function RealtimeUpdateTestSection() {
+  const { priceStatus, attentionStatus } = useWebSocketStatus()
+  const [restTestResults, setRestTestResults] = useState<{
+    lastUpdate: Date | null
+    countdown: number
+    isUpdating: boolean
+  }>({ lastUpdate: null, countdown: 0, isUpdating: false })
+  
+  // 模拟 5 分钟倒计时（展示自动刷新机制）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRestTestResults(prev => {
+        if (prev.countdown <= 0) {
+          return { ...prev, countdown: 300, lastUpdate: new Date(), isUpdating: false }
+        }
+        return { ...prev, countdown: prev.countdown - 1 }
+      })
+    }, 1000)
+    
+    // 初始化
+    setRestTestResults({ lastUpdate: new Date(), countdown: 300, isUpdating: false })
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'connected': return 'text-green-500'
+      case 'connecting': return 'text-yellow-500'
+      case 'error': return 'text-red-500'
+      default: return 'text-muted-foreground'
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'connected': return <Wifi className="w-4 h-4" />
+      case 'connecting': return <Radio className="w-4 h-4 animate-pulse" />
+      default: return <WifiOff className="w-4 h-4" />
+    }
+  }
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardHeader className="py-3 px-4">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Radio className="w-4 h-4 text-primary" />
+          实时更新测试
+          <Badge variant="outline" className="text-xs ml-2">新功能</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 pt-0 space-y-4">
+        {/* WebSocket 状态 */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">WebSocket 连接状态</h4>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md">
+              <span className={getStatusColor(priceStatus)}>
+                {getStatusIcon(priceStatus)}
+              </span>
+              <div>
+                <p className="text-xs font-medium">价格 WebSocket</p>
+                <p className={`text-xs ${getStatusColor(priceStatus)}`}>{priceStatus}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md">
+              <span className={getStatusColor(attentionStatus)}>
+                {getStatusIcon(attentionStatus)}
+              </span>
+              <div>
+                <p className="text-xs font-medium">注意力 WebSocket</p>
+                <p className={`text-xs ${getStatusColor(attentionStatus)}`}>{attentionStatus}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 实时价格测试 */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">实时价格 (WebSocket)</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {REALTIME_TEST_SYMBOLS.map(symbol => (
+              <div key={symbol} className="p-3 bg-muted/30 rounded-md">
+                <p className="text-xs font-medium text-muted-foreground mb-1">{symbol}/USDT</p>
+                <RealtimePriceTicker symbol={symbol} size="sm" showChange={false} />
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            💡 如果显示 "LIVE" 标记并有价格闪烁，说明 WebSocket 连接正常
+          </p>
+        </div>
+
+        {/* 自动刷新机制 */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">自动刷新机制</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-2 font-medium">数据类型</th>
+                  <th className="text-left py-2 px-2 font-medium">数据源</th>
+                  <th className="text-left py-2 px-2 font-medium">刷新间隔</th>
+                  <th className="text-left py-2 px-2 font-medium">说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                {UPDATE_INTERVALS.map((item, idx) => (
+                  <tr key={idx} className="border-b border-border/50">
+                    <td className="py-2 px-2 font-medium">{item.name}</td>
+                    <td className="py-2 px-2">
+                      <Badge variant={item.source === 'WebSocket' ? 'default' : 'secondary'} className="text-xs">
+                        {item.source}
+                      </Badge>
+                    </td>
+                    <td className="py-2 px-2">{item.interval}</td>
+                    <td className="py-2 px-2 text-muted-foreground">{item.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* REST 轮询模拟 */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">REST 轮询状态</h4>
+          <div className="flex items-center gap-4 p-3 bg-muted/30 rounded-md">
+            <Clock className="w-5 h-5 text-primary" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">下次 K线/注意力数据刷新</p>
+              <p className="text-xs text-muted-foreground">
+                上次更新: {restTestResults.lastUpdate?.toLocaleTimeString() || '未知'}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-mono font-bold text-primary">
+                {Math.floor(restTestResults.countdown / 60)}:{(restTestResults.countdown % 60).toString().padStart(2, '0')}
+              </p>
+              <p className="text-xs text-muted-foreground">剩余时间</p>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

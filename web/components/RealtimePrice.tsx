@@ -9,6 +9,7 @@ interface RealtimePriceTickerProps {
   className?: string
   showChange?: boolean
   size?: 'sm' | 'md' | 'lg'
+  initialPrice?: number
 }
 
 /**
@@ -20,9 +21,10 @@ export function RealtimePriceTicker({
   className,
   showChange = true,
   size = 'md',
+  initialPrice,
 }: RealtimePriceTickerProps) {
   const { data, status, lastUpdate } = useRealtimePrice(symbol)
-  const [prevPrice, setPrevPrice] = useState<number | null>(null)
+  const [prevPrice, setPrevPrice] = useState<number | null>(initialPrice || null)
   const [priceDirection, setPriceDirection] = useState<'up' | 'down' | null>(null)
   const [flashClass, setFlashClass] = useState('')
 
@@ -67,20 +69,23 @@ export function RealtimePriceTicker({
     return price.toFixed(price < 1 ? 6 : 4)
   }
 
-  if (status === 'disconnected' || status === 'connecting') {
-    return (
-      <div className={cn('flex items-center gap-2', className)}>
-        <span className={cn('font-mono text-muted-foreground', sizeClasses[size])}>
-          --
-        </span>
-        {status === 'connecting' && (
-          <span className="text-xs text-yellow-500 animate-pulse">连接中...</span>
-        )}
-      </div>
-    )
-  }
+  // 优先使用 WebSocket 数据，如果没有则使用 initialPrice
+  const displayPrice = data?.close ?? initialPrice
 
-  if (!data) {
+  if (!displayPrice) {
+    if (status === 'disconnected' || status === 'connecting') {
+      return (
+        <div className={cn('flex items-center gap-2', className)}>
+          <span className={cn('font-mono text-muted-foreground', sizeClasses[size])}>
+            --
+          </span>
+          {status === 'connecting' && (
+            <span className="text-xs text-yellow-500 animate-pulse">连接中...</span>
+          )}
+        </div>
+      )
+    }
+
     return (
       <div className={cn('flex items-center gap-2', className)}>
         <span className={cn('font-mono text-muted-foreground', sizeClasses[size])}>
@@ -90,7 +95,7 @@ export function RealtimePriceTicker({
     )
   }
 
-  const changePercent = prevPrice 
+  const changePercent = prevPrice && data
     ? ((data.close - prevPrice) / prevPrice * 100)
     : 0
 
@@ -105,7 +110,7 @@ export function RealtimePriceTicker({
           priceDirection === 'down' && 'text-red-500'
         )}
       >
-        ${formatPrice(data.close)}
+        ${formatPrice(displayPrice)}
       </span>
       
       {showChange && priceDirection && (
@@ -120,14 +125,16 @@ export function RealtimePriceTicker({
         </span>
       )}
 
-      {/* 实时指示器 */}
-      <div className="flex items-center gap-1">
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-        </span>
-        <span className="text-xs text-muted-foreground">LIVE</span>
-      </div>
+      {/* 实时指示器 - 仅在有 WebSocket 数据时显示 */}
+      {data && (
+        <div className="flex items-center gap-1">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          </span>
+          <span className="text-xs text-muted-foreground">LIVE</span>
+        </div>
+      )}
     </div>
   )
 }

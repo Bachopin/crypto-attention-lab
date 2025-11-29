@@ -18,10 +18,36 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { buildApiUrl } from '@/lib/api';
 
 // WebSocket 服务端地址
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 
-  (typeof window !== 'undefined' 
-    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8000`
-    : 'ws://localhost:8000');
+// 在 Codespaces/代理环境中，WebSocket 需要直接连接到后端
+// 开发环境：ws://localhost:8000
+// 生产环境：通过 NEXT_PUBLIC_WS_URL 配置
+function getWebSocketBaseUrl(): string {
+  // 优先使用环境变量
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+  
+  // 客户端：检测是否在本地开发环境
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    // 本地开发环境直接连接 8000 端口
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `ws://${hostname}:8000`;
+    }
+    
+    // Codespaces 环境：尝试使用相同主机但 8000 端口
+    // 注意：Codespaces 的端口转发可能需要特殊处理
+    // 如果 WebSocket 连接失败，会自动回退到 REST API 轮询
+    return `${protocol}//${hostname}:8000`;
+  }
+  
+  // 服务端渲染默认值
+  return 'ws://localhost:8000';
+}
+
+const WS_BASE_URL = getWebSocketBaseUrl();
 
 // 配置
 const WS_CONFIG = {

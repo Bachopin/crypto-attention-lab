@@ -70,10 +70,20 @@ const config: Config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
+        'flash-green': {
+          '0%, 100%': { backgroundColor: 'transparent' },
+          '50%': { backgroundColor: 'rgba(34, 197, 94, 0.3)' },
+        },
+        'flash-red': {
+          '0%, 100%': { backgroundColor: 'transparent' },
+          '50%': { backgroundColor: 'rgba(239, 68, 68, 0.3)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        'flash-green': 'flash-green 0.3s ease-out',
+        'flash-red': 'flash-red 0.3s ease-out',
       },
     },
   },

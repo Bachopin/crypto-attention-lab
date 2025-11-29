@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import NewsList from '@/components/NewsList'
 import type { NewsItem } from '@/lib/api'
 import { fetchNews, fetchNewsCount } from '@/lib/api'
@@ -33,51 +33,67 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   const [currentBefore, setCurrentBefore] = useState<string | null>(null)
 
   // --- Fetch Radar Data (带缓存) ---
-  useEffect(() => {
-    const fetchRadarData = async () => {
-      // 检查缓存
+  const fetchRadarData = useCallback(async (forceRefresh = false) => {
+    // 检查缓存（除非强制刷新）
+    if (!forceRefresh) {
       const cached = getNewsRadar(newsRange);
       if (cached && cached.length > 0) {
         setRadarNews(cached);
         initialLoadDone.current = true;
         return;
       }
-      
+    }
+    
+    // 强制刷新时不显示 loading（静默更新）
+    if (!forceRefresh) {
       setRadarLoading(true);
-      try {
-        const now = new Date();
-        let start = new Date();
-        if (newsRange === '24h') {
-          start.setHours(now.getHours() - 24);
-        } else if (newsRange === '7d') {
-          start.setDate(now.getDate() - 7);
-          start.setHours(0, 0, 0, 0); // Align to start of day for cleaner charts
-        } else if (newsRange === '14d') {
-          start.setDate(now.getDate() - 14);
-          start.setHours(0, 0, 0, 0); // Align to start of day
-        } else if (newsRange === '30d') {
-          start.setDate(now.getDate() - 30);
-          start.setHours(0, 0, 0, 0); // Align to start of day
-        }
-
-        // 初始加载限制为 500 条，足够显示雷达图
-        const data = await fetchNews({ 
-          symbol: 'ALL', 
-          start: start.toISOString(), 
-          limit: 500 
-        });
-        setRadarNews(data);
-        // 存入缓存
-        setNewsRadar(data, newsRange);
-        initialLoadDone.current = true;
-      } catch (e) {
-        console.error("Failed to fetch radar news", e);
-      } finally {
-        setRadarLoading(false);
+    }
+    
+    try {
+      const now = new Date();
+      let start = new Date();
+      if (newsRange === '24h') {
+        start.setHours(now.getHours() - 24);
+      } else if (newsRange === '7d') {
+        start.setDate(now.getDate() - 7);
+        start.setHours(0, 0, 0, 0); // Align to start of day for cleaner charts
+      } else if (newsRange === '14d') {
+        start.setDate(now.getDate() - 14);
+        start.setHours(0, 0, 0, 0); // Align to start of day
+      } else if (newsRange === '30d') {
+        start.setDate(now.getDate() - 30);
+        start.setHours(0, 0, 0, 0); // Align to start of day
       }
-    };
-    fetchRadarData();
+
+      // 初始加载限制为 500 条，足够显示雷达图
+      const data = await fetchNews({ 
+        symbol: 'ALL', 
+        start: start.toISOString(), 
+        limit: 500 
+      });
+      setRadarNews(data);
+      // 存入缓存
+      setNewsRadar(data, newsRange);
+      initialLoadDone.current = true;
+    } catch (e) {
+      console.error("Failed to fetch radar news", e);
+    } finally {
+      setRadarLoading(false);
+    }
   }, [newsRange, getNewsRadar, setNewsRadar]);
+  
+  // 首次加载
+  useEffect(() => {
+    fetchRadarData(false);
+  }, [fetchRadarData]);
+  
+  // 自动刷新：每 30 分钟静默更新新闻数据
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchRadarData(true); // 强制刷新，绕过缓存
+    }, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchRadarData]);
   
   // 同步 range 和 filter 到 context
   const handleRangeChange = (v: '24h' | '7d' | '14d' | '30d') => {

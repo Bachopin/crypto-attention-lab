@@ -45,6 +45,9 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
     const isDisposedRef = useRef(false)
 
+    // 数据是否为空
+    const hasData = priceData && priceData.length > 0
+
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
         if (isDisposedRef.current) return
@@ -157,16 +160,31 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
       }
     })
 
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
+    // Handle resize with ResizeObserver
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length === 0 || !entries[0].contentRect) return
+      if (chartRef.current && chartContainerRef.current) {
+        const newWidth = chartContainerRef.current.clientWidth
+        if (newWidth > 0) {
+          chartRef.current.applyOptions({ width: newWidth })
+        }
+      }
+    })
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current)
+    }
+
+    // Also listen to window resize as backup/for layout shifts
+    const handleWindowResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
         })
       }
     }
+    window.addEventListener('resize', handleWindowResize)
 
-    window.addEventListener('resize', handleResize)
     // 订阅全局可视范围事件以进行同步
     const handleGlobalRange = (e: Event) => {
       const ce = e as CustomEvent
@@ -182,7 +200,8 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
     return () => {
       isDisposedRef.current = true
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', handleWindowResize)
       window.removeEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
       chart.remove()
       chartRef.current = null
@@ -349,7 +368,17 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
           </Button>
         </div>
       )}
-      <div ref={chartContainerRef} className="w-full" />
+      {/* 如果没有数据，显示占位符 */}
+      {!hasData ? (
+        <div 
+          className="relative w-full flex items-center justify-center text-muted-foreground bg-card/50 rounded"
+          style={{ height }}
+        >
+          <span className="text-sm">No price data available</span>
+        </div>
+      ) : (
+        <div ref={chartContainerRef} className="w-full" />
+      )}
     </div>
   )
 })

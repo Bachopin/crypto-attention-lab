@@ -14,6 +14,26 @@ export default function PriceOverview({ priceData, height = 192 }: PriceOverview
   const chartRef = useRef<IChartApi | null>(null)
   const lineSeriesRef = useRef<ISeriesApi<'Area'> | null>(null)
 
+  // 如果没有数据，显示占位符
+  if (!priceData || priceData.length === 0) {
+    return (
+      <div 
+        className="relative w-full flex items-center justify-center text-muted-foreground"
+        style={{ height }}
+      >
+        <span className="text-sm">Loading chart data...</span>
+      </div>
+    )
+  }
+
+  return <PriceOverviewChart priceData={priceData} height={height} />
+}
+
+function PriceOverviewChart({ priceData, height }: { priceData: PriceCandle[], height: number }) {
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const lineSeriesRef = useRef<ISeriesApi<'Area'> | null>(null)
+
   useEffect(() => {
     if (!chartContainerRef.current) return
 
@@ -66,8 +86,25 @@ export default function PriceOverview({ priceData, height = 192 }: PriceOverview
     })
     lineSeriesRef.current = lineSeries
 
-    // Handle resize
-    const handleResize = () => {
+    // Handle resize with ResizeObserver
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries.length === 0 || !entries[0].contentRect) return
+      if (chartRef.current && chartContainerRef.current) {
+        const newWidth = chartContainerRef.current.clientWidth
+        if (newWidth > 0) {
+          chartRef.current.applyOptions({ width: newWidth })
+          // Ensure content fits after resize (especially when switching from hidden tab)
+          chartRef.current.timeScale().fitContent()
+        }
+      }
+    })
+
+    if (chartContainerRef.current) {
+      resizeObserver.observe(chartContainerRef.current)
+    }
+
+    // Also listen to window resize as backup
+    const handleWindowResize = () => {
       if (chartContainerRef.current) {
         chart.applyOptions({
           width: chartContainerRef.current.clientWidth,
@@ -75,10 +112,11 @@ export default function PriceOverview({ priceData, height = 192 }: PriceOverview
       }
     }
 
-    window.addEventListener('resize', handleResize)
+    window.addEventListener('resize', handleWindowResize)
 
     return () => {
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', handleWindowResize)
       chart.remove()
     }
   }, [height])

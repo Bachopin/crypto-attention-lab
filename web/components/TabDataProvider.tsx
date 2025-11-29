@@ -3,29 +3,32 @@
 /**
  * TabDataProvider - Tab 数据缓存 Provider
  * 
- * 用于在 Tab 切换时保持各 Tab 的数据状态，避免每次切换都重新加载。
+ * 统一管理所有 Tab 的数据缓存，实现无感化切换。
  * 
- * ============ 无感化切换方案 ============
+ * ============ 统一方案 ============
  * 
- * 方案 A（已采用）：使用 forceMount + CSS display 控制
- * - 在 page.tsx 中，所有 TabsContent 都使用 forceMount 属性
- * - 通过 style={{ display: activeTab === 'xxx' ? 'block' : 'none' }} 控制显示/隐藏
- * - 组件不会被卸载，数据保持在组件内部 state 中
- * - 优点：最简单有效，无需额外代码
- * - 缺点：所有 Tab 内容同时存在于 DOM 中（内存占用略高）
+ * 所有 Tab 的数据都存储在此 Provider 中：
+ * - Dashboard（代币看板）：价格、注意力、新闻、事件等
+ * - News Radar（新闻雷达）：雷达图数据
+ * - Scenario（情景分析）：情景数据
+ * - Market Overview：市场概览状态
  * 
- * 方案 B（备选）：将数据提升到此 Provider
- * - 需要把各 Tab 的数据（如 MajorAssetModule 的价格数据）存入此 Provider
- * - 组件可以安全卸载，再次挂载时从 Provider 恢复数据
- * - 优点：DOM 更干净
- * - 缺点：需要大量代码改动，数据结构复杂
- * 
- * 当前此 Provider 主要用于保存用户的选择状态（如 range、filter 等），
- * 实际的数据缓存已通过方案 A（forceMount）实现。
+ * 结合 forceMount + CSS display 控制，实现：
+ * 1. 组件不卸载，内部 state 保持
+ * 2. 即使热重载，数据也在 Provider 中持久化
+ * 3. 切换 Tab 时无需重新加载
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { NewsItem, StateScenarioResponse } from '@/lib/api';
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import { 
+  NewsItem, 
+  StateScenarioResponse, 
+  PriceCandle, 
+  AttentionData, 
+  SummaryStats,
+  AttentionEvent,
+  Timeframe,
+} from '@/lib/api';
 
 // 缓存数据结构
 interface CachedData<T> {
@@ -34,8 +37,25 @@ interface CachedData<T> {
   params?: string; // 用于判断参数是否变化
 }
 
+// Dashboard 数据结构
+interface DashboardData {
+  priceData: PriceCandle[];
+  overviewPriceData: PriceCandle[];
+  attentionData: AttentionData[];
+  newsData: NewsItem[];
+  assetNewsData: NewsItem[];
+  events: AttentionEvent[];
+  summaryStats: SummaryStats | null;
+  selectedSymbol: string;
+  selectedTimeframe: Timeframe;
+  lastUpdate: number;
+}
+
 // 各 Tab 的数据类型
 interface TabDataState {
+  // Dashboard Tab（代币看板）
+  dashboard: DashboardData | null;
+  
   // News Tab
   newsRadar: CachedData<NewsItem[]> | null;
   newsRange: '24h' | '7d' | '14d' | '30d';
@@ -46,12 +66,17 @@ interface TabDataState {
   scenarioPrimarySymbol: string;
   scenarioCompareData: CachedData<StateScenarioResponse[]> | null;
   
-  // Market Overview Tab - 各币种数据独立缓存
+  // Market Overview Tab
   marketOverviewLoaded: boolean;
 }
 
 interface TabDataContextType {
   state: TabDataState;
+  
+  // Dashboard Tab
+  setDashboardData: (data: Partial<DashboardData>) => void;
+  getDashboardData: () => DashboardData | null;
+  updateDashboardPartial: (updates: Partial<DashboardData>) => void;
   
   // News Tab
   setNewsRadar: (data: NewsItem[], range: '24h' | '7d' | '14d' | '30d') => void;
@@ -77,8 +102,23 @@ const DEFAULT_CACHE_MAX_AGE = 5 * 60 * 1000; // 5 分钟
 
 const TabDataContext = createContext<TabDataContextType | null>(null);
 
+// Dashboard 默认值
+const DEFAULT_DASHBOARD: DashboardData = {
+  priceData: [],
+  overviewPriceData: [],
+  attentionData: [],
+  newsData: [],
+  assetNewsData: [],
+  events: [],
+  summaryStats: null,
+  selectedSymbol: 'ZEC',
+  selectedTimeframe: '1D',
+  lastUpdate: 0,
+};
+
 export function TabDataProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<TabDataState>({
+    dashboard: null,
     newsRadar: null,
     newsRange: '14d',
     newsSymbolFilter: 'ALL',
@@ -93,6 +133,37 @@ export function TabDataProvider({ children }: { children: React.ReactNode }) {
     return Date.now() - timestamp < maxAge;
   }, []);
 
+  // Dashboard Tab
+  const setDashboardData = useCallback((data: Partial<DashboardData>) => {
+    setState(prev => ({
+      ...prev,
+      dashboard: {
+        ...DEFAULT_DASHBOARD,
+        ...prev.dashboard,
+        ...data,
+        lastUpdate: Date.now(),
+      },
+    }));
+  }, []);
+
+  const getDashboardData = useCallback(() => {
+    return state.dashboard;
+  }, [state.dashboard]);
+
+  const updateDashboardPartial = useCallback((updates: Partial<DashboardData>) => {
+    setState(prev => {
+      if (!prev.dashboard) return prev;
+      return {
+        ...prev,
+        dashboard: {
+          ...prev.dashboard,
+          ...updates,
+          lastUpdate: Date.now(),
+        },
+      };
+    });
+  }, []);
+
   // News Tab
   const setNewsRadar = useCallback((data: NewsItem[], range: '24h' | '7d' | '14d' | '30d') => {
     setState(prev => ({
@@ -104,7 +175,6 @@ export function TabDataProvider({ children }: { children: React.ReactNode }) {
 
   const getNewsRadar = useCallback((range: '24h' | '7d' | '14d' | '30d') => {
     if (!state.newsRadar) return null;
-    // 检查参数是否匹配且缓存未过期
     if (state.newsRadar.params === range && isCacheValid(state.newsRadar.timestamp)) {
       return state.newsRadar.data;
     }
@@ -155,6 +225,7 @@ export function TabDataProvider({ children }: { children: React.ReactNode }) {
   // 清除所有缓存
   const clearCache = useCallback(() => {
     setState({
+      dashboard: null,
       newsRadar: null,
       newsRange: '14d',
       newsSymbolFilter: 'ALL',
@@ -167,6 +238,9 @@ export function TabDataProvider({ children }: { children: React.ReactNode }) {
 
   const value: TabDataContextType = {
     state,
+    setDashboardData,
+    getDashboardData,
+    updateDashboardPartial,
     setNewsRadar,
     getNewsRadar,
     setNewsRange,

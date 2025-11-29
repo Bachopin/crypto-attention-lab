@@ -651,9 +651,33 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
     // For volume, use the daily volume (volume since 00:00 UTC)
     const volume_24h = priceData[priceData.length - 1]?.volume || 0;
     
-    const current_attention = attentionData[attentionData.length - 1]?.attention_score || 0;
+    // Calculate Attention Score (0-100)
+    // Priority: 
+    // 1. composite_attention_score (converted from z-score to 0-100) -> captures News + Social + Search
+    // 2. attention_score (based on news count) -> fallback
+    const latestAtt = attentionData[attentionData.length - 1];
+    let current_attention = 0;
+    
+    if (latestAtt) {
+      if (latestAtt.composite_attention_score !== undefined) {
+        // Convert Z-score like value to 0-100 scale (mean 50, std ~15)
+        current_attention = Math.max(0, Math.min(100, 50 + (latestAtt.composite_attention_score * 15)));
+      } else {
+        current_attention = latestAtt.attention_score ?? 0;
+      }
+    }
+
+    // Calculate 7d Average
     const avg_attention_7d = attentionData.length > 0
-      ? attentionData.reduce((sum, d) => sum + d.attention_score, 0) / attentionData.length
+      ? attentionData.reduce((sum, d) => {
+          let val = 0;
+          if (d.composite_attention_score !== undefined) {
+             val = Math.max(0, Math.min(100, 50 + (d.composite_attention_score * 15)));
+          } else {
+             val = d.attention_score ?? 0;
+          }
+          return sum + val;
+        }, 0) / attentionData.length
       : 0;
     
     const news_count_today = newsData.length;

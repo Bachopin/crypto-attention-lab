@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatNumber, formatPercentage, formatVolume } from '@/lib/utils'
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
+import { RealtimePriceTicker } from '@/components/RealtimePrice'
 
 interface StatCardProps {
   title: string
@@ -63,6 +64,8 @@ interface SummaryCardProps {
   onRefresh?: () => void
   updating?: boolean
   updateCountdown?: number
+  // 实时价格开关
+  enableRealtimePrice?: boolean
 }
 
 export function SummaryCard({
@@ -78,6 +81,7 @@ export function SummaryCard({
   onRefresh,
   updating = false,
   updateCountdown = 0,
+  enableRealtimePrice = false,
 }: SummaryCardProps) {
   const isPositive = priceChange >= 0
 
@@ -123,10 +127,28 @@ export function SummaryCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <div className="text-4xl font-bold">${formatNumber(price)}</div>
-          <div className={`text-lg font-medium mt-1 ${isPositive ? 'text-chart-green' : 'text-chart-red'}`}>
-            {isPositive ? '+' : ''}${formatNumber(priceChangeAbs)} ({formatPercentage(priceChange)})
-          </div>
+          {/* 实时价格（WebSocket）或静态价格（API 轮询） */}
+          {enableRealtimePrice ? (
+            <div className="space-y-1">
+              {/* 从 "ZEC/USDT" 提取 "ZEC" 用于 WebSocket 订阅 */}
+              <RealtimePriceTicker 
+                symbol={symbol.split('/')[0]} 
+                size="lg" 
+                showChange={false} 
+                initialPrice={price}
+              />
+              <div className={`text-lg font-medium ${isPositive ? 'text-chart-green' : 'text-chart-red'}`}>
+                {isPositive ? '+' : ''}${formatNumber(priceChangeAbs)} ({formatPercentage(priceChange)})
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="text-4xl font-bold">${formatNumber(price)}</div>
+              <div className={`text-lg font-medium mt-1 ${isPositive ? 'text-chart-green' : 'text-chart-red'}`}>
+                {isPositive ? '+' : ''}${formatNumber(priceChangeAbs)} ({formatPercentage(priceChange)})
+              </div>
+            </>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
           <div>

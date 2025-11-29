@@ -224,6 +224,14 @@ function MajorAssetModuleComponent({
     hasLoadedRef.current = true
   }, [loadData, symbol, timeframe, dateRange.start, dateRange.end])
 
+  // 自动刷新：每 5 分钟静默更新数据（与后端价格更新频率同步）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData(false) // 静默更新，不显示 loading
+    }, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [loadData])
+
   // 处理图表范围同步 - 使用 useCallback 保持引用稳定
   const handlePriceRangeChange = useCallback((range: Range<Time> | null) => {
     if (range && attentionChartRef.current) {

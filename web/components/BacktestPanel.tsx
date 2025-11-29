@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { InfoIcon } from 'lucide-react';
 import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint, AttentionCondition, StrategyPreset } from '@/lib/api';
 import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
@@ -698,9 +698,9 @@ export default function BacktestPanel() {
             />
           )}
 
-          <div className="overflow-auto">
+          <div className="overflow-auto max-h-[400px]">
             <table className="w-full text-sm">
-              <thead className="text-muted-foreground">
+              <thead className="text-muted-foreground sticky top-0 bg-card z-10">
                 <tr>
                   <th className="text-left py-2">Entry</th>
                   <th className="text-left py-2">Exit</th>
@@ -816,14 +816,16 @@ function Stat({ label, value, tooltip }: { label: string; value: React.ReactNode
   
   if (tooltip) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {content}
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
-          <p>{tooltip}</p>
-        </TooltipContent>
-      </Tooltip>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {content}
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            <p>{tooltip}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
   return content;

@@ -33,6 +33,9 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       onCrosshairMoveRef.current = onCrosshairMove
     }, [onVisibleRangeChange, onCrosshairMove])
 
+    // 数据是否为空
+    const hasData = attentionData && attentionData.length > 0
+
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
         if (isDisposedRef.current) return
@@ -131,16 +134,31 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         }
       })
 
-      // Handle resize
-      const handleResize = () => {
-        if (chartContainerRef.current) {
-          chart.applyOptions({
+      // Handle resize with ResizeObserver
+      const resizeObserver = new ResizeObserver((entries) => {
+        if (entries.length === 0 || !entries[0].contentRect) return
+        if (chartRef.current && chartContainerRef.current) {
+          const newWidth = chartContainerRef.current.clientWidth
+          if (newWidth > 0) {
+            chartRef.current.applyOptions({ width: newWidth })
+          }
+        }
+      })
+
+      if (chartContainerRef.current) {
+        resizeObserver.observe(chartContainerRef.current)
+      }
+
+      // Also listen to window resize as backup
+      const handleWindowResize = () => {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({
             width: chartContainerRef.current.clientWidth,
           })
         }
       }
 
-      window.addEventListener('resize', handleResize)
+      window.addEventListener('resize', handleWindowResize)
       // 订阅全局可视范围事件以进行同步
       const handleGlobalRange = (e: Event) => {
         const ce = e as CustomEvent
@@ -156,7 +174,8 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
 
       return () => {
         isDisposedRef.current = true
-        window.removeEventListener('resize', handleResize)
+        resizeObserver.disconnect()
+        window.removeEventListener('resize', handleWindowResize)
         window.removeEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
         chart.remove()
         chartRef.current = null
@@ -188,6 +207,18 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         // Chart may be disposed, ignore
       }
     }, [attentionChartData])
+
+    // 如果没有数据，显示占位符
+    if (!hasData) {
+      return (
+        <div 
+          className="relative w-full flex items-center justify-center text-muted-foreground bg-card/50 rounded"
+          style={{ height }}
+        >
+          <span className="text-sm">No attention data available</span>
+        </div>
+      )
+    }
 
     return (
       <div className="relative w-full">
