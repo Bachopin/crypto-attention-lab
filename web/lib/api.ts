@@ -54,6 +54,30 @@ export interface NodeInfluenceItem {
   lookback_days: number;
 }
 
+/**
+ * ==========================================================================
+ * Regime-Driven Strategy Preset Types
+ * 用于研究注意力 Regime 驱动的策略，与后端 AttentionCondition 对齐
+ * ==========================================================================
+ */
+
+/** 注意力条件，用于定义开仓日期的筛选逻辑 */
+export type AttentionCondition = {
+  source: 'composite' | 'news_channel';
+  regime: 'low' | 'mid' | 'high' | 'custom';
+  lower_quantile?: number | null;
+  upper_quantile?: number | null;
+  lookback_days: number;
+};
+
+/** 策略预设，包含一个可复用的 AttentionCondition 及元数据 */
+export type StrategyPreset = {
+  id: string;
+  name: string;
+  attention_condition: AttentionCondition;
+  // 可预留扩展字段
+};
+
 // Events & Backtest Types
 export interface AttentionEvent {
   datetime: string;
@@ -68,6 +92,8 @@ export interface BacktestSummary {
   avg_return: number;
   cumulative_return: number;
   max_drawdown: number;
+  /** 若回测时提供了 attention_condition，将在此字段返回 */
+  attention_condition?: AttentionCondition;
 }
 
 export interface BacktestTrade {
@@ -87,6 +113,7 @@ export interface BacktestResult {
   meta?: {
     attention_source?: 'legacy' | 'composite';
     signal_field?: string;
+    attention_condition?: AttentionCondition;
   };
 }
 
@@ -330,7 +357,7 @@ export async function fetchAttentionEvents(params: { symbol?: string; start?: st
   return fetchAPI<AttentionEvent[]>('/api/attention-events', apiParams);
 }
 
-export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; stop_loss_pct?: number | null; take_profit_pct?: number | null; max_holding_days?: number | null; position_size?: number; attention_source?: 'legacy' | 'composite'; start?: string; end?: string } = {}): Promise<BacktestResult> {
+export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; stop_loss_pct?: number | null; take_profit_pct?: number | null; max_holding_days?: number | null; position_size?: number; attention_source?: 'legacy' | 'composite'; attention_condition?: AttentionCondition | null; start?: string; end?: string } = {}): Promise<BacktestResult> {
   const body = JSON.stringify({
     symbol: params.symbol ?? 'ZECUSDT',
     lookback_days: params.lookback_days ?? 30,
@@ -342,6 +369,7 @@ export async function runBasicAttentionBacktest(params: { symbol?: string; lookb
     max_holding_days: params.max_holding_days,
     position_size: params.position_size,
     attention_source: params.attention_source,
+    attention_condition: params.attention_condition ?? null,
     start: params.start,
     end: params.end,
   });
@@ -365,6 +393,7 @@ export async function runMultiSymbolBacktest(params: {
   max_holding_days?: number | null;
   position_size?: number;
   attention_source?: 'legacy' | 'composite';
+  attention_condition?: AttentionCondition | null;
   start?: string;
   end?: string;
 }): Promise<MultiBacktestResult> {
@@ -379,6 +408,7 @@ export async function runMultiSymbolBacktest(params: {
     max_holding_days: params.max_holding_days,
     position_size: params.position_size ?? 1.0,
     attention_source: params.attention_source,
+    attention_condition: params.attention_condition ?? null,
     start: params.start,
     end: params.end,
   });

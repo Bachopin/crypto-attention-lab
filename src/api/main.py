@@ -22,6 +22,7 @@ from src.data.db_storage import (
 )
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
+from src.backtest.strategy_templates import AttentionCondition
 from src.backtest.attention_rotation import run_attention_rotation_backtest
 from src.features.event_performance import compute_event_performance
 from src.features.node_influence import load_node_carry_factors
@@ -32,6 +33,26 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+# ==================== 辅助函数 ====================
+
+
+def _parse_attention_condition(value) -> Optional[AttentionCondition]:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="attention_condition must be an object")
+
+    try:
+        return AttentionCondition(
+            source=value.get("source", "composite"),
+            regime=value.get("regime", "high"),
+            lower_quantile=value.get("lower_quantile"),
+            upper_quantile=value.get("upper_quantile"),
+            lookback_days=value.get("lookback_days", 30),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid attention_condition: {exc}") from None
+
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -800,6 +821,7 @@ def backtest_basic_attention(
         position_size = float(payload.get("position_size", 1.0))
         start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
         end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        attention_condition = _parse_attention_condition(payload.get("attention_condition"))
         attention_source = (payload.get("attention_source") or "legacy").lower()
         if attention_source not in {"legacy", "composite"}:
             attention_source = "legacy"
@@ -816,6 +838,7 @@ def backtest_basic_attention(
             start=start,
             end=end,
             attention_source=attention_source,
+            attention_condition=attention_condition,
         )
         return res
     except Exception as e:
@@ -850,6 +873,7 @@ def backtest_basic_attention_multi(
         position_size = float(payload.get("position_size", 1.0))
         start = pd.to_datetime(payload.get("start"), utc=True) if payload.get("start") else None
         end = pd.to_datetime(payload.get("end"), utc=True) if payload.get("end") else None
+        attention_condition = _parse_attention_condition(payload.get("attention_condition"))
         attention_source = (payload.get("attention_source") or "legacy").lower()
         if attention_source not in {"legacy", "composite"}:
             attention_source = "legacy"
@@ -872,6 +896,7 @@ def backtest_basic_attention_multi(
                 start=start,
                 end=end,
                 attention_source=attention_source,
+                attention_condition=attention_condition,
             )
             if "summary" in res and "equity_curve" in res:
                 per_symbol_summary[sym] = res["summary"]
@@ -903,23 +928,64 @@ def backtest_basic_attention_multi(
 @app.post("/api/research/attention-regimes")
 def research_attention_regimes(payload: dict = Body(...)):
     """多币种 attention regime 研究分析接口"""
-    symbols = payload.get("symbols") or []
+    symbols = payload.get("symbols")
     if not symbols or not isinstance(symbols, list):
         raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
 
-    lookahead_days = payload.get("lookahead_days") or [7, 30]
+    normalized_symbols = []
+    for sym in symbols:
+        if sym is None:
+            continue
+        name = str(sym).strip()
+        if name:
+            normalized_symbols.append(name.upper())
+
+    if not normalized_symbols:
+        raise HTTPException(status_code=400, detail="symbols must contain at least one valid entry")
+
+    raw_lookahead = payload.get("lookahead_days")
+    if raw_lookahead is None:
+        lookahead_days = [7, 30]
+    elif isinstance(raw_lookahead, list):
+        lookahead_days = raw_lookahead
+    elif isinstance(raw_lookahead, str):
+        lookahead_days = [item.strip() for item in raw_lookahead.split(",") if item.strip()]
+    else:
+        raise HTTPException(status_code=400, detail="lookahead_days must be a list or comma string")
+
+    try:
+        lookahead_days = [int(day) for day in lookahead_days]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="lookahead_days must contain integers") from None
+
+    split_quantiles = payload.get("split_quantiles")
+    if split_quantiles is not None:
+        if not isinstance(split_quantiles, list):
+            raise HTTPException(status_code=400, detail="split_quantiles must be a list of floats")
+        try:
+            split_quantiles = [float(q) for q in split_quantiles]
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="split_quantiles must contain numeric values") from None
+
     attention_source = payload.get("attention_source", "composite")
     split_method = payload.get("split_method", "tercile")
-    split_quantiles = payload.get("split_quantiles")
+
     start = payload.get("start")
     end = payload.get("end")
 
-    start_dt = pd.to_datetime(start, utc=True) if start else None
-    end_dt = pd.to_datetime(end, utc=True) if end else None
+    try:
+        start_dt = pd.to_datetime(start, utc=True) if start else None
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid start datetime: {exc}") from None
+
+    try:
+        end_dt = pd.to_datetime(end, utc=True) if end else None
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid end datetime: {exc}") from None
 
     try:
         result = analyze_attention_regimes(
-            symbols=symbols,
+            symbols=normalized_symbols,
             lookahead_days=lookahead_days,
             attention_source=attention_source,
             split_method=split_method,
@@ -928,6 +994,8 @@ def research_attention_regimes(payload: dict = Body(...)):
             end=end_dt,
         )
         return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:
         logger.error("Error in research_attention_regimes", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))

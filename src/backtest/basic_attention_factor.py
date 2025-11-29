@@ -4,6 +4,10 @@ from typing import List, Dict, Optional
 import pandas as pd
 from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
 from src.data.db_storage import load_price_data, load_attention_data
+from src.backtest.strategy_templates import (
+    AttentionCondition,
+    build_attention_signal_series,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,7 @@ def run_backtest_basic_attention(
     start: Optional[pd.Timestamp] = None,
     end: Optional[pd.Timestamp] = None,
     attention_source: str = "legacy",
+    attention_condition: Optional[AttentionCondition] = None,
 ) -> Dict:
     # 数据库优先加载
     source_key = (attention_source or "legacy").lower()
@@ -73,6 +78,32 @@ def run_backtest_basic_attention(
         return {"error": f"{signal_column} not available", "meta": {"attention_source": source_key}}
 
     df['attention_signal'] = df[signal_column].astype(float)
+    df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+
+    condition_flags = None
+    if attention_condition is not None:
+        try:
+            condition_series = build_attention_signal_series(
+                symbol=symbol,
+                condition=attention_condition,
+                start=start,
+                end=end,
+                attention_df=a_df
+            )
+        except ValueError as exc:
+            logger.warning("Attention condition build failed: %s", exc)
+            return {
+                "error": str(exc),
+                "meta": {
+                    "attention_source": source_key,
+                    "attention_condition": attention_condition.to_dict(),
+                },
+            }
+
+        datetime_index = pd.Index(df['datetime'])
+        aligned = condition_series.reindex(datetime_index, fill_value=0).astype(int)
+        df['attention_condition_signal'] = aligned.to_numpy()
+        condition_flags = df['attention_condition_signal']
 
     # 分位数阈值
     def rolling_q(s: pd.Series) -> pd.Series:
@@ -87,8 +118,13 @@ def run_backtest_basic_attention(
     i = 0
     while i < len(df):
         row = df.iloc[i]
+        if attention_condition is not None:
+            signal_hit = bool(condition_flags.iloc[i]) if condition_flags is not None else False
+        else:
+            signal_hit = pd.notna(row['w_q']) and row['attention_signal'] > row['w_q']
+
         cond = (
-            pd.notna(row['w_q']) and row['attention_signal'] > row['w_q'] and
+            signal_hit and
             row['daily_ret'] <= max_daily_return and
             (row.get('bullish_attention', 0) >= row.get('bearish_attention', 0))
         )
@@ -190,6 +226,16 @@ def run_backtest_basic_attention(
         "monthly_returns": monthly_returns,
     }
 
+    if attention_condition is not None:
+        summary["attention_condition"] = attention_condition.to_dict()
+
+    meta = {
+        "attention_source": source_key,
+        "signal_field": signal_column,
+    }
+    if attention_condition is not None:
+        meta["attention_condition"] = attention_condition.to_dict()
+
     return {
         "summary": summary,
         "trades": [
@@ -202,8 +248,5 @@ def run_backtest_basic_attention(
             } for t in trades
         ],
         "equity_curve": equity,
-        "meta": {
-            "attention_source": source_key,
-            "signal_field": signal_column,
-        }
+        "meta": meta,
     }

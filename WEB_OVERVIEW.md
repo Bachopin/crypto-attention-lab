@@ -183,6 +183,19 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 - Maintains per-preset last backtest summary and equity curve in `localStorage` (`basic-attention-summary-<name>`, `basic-attention-equity-<name>`) and exposes a "策略概览" table (sortable by cumulative return)
 - Allows selecting up to 3 presets for multi-strategy equity curve comparison in a shared SVG chart
 
+#### Attention Condition (策略 Preset 扩展)
+- **New Feature**: 支持 `AttentionCondition` 配置，使用 Regime 驱动的入场信号
+- 用户可选择注意力来源 (`composite` / `news_channel`) 和 Regime 档位 (`low` / `mid` / `high` / `custom`)
+- `custom` 模式支持自定义分位区间 (lower/upper quantile)
+- Preset 管理：保存、加载、删除策略配置到 `localStorage`
+- 回测结果显示 Condition Summary（如 "Composite, high, 30d"）
+- 多策略对比表格中包含 Condition 摘要列
+
+**相关文件**:
+- `web/lib/presets.ts`: `useStrategyPresets()` hook 和 `formatConditionSummary()` 工具函数
+- `web/lib/api.ts`: `AttentionCondition` 和 `StrategyPreset` 类型定义
+- `web/components/BacktestPanel.tsx`: UI 实现
+
 ## 🎨 Theming
 
 The project uses CSS variables for theming (see `app/globals.css`):

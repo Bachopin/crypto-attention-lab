@@ -259,6 +259,50 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
 }
 ```
 
+可选字段 `attention_condition` 支持使用注意力 Regime 驱动信号（策略 Preset 功能）：
+
+```json
+{
+  "attention_condition": {
+    "source": "news_channel",
+    "regime": "high",
+    "lookback_days": 45
+  }
+}
+```
+
+**字段说明：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `source` | string | ✅ | - | 注意力通道：`composite`（多通道融合）或 `news_channel`（新闻通道） |
+| `regime` | string | ✅ | - | 分位档位：`low`（0-33%）、`mid`（33-67%）、`high`（67-100%）或 `custom` |
+| `lower_quantile` | float | ❌ | - | 仅 `regime="custom"` 时有效，下限分位（0-1） |
+| `upper_quantile` | float | ❌ | - | 仅 `regime="custom"` 时有效，上限分位（0-1） |
+| `lookback_days` | int | ❌ | 30 | 计算 rolling quantile 的回溯窗口天数 |
+
+**Regime 档位映射：**
+- `low`: lower_quantile=0.0, upper_quantile=0.33
+- `mid`: lower_quantile=0.33, upper_quantile=0.67  
+- `high`: lower_quantile=0.67, upper_quantile=1.0
+- `custom`: 需手动提供 lower_quantile 与 upper_quantile
+
+**策略 Preset 示例（前端可保存并复用）：**
+
+```json
+{
+  "attention_condition": {
+    "source": "composite",
+    "regime": "custom",
+    "lower_quantile": 0.7,
+    "upper_quantile": 0.9,
+    "lookback_days": 60
+  }
+}
+```
+
+当提供 `attention_condition` 时，API 会使用 `build_attention_signal_series()` 生成 0/1 入场信号，替代原有的 `attention_quantile` 逻辑。响应的 `summary.attention_condition` 与 `meta.attention_condition` 中会包含使用的条件详情。
+
 **可选字段 `attention_source`:**
 - `"legacy"`（默认）使用历史 `weighted_attention` 逻辑；
 - `"composite"` 使用多通道融合后的 `composite_attention_score`。
@@ -277,6 +321,13 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
     "monthly_returns": {
       "2024-01": 0.12,
       "2024-02": 0.03
+    },
+    "attention_condition": {
+      "source": "news_channel",
+      "regime": "high",
+      "lower_quantile": null,
+      "upper_quantile": null,
+      "lookback_days": 45
     }
   },
   "trades": [
@@ -355,6 +406,42 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
     "ZECUSDT": {
       "attention_source": "composite",
       "signal_field": "composite_attention_score"
+    }
+  }
+}
+```
+
+`attention_condition` 同样适用于多币端点，所有币种共用同一条件。例如：
+
+```json
+{
+  "attention_condition": {
+    "source": "composite",
+    "regime": "custom",
+    "lower_quantile": 0.2,
+    "upper_quantile": 0.8,
+    "lookback_days": 60
+  }
+}
+```
+
+响应的 `per_symbol_summary.*.attention_condition` 与单币接口一致，便于在前端显示策略 Preset。若未提供该字段，则沿用原有分位阈值逻辑。
+
+**多币对比示例响应：**
+
+```json
+{
+  "per_symbol_summary": {
+    "ZECUSDT": {
+      "total_trades": 5,
+      "win_rate": 60.0,
+      "attention_condition": {
+        "source": "composite",
+        "regime": "custom",
+        "lower_quantile": 0.2,
+        "upper_quantile": 0.8,
+        "lookback_days": 60
+      }
     }
   }
 }
@@ -696,58 +783,79 @@ API 会自动检查数据是否存在:
 
 `POST /api/research/attention-regimes`
 
-对多个 symbol 的注意力分位数分层，统计未来收益分布。
+对多个 symbol 的注意力分位数分层，统计未来对数收益的分布特征，可在前端研究页或 Notebook 中复用。
 
-Request Body:
+**Request Body 字段**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `symbols` | string[] | ✅ | - | 币种列表（自动转成大写、去空值）。|
+| `lookahead_days` | int[] &#124; string | ❌ | `[7,30]` | 未来收益窗口，支持列表或逗号分隔字符串，仅保留正整数。|
+| `attention_source` | string | ❌ | `composite` | 选择注意力通道，`composite` 、`news_channel`、`google_channel` 等。|
+| `split_method` | string | ❌ | `tercile` | `tercile` / `quartile` / `custom`。custom 时需提供 `split_quantiles`。|
+| `split_quantiles` | float[] | ❌ | - | 自定义分位点（0-1），例如 `[0,0.2,0.5,0.8,1]`。自动补齐缺失的 0/1。|
+| `start` / `end` | string | ❌ | - | ISO8601 时间范围，缺省则使用全量。|
+
+**Example Request**
 
 ```json
 {
   "symbols": ["ZEC", "BTC", "ETH"],
   "lookahead_days": [7, 30],
   "attention_source": "composite",
-  "split_method": "tercile",
-  "start": "2023-01-01",
-  "end": "2025-11-01"
+  "split_method": "custom",
+  "split_quantiles": [0.0, 0.2, 0.5, 0.8, 1.0],
+  "start": "2023-01-01T00:00:00Z",
+  "end": "2024-12-31T23:59:59Z"
 }
 ```
 
-Response 示例（节选）：
+**Response**
 
 ```json
 {
-  "ZEC": {
-    "meta": {
-      "attention_source": "composite",
-      "split_method": "tercile",
-      "lookahead_days": [7, 30],
-      "data_points": 365
-    },
-    "regimes": [
-      {
-        "name": "low",
-        "quantile_range": [0.0, 0.33],
-        "stats": {
-          "7": { "avg_return": 0.01, "std_return": 0.05, "pos_ratio": 0.55, "sample_count": 120 },
-          "30": { "avg_return": 0.05, "std_return": 0.12, "pos_ratio": 0.61, "sample_count": 118 }
-        }
-      },
-      {
-        "name": "mid",
-        "quantile_range": [0.33, 0.66],
-        "stats": { ... }
-      },
-      {
-        "name": "high",
-        "quantile_range": [0.66, 1.0],
-        "stats": { ... }
-      }
-    ]
+  "meta": {
+    "symbols": ["ZEC", "BTC", "ETH"],
+    "lookahead_days": [7, 30],
+    "attention_source": "composite",
+    "split_method": "custom",
+    "start": "2023-01-01T00:00:00+00:00",
+    "end": "2024-12-31T23:59:59+00:00"
   },
-  "BTC": { ... }
+  "results": {
+    "ZEC": {
+      "meta": {
+        "attention_source": "composite",
+        "split_method": "custom",
+        "lookahead_days": [7, 30],
+        "data_points": 480
+      },
+      "regimes": [
+        {
+          "name": "q1",
+          "quantile_range": [0.12, 0.35],
+          "stats": {
+            "7": {"avg_return": 0.0081, "std_return": 0.045, "pos_ratio": 0.56, "sample_count": 120},
+            "30": {"avg_return": 0.041, "std_return": 0.11, "pos_ratio": 0.61, "sample_count": 112}
+          }
+        },
+        {
+          "name": "q2",
+          "quantile_range": [0.35, 0.51],
+          "stats": {"7": {"avg_return": 0.004, "std_return": 0.034, "pos_ratio": 0.52, "sample_count": 118}}
+        }
+      ]
+    },
+    "BTC": {
+      "meta": {"error": "missing data"},
+      "regimes": []
+    }
+  }
 }
 ```
 
-说明:
-- `avg_return` 为对数收益均值；`pos_ratio` 为正收益比例。
-- `quantile_range` 显示该 regime 对应的注意力分数范围。
-- `labels` 根据分位档位自动生成：三档为 `low/mid/high`，四档为 `q1..q4`。
+**说明**
+- `results.<symbol>.meta.error` 在缺失数据或分位计算失败时返回原因，便于前端提示。
+- `quantile_range` 为数值区间（注意力原始值），`stats` key 为字符串化的 `lookahead_days`。
+- 每个 `stats` 节点包含 `avg_return`（对数收益均值）、`std_return`（样本标准差）、`pos_ratio`（正收益占比）与 `sample_count`。
+- 输入无效时（如空 symbol、非法分位）API 返回 `400`，其它异常返回 `500`。

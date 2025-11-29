@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Tuple, Union
+from typing import List, Dict, Optional, Tuple
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -15,18 +15,47 @@ def _get_attention_column(attention_source: str) -> str:
         "google_channel": "google_channel_score",
         "twitter_channel": "twitter_channel_score",
     }
-    return mapping.get(attention_source, attention_source)
+    key = (attention_source or "").lower()
+    return mapping.get(key, attention_source)
+
+
+def _sanitize_lookahead_days(lookahead_days: List[int]) -> List[int]:
+    try:
+        cleaned = sorted({int(day) for day in lookahead_days if int(day) > 0})
+    except (TypeError, ValueError):
+        raise ValueError("lookahead_days must be positive integers") from None
+
+    if not cleaned:
+        raise ValueError("lookahead_days must contain at least one positive integer")
+    return cleaned
+
+
+def _normalize_split_method(split_method: str, split_quantiles: Optional[List[float]]) -> str:
+    allowed = {"tercile", "quartile", "custom"}
+    method = (split_method or "tercile").lower()
+    if method not in allowed:
+        raise ValueError(f"split_method must be one of {sorted(allowed)}")
+    if method == "custom" and not split_quantiles:
+        raise ValueError("split_quantiles is required when split_method='custom'")
+    return method
 
 
 def _compute_quantile_bins(series: pd.Series, split_method: str, split_quantiles: Optional[List[float]]) -> Tuple[np.ndarray, List[str]]:
     if split_quantiles:
-        qs = split_quantiles
+        qs = sorted({float(q) for q in split_quantiles})
+        if qs[0] > 0.0:
+            qs.insert(0, 0.0)
+        if qs[-1] < 1.0:
+            qs.append(1.0)
     elif split_method == "tercile":
-        qs = [0.0, 1/3, 2/3, 1.0]
+        qs = [0.0, 1 / 3, 2 / 3, 1.0]
     elif split_method == "quartile":
         qs = [0.0, 0.25, 0.5, 0.75, 1.0]
     else:
-        raise ValueError("Unsupported split_method without split_quantiles")
+        raise ValueError("split_quantiles must be provided when split_method='custom'")
+
+    if len(qs) < 2:
+        raise ValueError("split_quantiles must define at least two cut points")
 
     quantiles = series.quantile(qs).to_numpy()
     # Ensure strictly increasing to avoid duplicates causing cut errors
@@ -34,14 +63,13 @@ def _compute_quantile_bins(series: pd.Series, split_method: str, split_quantiles
     if len(quantiles) < 2:
         raise ValueError("Insufficient variance in attention series to compute bins")
 
-    labels = []
     n_bins = len(quantiles) - 1
     if n_bins == 3:
         labels = ["low", "mid", "high"]
     elif n_bins == 4:
         labels = ["q1", "q2", "q3", "q4"]
     else:
-        labels = [f"q{i+1}" for i in range(n_bins)]
+        labels = [f"q{i + 1}" for i in range(n_bins)]
 
     return quantiles, labels
 
@@ -105,6 +133,12 @@ def analyze_attention_regimes(
     返回结构适合直接 JSON 化，包含每个 symbol 在不同 Attention regime 下、
     对未来 k 天收益的统计信息。
     """
+    if not symbols:
+        raise ValueError("symbols must not be empty")
+
+    sanitized_lookahead = _sanitize_lookahead_days(lookahead_days)
+    method = _normalize_split_method(split_method, split_quantiles)
+
     results: Dict[str, Dict] = {}
     attention_col = _get_attention_column(attention_source)
 
@@ -139,7 +173,7 @@ def analyze_attention_regimes(
 
         # Compute bins
         try:
-            bin_edges, labels = _compute_quantile_bins(df[attention_col], split_method, split_quantiles)
+            bin_edges, labels = _compute_quantile_bins(df[attention_col], method, split_quantiles)
         except Exception as e:
             results[symbol] = {
                 "meta": {"error": f"failed to compute quantiles: {e}"},
@@ -155,7 +189,7 @@ def analyze_attention_regimes(
         # Precompute future returns for all k
         close = df["close"]
         future_returns = {}
-        for k in lookahead_days:
+        for k in sanitized_lookahead:
             # log return from t close to t+k close
             shifted = close.shift(-k)
             r = np.log(shifted / close)
@@ -175,7 +209,7 @@ def analyze_attention_regimes(
             stats_by_k = {}
             
             if subset.empty:
-                for k in lookahead_days:
+                for k in sanitized_lookahead:
                     stats_by_k[str(k)] = {
                         "avg_return": None,
                         "std_return": None,
@@ -183,7 +217,7 @@ def analyze_attention_regimes(
                         "sample_count": 0
                     }
             else:
-                for k in lookahead_days:
+                for k in sanitized_lookahead:
                     r = future_returns[k].loc[subset.index].dropna()
                     if r.empty:
                         stats_by_k[str(k)] = {
@@ -209,8 +243,8 @@ def analyze_attention_regimes(
         results[symbol] = {
             "meta": {
                 "attention_source": attention_source,
-                "split_method": split_method,
-                "lookahead_days": lookahead_days,
+                "split_method": method,
+                "lookahead_days": sanitized_lookahead,
                 "data_points": len(df)
             },
             "regimes": regime_list
@@ -219,9 +253,9 @@ def analyze_attention_regimes(
     return {
         "meta": {
             "symbols": symbols,
-            "lookahead_days": lookahead_days,
+            "lookahead_days": sanitized_lookahead,
             "attention_source": attention_source,
-            "split_method": split_method,
+            "split_method": method,
             "start": start.isoformat() if start else None,
             "end": end.isoformat() if end else None,
         },

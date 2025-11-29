@@ -2,10 +2,38 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint } from '@/lib/api';
+import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint, AttentionCondition, StrategyPreset } from '@/lib/api';
 import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
+import { useStrategyPresets, formatConditionSummary } from '@/lib/presets';
 
 type AttentionSource = 'legacy' | 'composite';
+
+/**
+ * ==========================================================================
+ * Regime-Driven Strategy Preset
+ * 以下结构用于研究用途的注意力 Regime 驱动开仓条件
+ * ==========================================================================
+ */
+type AttentionConditionSource = 'composite' | 'news_channel';
+type AttentionRegime = 'low' | 'mid' | 'high' | 'custom';
+
+interface AttentionConditionState {
+  enabled: boolean;
+  source: AttentionConditionSource;
+  regime: AttentionRegime;
+  lower_quantile: number;
+  upper_quantile: number;
+  lookback_days: number;
+}
+
+const DEFAULT_CONDITION: AttentionConditionState = {
+  enabled: false,
+  source: 'composite',
+  regime: 'high',
+  lower_quantile: 0.8,
+  upper_quantile: 1,
+  lookback_days: 30,
+};
 
 interface PanelParams {
   symbol: string;
@@ -33,6 +61,7 @@ export default function BacktestPanel() {
     position_size: 1.0,
     attention_source: 'legacy',
   });
+  const [attCond, setAttCond] = useState<AttentionConditionState>(DEFAULT_CONDITION);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [multiResult, setMultiResult] = useState<MultiBacktestResult | null>(null);
   const [selectedMultiSymbol, setSelectedMultiSymbol] = useState<string | null>(null);
@@ -44,6 +73,11 @@ export default function BacktestPanel() {
   const [strategySummaries, setStrategySummaries] = useState<Record<string, BacktestSummary>>({});
   const [strategyEquities, setStrategyEquities] = useState<Record<string, EquityPoint[]>>({});
   const [selectedComparePresets, setSelectedComparePresets] = useState<string[]>([]);
+
+  // Regime Preset management
+  const { presets: regimePresets, addPreset: addRegimePreset, deletePreset: deleteRegimePreset, getPresetById } = useStrategyPresets();
+  const [regimePresetName, setRegimePresetName] = useState('');
+  const [selectedRegimePresetId, setSelectedRegimePresetId] = useState<string | null>(null);
 
   const PRESET_PREFIX = 'basic-attention-preset-';
   const SUMMARY_PREFIX = 'basic-attention-summary-';
@@ -92,6 +126,32 @@ export default function BacktestPanel() {
   useEffect(() => {
     loadPresetKeysAndData();
   }, [loadPresetKeysAndData]);
+
+  /** Convert UI state to API AttentionCondition object */
+  const buildAttentionCondition = useCallback((): AttentionCondition | null => {
+    if (!attCond.enabled) return null;
+    return {
+      source: attCond.source,
+      regime: attCond.regime,
+      lower_quantile: attCond.regime === 'custom' ? attCond.lower_quantile : null,
+      upper_quantile: attCond.regime === 'custom' ? attCond.upper_quantile : null,
+      lookback_days: attCond.lookback_days,
+    };
+  }, [attCond]);
+
+  /** Apply a regime preset to the UI state */
+  const applyRegimePreset = useCallback((preset: StrategyPreset) => {
+    const c = preset.attention_condition;
+    setAttCond({
+      enabled: true,
+      source: c.source,
+      regime: c.regime,
+      lower_quantile: c.lower_quantile ?? 0.8,
+      upper_quantile: c.upper_quantile ?? 1,
+      lookback_days: c.lookback_days,
+    });
+    setSelectedRegimePresetId(preset.id);
+  }, []);
 
   const savePreset = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -154,7 +214,8 @@ export default function BacktestPanel() {
   async function run() {
     setLoading(true); setError(null);
     try {
-      const res = await runBasicAttentionBacktest(params);
+      const condition = buildAttentionCondition();
+      const res = await runBasicAttentionBacktest({ ...params, attention_condition: condition });
       setResult(res);
       setMultiResult(null);
 
@@ -184,6 +245,7 @@ export default function BacktestPanel() {
       const baseSymbol = params.symbol || 'ZECUSDT';
       const base = baseSymbol.replace('USDT', '');
       const symbols = [baseSymbol, 'BTCUSDT', 'ETHUSDT'].filter((v, idx, arr) => arr.indexOf(v) === idx);
+      const condition = buildAttentionCondition();
       const res = await runMultiSymbolBacktest({
         symbols,
         lookback_days: params.lookback_days,
@@ -195,6 +257,7 @@ export default function BacktestPanel() {
         max_holding_days: params.max_holding_days,
         position_size: params.position_size,
         attention_source: params.attention_source,
+        attention_condition: condition,
       });
       setMultiResult(res);
       const symbolsFromResult = Object.keys(res.per_symbol_equity_curves || {});
@@ -435,6 +498,153 @@ export default function BacktestPanel() {
         </span>
       </div>
 
+      {/* ==========================================================================
+          Regime-Driven Strategy Preset Section
+          用于研究用途的注意力 Regime 驱动开仓条件配置
+          ========================================================================== */}
+      <div className="rounded border bg-background p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={attCond.enabled}
+              onChange={e => setAttCond(c => ({ ...c, enabled: e.target.checked }))}
+            />
+            <span className="font-medium">使用 Attention Regime 条件</span>
+          </label>
+          <span className="text-[10px] text-muted-foreground">（研究用途 — Regime-Driven Preset）</span>
+        </div>
+
+        {attCond.enabled && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Attention 源</span>
+              <select
+                className="px-2 py-1 bg-background border rounded text-sm"
+                value={attCond.source}
+                onChange={e => setAttCond(c => ({ ...c, source: e.target.value as AttentionConditionSource }))}
+              >
+                <option value="composite">Composite</option>
+                <option value="news_channel">News Channel</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Regime</span>
+              <select
+                className="px-2 py-1 bg-background border rounded text-sm"
+                value={attCond.regime}
+                onChange={e => setAttCond(c => ({ ...c, regime: e.target.value as AttentionRegime }))}
+              >
+                <option value="low">Low (0-33%)</option>
+                <option value="mid">Mid (33-66%)</option>
+                <option value="high">High (66-100%)</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+
+            {attCond.regime === 'custom' && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Lower Quantile</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    className="px-2 py-1 bg-background border rounded"
+                    value={attCond.lower_quantile}
+                    onChange={e => setAttCond(c => ({ ...c, lower_quantile: Number(e.target.value) }))}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">Upper Quantile</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    className="px-2 py-1 bg-background border rounded"
+                    value={attCond.upper_quantile}
+                    onChange={e => setAttCond(c => ({ ...c, upper_quantile: Number(e.target.value) }))}
+                  />
+                </label>
+              </>
+            )}
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Lookback Days</span>
+              <input
+                type="number"
+                min={1}
+                className="px-2 py-1 bg-background border rounded"
+                value={attCond.lookback_days}
+                onChange={e => setAttCond(c => ({ ...c, lookback_days: Number(e.target.value) }))}
+              />
+            </label>
+          </div>
+        )}
+
+        {attCond.enabled && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">当前条件摘要：</span>
+            <span className="font-mono bg-muted px-2 py-0.5 rounded">{formatConditionSummary(buildAttentionCondition())}</span>
+            <div className="flex items-center gap-1 ml-auto">
+              <input
+                className="h-6 rounded border bg-background px-2 text-xs w-28"
+                placeholder="Preset 名称"
+                value={regimePresetName}
+                onChange={e => setRegimePresetName(e.target.value)}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const cond = buildAttentionCondition();
+                  if (!cond) return;
+                  addRegimePreset(regimePresetName || 'Untitled', cond);
+                  setRegimePresetName('');
+                }}
+              >
+                保存为 Preset
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {regimePresets.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground border-t pt-2">
+            <span>已保存 Regime Presets：</span>
+            {regimePresets.map(p => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-1 rounded border px-2 py-0.5 ${selectedRegimePresetId === p.id ? 'border-primary bg-primary/10' : 'bg-background'}`}
+              >
+                <button
+                  type="button"
+                  className="underline-offset-2 hover:underline"
+                  onClick={() => applyRegimePreset(p)}
+                >
+                  {p.name}
+                </button>
+                <span className="text-[10px] text-muted-foreground/70">({formatConditionSummary(p.attention_condition)})</span>
+                <button
+                  type="button"
+                  aria-label={`删除 ${p.name}`}
+                  className="hover:text-red-500"
+                  onClick={() => {
+                    deleteRegimePreset(p.id);
+                    if (selectedRegimePresetId === p.id) setSelectedRegimePresetId(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {error && <div className="text-red-500 text-sm">{error}</div>}
       {infoMessage && !error && (
         <div className="text-xs text-muted-foreground">{infoMessage}</div>
@@ -444,6 +654,7 @@ export default function BacktestPanel() {
         <MultiStrategyComparison
           selectedPresets={selectedComparePresets}
           equities={strategyEquities}
+          summaries={strategySummaries}
         />
       )}
 
@@ -453,6 +664,11 @@ export default function BacktestPanel() {
                       <div className="text-xs text-muted-foreground">
                         信号源：{result.meta.attention_source === 'composite' ? 'Composite Attention' : 'Legacy Attention'}
                         {result.meta.signal_field && `（字段 ${result.meta.signal_field}）`}
+                        {result.meta.attention_condition && (
+                          <span className="ml-2 font-mono bg-muted px-1 py-0.5 rounded">
+                            Regime: {formatConditionSummary(result.meta.attention_condition)}
+                          </span>
+                        )}
                       </div>
                     )}
           {result.trades.length === 0 && (
@@ -650,6 +866,11 @@ function StrategyOverview({
                   >
                     {name}
                   </button>
+                  {summary!.attention_condition && (
+                    <span className="ml-1 text-[10px] font-mono text-muted-foreground/70">
+                      [{formatConditionSummary(summary!.attention_condition)}]
+                    </span>
+                  )}
                   {!equities[name] && (
                     <span className="ml-1 text-[10px] text-muted-foreground">
                       （需先运行回测）
@@ -672,9 +893,11 @@ function StrategyOverview({
 function MultiStrategyComparison({
   selectedPresets,
   equities,
+  summaries,
 }: {
   selectedPresets: string[];
   equities: Record<string, EquityPoint[]>;
+  summaries?: Record<string, BacktestSummary>;
 }) {
   const width = 100;
   const height = 40;
@@ -743,12 +966,20 @@ function MultiStrategyComparison({
         ))}
       </svg>
       <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-        {paths.map(p => (
-          <div key={p.name} className="flex items-center gap-1">
-            <span className={`h-2 w-4 rounded ${p.colorClass.replace('stroke', 'bg')}`} />
-            <span>{p.name}</span>
-          </div>
-        ))}
+        {paths.map(p => {
+          const cond = summaries?.[p.name]?.attention_condition;
+          return (
+            <div key={p.name} className="flex items-center gap-1">
+              <span className={`h-2 w-4 rounded ${p.colorClass.replace('stroke', 'bg')}`} />
+              <span>{p.name}</span>
+              {cond && (
+                <span className="font-mono text-[9px] text-muted-foreground/60">
+                  ({formatConditionSummary(cond)})
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
