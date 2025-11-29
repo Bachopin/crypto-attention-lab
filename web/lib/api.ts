@@ -557,6 +557,85 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
   }
 }
 
+// ==================== Scenario Engine Types ====================
+
+/**
+ * 情景摘要结构
+ * 描述一种可能的未来走势情景
+ */
+export type ScenarioSummary = {
+  label: string;                      // 情景标签: trend_up, spike_and_revert, sideways, trend_down, crash
+  description: string;                // 人类可读描述
+  sample_count: number;               // 样本数量
+  probability: number;                // 相对概率 (0-1)
+  avg_return_3d?: number | null;      // 3 日平均收益
+  avg_return_7d?: number | null;      // 7 日平均收益
+  avg_return_30d?: number | null;     // 30 日平均收益
+  max_drawdown_7d?: number | null;    // 7 日平均最大回撤
+  max_drawdown_30d?: number | null;   // 30 日平均最大回撤
+  avg_path?: number[] | null;         // 平均价格路径（相对起点）
+  sample_details?: any[] | null;      // 样本详情（可选）
+};
+
+/**
+ * 状态快照摘要
+ */
+export type StateSnapshotSummary = {
+  symbol: string;
+  as_of: string;
+  timeframe: string;
+  window_days: number;
+  features: Record<string, number>;
+  raw_stats: Record<string, any>;
+};
+
+/**
+ * 情景分析响应
+ */
+export type StateScenarioResponse = {
+  target: StateSnapshotSummary;
+  scenarios: ScenarioSummary[];
+  meta: {
+    total_similar_samples: number;
+    valid_samples_analyzed: number;
+    lookahead_days: number[];
+    message: string;
+  };
+};
+
+/**
+ * 获取指定 symbol 的情景分析
+ * GET /api/state/scenarios
+ */
+export async function fetchStateScenarios(params: {
+  symbol: string;
+  timeframe?: string;
+  window_days?: number;
+  top_k?: number;
+  max_history_days?: number;
+  include_sample_details?: boolean;
+}): Promise<StateScenarioResponse> {
+  const {
+    symbol,
+    timeframe = '1d',
+    window_days = 30,
+    top_k = 100,
+    max_history_days = 365,
+    include_sample_details = false,
+  } = params;
+
+  const apiParams = {
+    symbol,
+    timeframe,
+    window_days,
+    top_k,
+    max_history_days,
+    include_sample_details,
+  };
+
+  return fetchAPI<StateScenarioResponse>('/api/state/scenarios', apiParams);
+}
+
 /**
  * Attention Rotation Backtest Result
  */

@@ -8,6 +8,7 @@ import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
 import AttentionEvents from '@/components/AttentionEvents'
 import BacktestPanel from '@/components/BacktestPanel'
 import AttentionRegimePanel from '@/components/AttentionRegimePanel'
+import ScenarioPanel from '@/components/ScenarioPanel'
 import DashboardTab from '@/components/tabs/DashboardTab'
 import MarketOverviewTab from '@/components/tabs/MarketOverviewTab'
 import NewsTab from '@/components/tabs/NewsTab'
@@ -350,6 +351,16 @@ export default function Home() {
                 
                 <section>
                   <AttentionRegimePanel />
+                </section>
+                
+                {/* Scenario Analysis - 情景分析 */}
+                <section>
+                  <ScenarioPanel 
+                    symbol={selectedSymbol} 
+                    timeframe={selectedTimeframe === '1D' ? '1d' : selectedTimeframe === '4H' ? '4h' : '1d'}
+                    windowDays={30}
+                    topK={100}
+                  />
                 </section>
               </>
             )}

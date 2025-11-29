@@ -1335,3 +1335,754 @@ def backtest_attention_rotation(payload: dict = Body(...)):
         logger.error(f"Error in backtest_attention_rotation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ==================== State Snapshot API ====================
+
+@app.get("/api/state/snapshot")
+def get_state_snapshot(
+    symbol: str = Query(..., description="标的符号，如 ZEC, BTC"),
+    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
+):
+    """
+    获取指定 symbol 当前的状态快照
+    
+    返回该 symbol 截至当前时刻的多维状态特征向量，包括：
+    - 价格/波动维度（累计收益、波动率、成交量）
+    - 注意力维度（合成注意力、新闻热度、趋势变化）
+    - 情绪维度（sentiment、bullish/bearish 比例）
+    - 通道结构（各通道占比）
+    
+    状态快照可用于：
+    - 相似模式检索（Scenario Engine）
+    - 情景分析（类似历史模式的价格表现）
+    - 多因子综合评估
+    
+    Request:
+        GET /api/state/snapshot?symbol=ZEC&timeframe=1d&window_days=30
+    
+    Response:
+        {
+            "symbol": "ZEC",
+            "as_of": "2025-11-29T12:00:00+00:00",
+            "timeframe": "1d",
+            "window_days": 30,
+            "features": {
+                "ret_window": 0.52,
+                "vol_window": -0.31,
+                "volume_zscore": 1.24,
+                "att_composite_z": 0.87,
+                "att_news_z": 0.65,
+                "att_trend_7d": 0.12,
+                "att_spike_flag": 0,
+                "att_news_share": 0.45,
+                "att_google_share": 0.35,
+                "att_twitter_share": 0.20,
+                "sentiment_mean_window": 0.15,
+                "bullish_minus_bearish": 0.32
+            },
+            "raw_stats": {
+                "close_price": 45.67,
+                "high_window": 52.30,
+                "low_window": 38.12,
+                "avg_volume_7d": 12345678.0,
+                "composite_attention_score": 2.34,
+                "news_count_7d": 15,
+                ...
+            }
+        }
+    
+    Error Response (404):
+        {
+            "detail": "No data available for symbol ZEC"
+        }
+    """
+    from src.research.state_snapshot import compute_state_snapshot
+    
+    try:
+        # 验证 timeframe
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        # 计算状态快照
+        snapshot = compute_state_snapshot(
+            symbol=symbol,
+            as_of=None,  # 使用当前时间
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        if snapshot is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for symbol {symbol}. "
+                       f"Please ensure price and attention data exist for this symbol."
+            )
+        
+        # 转换为可序列化的字典
+        result = snapshot.to_dict()
+        
+        logger.info(
+            f"State snapshot returned for {symbol}: "
+            f"{len(snapshot.features)} features, {len(snapshot.raw_stats)} raw stats"
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_state_snapshot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/state/snapshot/batch")
+def get_state_snapshots_batch(
+    payload: dict = Body(...)
+):
+    """
+    批量获取多个 symbol 的状态快照
+    
+    Request:
+        POST /api/state/snapshot/batch
+        {
+            "symbols": ["ZEC", "BTC", "ETH"],
+            "timeframe": "1d",
+            "window_days": 30
+        }
+    
+    Response:
+        {
+            "snapshots": {
+                "ZEC": { ... snapshot data ... },
+                "BTC": { ... snapshot data ... },
+                "ETH": null  // 如果无数据
+            },
+            "meta": {
+                "requested": 3,
+                "success": 2,
+                "failed": 1
+            }
+        }
+    """
+    from src.research.state_snapshot import compute_state_snapshots_batch
+    
+    try:
+        symbols = payload.get("symbols", [])
+        if not symbols or not isinstance(symbols, list):
+            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
+        
+        timeframe = payload.get("timeframe", "1d")
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        window_days = int(payload.get("window_days", 30))
+        if window_days < 7 or window_days > 365:
+            raise HTTPException(
+                status_code=400,
+                detail="window_days must be between 7 and 365"
+            )
+        
+        # 批量计算
+        snapshots = compute_state_snapshots_batch(
+            symbols=symbols,
+            as_of=None,
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        # 转换结果
+        result_snapshots = {}
+        success_count = 0
+        failed_count = 0
+        
+        for symbol, snapshot in snapshots.items():
+            if snapshot is not None:
+                result_snapshots[symbol] = snapshot.to_dict()
+                success_count += 1
+            else:
+                result_snapshots[symbol] = None
+                failed_count += 1
+        
+        return {
+            "snapshots": result_snapshots,
+            "meta": {
+                "requested": len(symbols),
+                "success": success_count,
+                "failed": failed_count,
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_state_snapshots_batch: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Similar States API ====================
+
+@app.get("/api/state/similar-cases")
+def get_similar_cases(
+    symbol: str = Query(..., description="目标币种符号，如 ZEC, BTC"),
+    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
+    top_k: int = Query(50, ge=1, le=500, description="返回的相似样本数量"),
+    max_history_days: int = Query(365, ge=30, le=1095, description="最大历史回溯天数"),
+    include_same_symbol: bool = Query(True, description="是否包含相同币种的历史状态"),
+):
+    """
+    获取当前 symbol 在给定 timeframe/window_days 下的相似历史状态样本列表。
+    
+    本接口是 Scenario Engine 的核心功能，用于：
+    - 查找历史上与当前市场状态相似的时刻
+    - 支持跨币种的相似模式检索
+    - 为情景分析提供数据支持
+    
+    算法说明：
+    - 基于 StateSnapshot 的多维特征向量计算欧氏距离
+    - 自动排除目标时间点附近 ±7 天的样本（避免信息泄露）
+    - 返回按距离从小到大排序的 Top-K 相似样本
+    
+    Request:
+        GET /api/state/similar-cases?symbol=ZEC&timeframe=1d&window_days=30&top_k=50
+    
+    Response:
+        {
+            "target": {
+                "symbol": "ZEC",
+                "as_of": "2025-11-29T12:00:00+00:00",
+                "features": {...},
+                "raw_stats": {...}
+            },
+            "similar_cases": [
+                {
+                    "symbol": "ZEC",
+                    "datetime": "2024-06-15T00:00:00+00:00",
+                    "timeframe": "1d",
+                    "distance": 1.234,
+                    "similarity": 0.85,
+                    "snapshot_summary": {
+                        "close_price": 42.50,
+                        "return_window_pct": 0.12,
+                        ...
+                    }
+                },
+                ...
+            ],
+            "meta": {
+                "total_candidates_processed": 365,
+                "results_returned": 50,
+                "message": "Found 50 similar historical states"
+            }
+        }
+    
+    Error Response (404):
+        {
+            "detail": "No data available for symbol ZEC"
+        }
+    """
+    from src.research.state_snapshot import compute_state_snapshot
+    from src.research.similar_states import find_similar_states
+    
+    try:
+        # 验证 timeframe
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        # 计算目标状态快照
+        target = compute_state_snapshot(
+            symbol=symbol,
+            as_of=None,  # 使用当前时间
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for symbol {symbol}. "
+                       f"Please ensure price and attention data exist for this symbol."
+            )
+        
+        # 获取候选币种列表
+        candidate_symbols = get_available_symbols()
+        
+        if not candidate_symbols:
+            return {
+                "target": target.to_dict(),
+                "similar_cases": [],
+                "meta": {
+                    "total_candidates_processed": 0,
+                    "results_returned": 0,
+                    "message": "No candidate symbols available in database"
+                }
+            }
+        
+        # 查找相似状态
+        similar_states = find_similar_states(
+            target=target,
+            candidate_symbols=candidate_symbols,
+            timeframe=timeframe,
+            window_days=window_days,
+            top_k=top_k,
+            max_history_days=max_history_days,
+            include_same_symbol=include_same_symbol,
+            verbose=False,
+        )
+        
+        # 转换结果
+        similar_cases = [state.to_dict() for state in similar_states]
+        
+        # 计算实际处理的候选数量（近似值）
+        approx_candidates = len(candidate_symbols) * min(max_history_days, 365)
+        
+        message = f"Found {len(similar_cases)} similar historical states"
+        if len(similar_cases) == 0:
+            message = "No similar states found. Try increasing max_history_days or relaxing filters."
+        
+        logger.info(
+            f"Similar cases returned for {symbol}: {len(similar_cases)} results "
+            f"(top_k={top_k}, history={max_history_days}d)"
+        )
+        
+        return {
+            "target": target.to_dict(),
+            "similar_cases": similar_cases,
+            "meta": {
+                "total_candidates_processed": approx_candidates,
+                "results_returned": len(similar_cases),
+                "message": message
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_similar_cases: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/state/similar-cases/custom")
+def get_similar_cases_custom(
+    payload: dict = Body(...)
+):
+    """
+    自定义参数的相似状态检索（高级用法）
+    
+    支持指定候选币种列表、距离度量方式等高级参数。
+    
+    Request:
+        POST /api/state/similar-cases/custom
+        {
+            "symbol": "ZEC",
+            "timeframe": "1d",
+            "window_days": 30,
+            "top_k": 100,
+            "max_history_days": 365,
+            "candidate_symbols": ["ZEC", "BTC", "ETH"],  // 可选，限定候选范围
+            "distance_metric": "euclidean",  // 可选: euclidean 或 cosine
+            "include_same_symbol": true,  // 可选
+            "exclusion_days": 7  // 可选，排除目标时间附近的天数
+        }
+    
+    Response:
+        同 GET /api/state/similar-cases
+    """
+    from src.research.state_snapshot import compute_state_snapshot
+    from src.research.similar_states import find_similar_states
+    
+    try:
+        # 提取参数
+        symbol = payload.get("symbol")
+        if not symbol:
+            raise HTTPException(status_code=400, detail="symbol is required")
+        
+        timeframe = payload.get("timeframe", "1d")
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        window_days = int(payload.get("window_days", 30))
+        if window_days < 7 or window_days > 365:
+            raise HTTPException(
+                status_code=400,
+                detail="window_days must be between 7 and 365"
+            )
+        
+        top_k = int(payload.get("top_k", 50))
+        max_history_days = int(payload.get("max_history_days", 365))
+        distance_metric = payload.get("distance_metric", "euclidean")
+        include_same_symbol = payload.get("include_same_symbol", True)
+        exclusion_days = int(payload.get("exclusion_days", 7))
+        
+        # 候选币种
+        candidate_symbols = payload.get("candidate_symbols")
+        if not candidate_symbols:
+            candidate_symbols = get_available_symbols()
+        
+        # 计算目标状态
+        target = compute_state_snapshot(
+            symbol=symbol,
+            as_of=None,
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for symbol {symbol}"
+            )
+        
+        # 查找相似状态
+        similar_states = find_similar_states(
+            target=target,
+            candidate_symbols=candidate_symbols,
+            timeframe=timeframe,
+            window_days=window_days,
+            top_k=top_k,
+            max_history_days=max_history_days,
+            exclusion_days=exclusion_days,
+            distance_metric=distance_metric,
+            include_same_symbol=include_same_symbol,
+            verbose=False,
+        )
+        
+        # 转换结果
+        similar_cases = [state.to_dict() for state in similar_states]
+        
+        return {
+            "target": target.to_dict(),
+            "similar_cases": similar_cases,
+            "meta": {
+                "results_returned": len(similar_cases),
+                "distance_metric": distance_metric,
+                "candidate_symbols_count": len(candidate_symbols),
+                "message": f"Found {len(similar_cases)} similar states using {distance_metric} distance"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_similar_cases_custom: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Scenario Analysis API ====================
+
+@app.get("/api/state/scenarios")
+def get_state_scenarios(
+    symbol: str = Query(..., description="目标币种符号，如 ZEC, BTC"),
+    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
+    top_k: int = Query(100, ge=10, le=500, description="用于分析的相似样本数量"),
+    max_history_days: int = Query(365, ge=30, le=1095, description="最大历史回溯天数"),
+    include_sample_details: bool = Query(False, description="是否包含样本详情"),
+):
+    """
+    对当前 symbol 的状态进行基于 Attention 的未来情景分析。
+    
+    Scenario Engine 核心接口，完成以下流程：
+    1. 计算当前 symbol 的状态快照
+    2. 查找历史上相似的状态样本
+    3. 分析这些样本的后续价格表现
+    4. 将样本分类到不同情景（trend_up, spike_and_revert, sideways 等）
+    5. 统计各情景的概率、平均收益和风险指标
+    
+    情景分类说明：
+    - trend_up: 持续上涨，价格在观察期内持续走高，回撤可控
+    - trend_down: 持续下跌，价格在观察期内持续走低
+    - spike_and_revert: 冲高回落，短期内快速上涨后回吐大部分涨幅
+    - crash: 急剧下跌，出现大幅回撤
+    - sideways: 横盘震荡，价格波动有限，方向不明确
+    
+    ⚠️ 声明：当前实现为 rule-based/统计版，用于研究和趋势推演，不构成交易建议。
+    过往表现不代表未来收益。
+    
+    Request:
+        GET /api/state/scenarios?symbol=ZEC&timeframe=1d&top_k=100
+    
+    Response:
+        {
+            "target": {
+                "symbol": "ZEC",
+                "as_of": "2025-11-29T12:00:00+00:00",
+                "features": {...},
+                "raw_stats": {...}
+            },
+            "scenarios": [
+                {
+                    "label": "sideways",
+                    "description": "横盘震荡：价格波动有限，方向不明确，适合区间操作或观望",
+                    "sample_count": 45,
+                    "probability": 0.45,
+                    "avg_return_3d": 0.005,
+                    "avg_return_7d": 0.012,
+                    "avg_return_30d": 0.025,
+                    "max_drawdown_7d": -0.03,
+                    "max_drawdown_30d": -0.08,
+                    "avg_path": [0, 0.01, 0.02, ...]
+                },
+                {
+                    "label": "trend_up",
+                    "description": "持续上涨：价格在观察期内持续走高...",
+                    ...
+                },
+                ...
+            ],
+            "meta": {
+                "total_similar_samples": 100,
+                "valid_samples_analyzed": 85,
+                "lookahead_days": [3, 7, 30],
+                "message": "Scenario analysis complete"
+            }
+        }
+    
+    Error Response (404):
+        {
+            "detail": "No data available for symbol ZEC"
+        }
+    """
+    from src.research.state_snapshot import compute_state_snapshot
+    from src.research.similar_states import find_similar_states
+    from src.research.scenarios import analyze_scenarios
+    
+    try:
+        # 验证 timeframe
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        # Step 1: 计算目标状态快照
+        target = compute_state_snapshot(
+            symbol=symbol,
+            as_of=None,
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for symbol {symbol}. "
+                       f"Please ensure price and attention data exist for this symbol."
+            )
+        
+        # Step 2: 查找相似状态
+        candidate_symbols = get_available_symbols()
+        
+        if not candidate_symbols:
+            return {
+                "target": target.to_dict(),
+                "scenarios": [],
+                "meta": {
+                    "total_similar_samples": 0,
+                    "valid_samples_analyzed": 0,
+                    "lookahead_days": [3, 7, 30],
+                    "message": "No candidate symbols available in database"
+                }
+            }
+        
+        similar_states = find_similar_states(
+            target=target,
+            candidate_symbols=candidate_symbols,
+            timeframe=timeframe,
+            window_days=window_days,
+            top_k=top_k,
+            max_history_days=max_history_days,
+            include_same_symbol=True,
+            verbose=False,
+        )
+        
+        if not similar_states:
+            return {
+                "target": target.to_dict(),
+                "scenarios": [],
+                "meta": {
+                    "total_similar_samples": 0,
+                    "valid_samples_analyzed": 0,
+                    "lookahead_days": [3, 7, 30],
+                    "message": "No similar historical states found"
+                }
+            }
+        
+        # Step 3: 分析情景
+        lookahead_days = [3, 7, 30]
+        scenarios = analyze_scenarios(
+            target=target,
+            similar_states=similar_states,
+            lookahead_days=lookahead_days,
+            include_sample_details=include_sample_details,
+        )
+        
+        # 计算有效样本数
+        valid_samples = sum(s.sample_count for s in scenarios)
+        
+        # 转换结果
+        scenarios_data = [s.to_dict() for s in scenarios]
+        
+        logger.info(
+            f"Scenario analysis completed for {symbol}: "
+            f"{len(scenarios)} scenarios from {valid_samples} valid samples"
+        )
+        
+        return {
+            "target": target.to_dict(),
+            "scenarios": scenarios_data,
+            "meta": {
+                "total_similar_samples": len(similar_states),
+                "valid_samples_analyzed": valid_samples,
+                "lookahead_days": lookahead_days,
+                "message": f"Scenario analysis complete: {len(scenarios)} scenarios identified"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_state_scenarios: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/state/scenarios/custom")
+def get_state_scenarios_custom(
+    payload: dict = Body(...)
+):
+    """
+    自定义参数的情景分析（高级用法）
+    
+    支持自定义 lookahead 窗口、分类阈值等高级参数。
+    
+    Request:
+        POST /api/state/scenarios/custom
+        {
+            "symbol": "ZEC",
+            "timeframe": "1d",
+            "window_days": 30,
+            "top_k": 100,
+            "max_history_days": 365,
+            "lookahead_days": [3, 7, 14, 30],  // 自定义 lookahead 窗口
+            "candidate_symbols": ["ZEC", "BTC", "ETH"],  // 可选
+            "include_sample_details": false  // 是否包含样本详情
+        }
+    
+    Response:
+        同 GET /api/state/scenarios
+    """
+    from src.research.state_snapshot import compute_state_snapshot
+    from src.research.similar_states import find_similar_states
+    from src.research.scenarios import analyze_scenarios
+    
+    try:
+        # 提取参数
+        symbol = payload.get("symbol")
+        if not symbol:
+            raise HTTPException(status_code=400, detail="symbol is required")
+        
+        timeframe = payload.get("timeframe", "1d")
+        if timeframe not in ("1d", "4h"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
+            )
+        
+        window_days = int(payload.get("window_days", 30))
+        top_k = int(payload.get("top_k", 100))
+        max_history_days = int(payload.get("max_history_days", 365))
+        include_sample_details = payload.get("include_sample_details", False)
+        
+        # 自定义 lookahead 窗口
+        lookahead_days = payload.get("lookahead_days", [3, 7, 30])
+        if not isinstance(lookahead_days, list):
+            raise HTTPException(
+                status_code=400,
+                detail="lookahead_days must be a list of integers"
+            )
+        lookahead_days = [int(d) for d in lookahead_days]
+        
+        # 候选币种
+        candidate_symbols = payload.get("candidate_symbols")
+        if not candidate_symbols:
+            candidate_symbols = get_available_symbols()
+        
+        # Step 1: 计算目标状态
+        target = compute_state_snapshot(
+            symbol=symbol,
+            as_of=None,
+            timeframe=timeframe,
+            window_days=window_days,
+        )
+        
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data available for symbol {symbol}"
+            )
+        
+        # Step 2: 查找相似状态
+        similar_states = find_similar_states(
+            target=target,
+            candidate_symbols=candidate_symbols,
+            timeframe=timeframe,
+            window_days=window_days,
+            top_k=top_k,
+            max_history_days=max_history_days,
+            include_same_symbol=True,
+            verbose=False,
+        )
+        
+        if not similar_states:
+            return {
+                "target": target.to_dict(),
+                "scenarios": [],
+                "meta": {
+                    "total_similar_samples": 0,
+                    "valid_samples_analyzed": 0,
+                    "lookahead_days": lookahead_days,
+                    "message": "No similar historical states found"
+                }
+            }
+        
+        # Step 3: 分析情景
+        scenarios = analyze_scenarios(
+            target=target,
+            similar_states=similar_states,
+            lookahead_days=lookahead_days,
+            include_sample_details=include_sample_details,
+        )
+        
+        valid_samples = sum(s.sample_count for s in scenarios)
+        scenarios_data = [s.to_dict() for s in scenarios]
+        
+        return {
+            "target": target.to_dict(),
+            "scenarios": scenarios_data,
+            "meta": {
+                "total_similar_samples": len(similar_states),
+                "valid_samples_analyzed": valid_samples,
+                "lookahead_days": lookahead_days,
+                "candidate_symbols_count": len(candidate_symbols),
+                "message": f"Custom scenario analysis complete: {len(scenarios)} scenarios identified"
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_state_scenarios_custom: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
