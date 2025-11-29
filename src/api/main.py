@@ -69,6 +69,56 @@ async def scheduled_price_update():
     await updater.run()
 
 
+async def scheduled_attention_update():
+    """
+    后台任务：定期更新 Attention Features
+    每小时运行一次，为所有启用自动更新的代币计算 attention 特征
+    """
+    from src.database.models import Symbol, get_session
+    from src.features.attention_features import process_attention_features
+    
+    while True:
+        try:
+            logger.info("[Scheduler] Starting hourly attention features update...")
+            
+            # 获取所有启用自动更新的代币
+            session = get_session()
+            symbols = session.query(Symbol).filter(
+                Symbol.auto_update_price == True,
+                Symbol.is_active == True
+            ).all()
+            
+            symbol_names = [s.symbol for s in symbols]
+            session.close()
+            
+            if not symbol_names:
+                logger.info("[Scheduler] No symbols enabled for auto-update")
+            else:
+                logger.info(f"[Scheduler] Updating attention features for {len(symbol_names)} symbols: {symbol_names}")
+                
+                # 在线程池中运行同步函数，避免阻塞事件循环
+                for symbol in symbol_names:
+                    try:
+                        logger.info(f"[Scheduler] Calculating attention for {symbol} (1D)...")
+                        await asyncio.to_thread(process_attention_features, symbol, freq='D')
+                        
+                        # 可选：同时更新 4H 周期
+                        # logger.info(f"[Scheduler] Calculating attention for {symbol} (4H)...")
+                        # await asyncio.to_thread(process_attention_features, symbol, freq='4H')
+                        
+                    except Exception as e:
+                        logger.error(f"[Scheduler] Failed to update attention for {symbol}: {e}")
+                
+                logger.info("[Scheduler] Attention features update completed")
+            
+        except Exception as e:
+            logger.error(f"[Scheduler] Attention update cycle error: {e}", exc_info=True)
+        
+        # 等待 1 小时
+        logger.info("[Scheduler] Sleeping for 1 hour until next attention update...")
+        await asyncio.sleep(3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -78,12 +128,14 @@ async def lifespan(app: FastAPI):
     # 启动后台任务
     news_task = asyncio.create_task(scheduled_news_update())
     price_task = asyncio.create_task(scheduled_price_update())
+    attention_task = asyncio.create_task(scheduled_attention_update())
     
     yield
     
     # 关闭时取消任务
     news_task.cancel()
     price_task.cancel()
+    attention_task.cancel()
     try:
         await news_task
     except asyncio.CancelledError:
@@ -92,6 +144,10 @@ async def lifespan(app: FastAPI):
         await price_task
     except asyncio.CancelledError:
         logger.info("[Scheduler] Price task cancelled")
+    try:
+        await attention_task
+    except asyncio.CancelledError:
+        logger.info("[Scheduler] Attention task cancelled")
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -919,7 +975,7 @@ def get_auto_update_status():
 
 
 @app.post("/api/auto-update/enable")
-def enable_auto_update(
+async def enable_auto_update(
     payload: dict = Body(...)
 ):
     """
@@ -933,11 +989,14 @@ def enable_auto_update(
     Response:
         {
             "status": "success",
-            "enabled": ["BTC", "ETH", "SOL"]
+            "enabled": ["BTC", "ETH", "SOL"],
+            "message": "Auto-update enabled and initial data fetch triggered"
         }
     """
     from src.database.models import Symbol, get_session, get_engine
     from src.data.db_storage import get_db
+    from src.features.attention_features import process_attention_features
+    from src.data.realtime_price_updater import get_realtime_updater
     
     try:
         symbols = payload.get("symbols", [])
@@ -963,9 +1022,31 @@ def enable_auto_update(
         session.close()
         
         logger.info(f"Enabled auto-update for: {enabled}")
+        
+        # 触发初始数据更新和 attention 计算
+        updater = get_realtime_updater()
+        for symbol_name in enabled:
+            try:
+                # 1. 更新价格数据
+                logger.info(f"Fetching initial price data for {symbol_name}...")
+                await updater.update_single_symbol(symbol_name)
+                
+                # 2. 计算 attention features (1D)
+                logger.info(f"Calculating attention features for {symbol_name} (1D)...")
+                process_attention_features(symbol_name, freq='D')
+                
+                # 3. 计算 attention features (4H) - 如果需要
+                # logger.info(f"Calculating attention features for {symbol_name} (4H)...")
+                # process_attention_features(symbol_name, freq='4H')
+                
+            except Exception as e:
+                logger.error(f"Error initializing data for {symbol_name}: {e}", exc_info=True)
+                # 继续处理其他 symbol，不中断整个流程
+        
         return {
             "status": "success",
-            "enabled": enabled
+            "enabled": enabled,
+            "message": "Auto-update enabled and initial data fetch triggered"
         }
         
     except Exception as e:
@@ -1061,6 +1142,86 @@ async def trigger_manual_update(
         
     except Exception as e:
         logger.error(f"Error triggering manual update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/attention/trigger-update")
+async def trigger_attention_update(
+    payload: dict = Body(...)
+):
+    """
+    手动触发指定标的的 Attention Features 更新
+    
+    Request:
+        {
+            "symbols": ["BTC", "ETH"],  // 可选，不指定则更新所有启用的代币
+            "freq": "D"  // 可选，默认 "D"（日线），可选 "4H"
+        }
+    
+    Response:
+        {
+            "status": "success",
+            "updated": ["BTC", "ETH"],
+            "message": "Attention features updated successfully"
+        }
+    """
+    from src.features.attention_features import process_attention_features
+    from src.database.models import Symbol, get_session
+    
+    try:
+        symbols = payload.get("symbols", [])
+        freq = payload.get("freq", "D")
+        
+        # 如果没有指定 symbols，获取所有启用自动更新的代币
+        if not symbols:
+            session = get_session()
+            enabled_symbols = session.query(Symbol).filter(
+                Symbol.auto_update_price == True,
+                Symbol.is_active == True
+            ).all()
+            symbols = [s.symbol for s in enabled_symbols]
+            session.close()
+            
+            if not symbols:
+                return {
+                    "status": "warning",
+                    "updated": [],
+                    "message": "No symbols enabled for auto-update"
+                }
+        
+        updated = []
+        errors = []
+        
+        for symbol_name in symbols:
+            symbol_name = symbol_name.upper()
+            try:
+                logger.info(f"Manually triggering attention update for {symbol_name} (freq={freq})...")
+                
+                # 在线程池中运行同步函数，避免阻塞
+                await asyncio.to_thread(process_attention_features, symbol_name, freq=freq)
+                
+                updated.append(symbol_name)
+                logger.info(f"✅ Attention features updated for {symbol_name}")
+                
+            except Exception as e:
+                error_msg = f"{symbol_name}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"❌ Failed to update attention for {symbol_name}: {e}")
+        
+        response = {
+            "status": "success" if updated else "error",
+            "updated": updated,
+            "message": f"Updated {len(updated)} symbol(s)"
+        }
+        
+        if errors:
+            response["errors"] = errors
+            response["message"] += f", {len(errors)} failed"
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error triggering attention update: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

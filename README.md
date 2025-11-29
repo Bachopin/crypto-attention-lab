@@ -163,12 +163,12 @@ streamlit run src/dashboard/app.py
 ### Python 数据处理功能
 - ✅ 从 Binance/CoinGecko 获取 ZEC 价格数据
 - ✅ 集成 CryptoPanic/NewsAPI/CryptoCompare/RSS 获取真实新闻
+- ✅ 集成 Google Trends (pytrends) 和 Twitter Volume (API/Mock) 数据 🆕
 - ✅ 新闻特征工程（来源权重/相关性/情绪/标签）
 - ✅ 多维注意力特征（weighted/bullish/bearish/event_intensity）
 - ✅ 注意力事件检测（基于分位数阈值）
 - ✅ 基础注意力策略回测框架
-- ✅ 数据库存储（SQLite + SQLAlchemy，支持多币种扩展）
-- ✅ CSV 向后兼容（数据迁移脚本）
+- ✅ 数据库存储（SQLite + SQLAlchemy，支持多币种扩展，全量数据入库）
 - ✅ 支持多时间周期 (1D/4H/1H/15M)
 - ✅ 代理支持 (HTTP/SOCKS5)
 

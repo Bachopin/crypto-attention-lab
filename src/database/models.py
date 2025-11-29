@@ -33,6 +33,7 @@ class Symbol(Base):
     prices = relationship('Price', back_populates='symbol_ref', cascade='all, delete-orphan')
     attention_features = relationship('AttentionFeature', back_populates='symbol_ref', cascade='all, delete-orphan')
     google_trends = relationship('GoogleTrend', back_populates='symbol_ref', cascade='all, delete-orphan')
+    twitter_volumes = relationship('TwitterVolume', back_populates='symbol_ref', cascade='all, delete-orphan')
 
 
 class News(Base):
@@ -97,12 +98,14 @@ class Price(Base):
 
 
 class AttentionFeature(Base):
-    """注意力特征聚合表（每日）"""
+    """注意力特征聚合表（支持日级和 4H 级）"""
     __tablename__ = 'attention_features'
     
     id = Column(Integer, primary_key=True)
     symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
     datetime = Column(DateTime(timezone=True), nullable=False)
+    # 时间频率：'D' 为日级，'4H' 为 4 小时级
+    timeframe = Column(String(10), nullable=False, default='D', index=True)
     
     # 基础特征
     news_count = Column(Integer, nullable=False, default=0)
@@ -128,10 +131,10 @@ class AttentionFeature(Base):
     # 关系
     symbol_ref = relationship('Symbol', back_populates='attention_features')
     
-    # 唯一约束
+    # 唯一约束：symbol + datetime + timeframe 唯一
     __table_args__ = (
-        UniqueConstraint('symbol_id', 'datetime', name='uq_attention_symbol_dt'),
-        Index('ix_attention_symbol_datetime', 'symbol_id', 'datetime'),
+        UniqueConstraint('symbol_id', 'datetime', 'timeframe', name='uq_attention_symbol_dt_tf'),
+        Index('ix_attention_symbol_datetime_tf', 'symbol_id', 'datetime', 'timeframe'),
     )
 
 
@@ -152,6 +155,25 @@ class GoogleTrend(Base):
     __table_args__ = (
         UniqueConstraint('symbol_id', 'datetime', name='uq_google_trend_symbol_dt'),
         Index('ix_google_trend_symbol_datetime', 'symbol_id', 'datetime'),
+    )
+
+
+class TwitterVolume(Base):
+    """Twitter volume time-series samples for each symbol."""
+
+    __tablename__ = 'twitter_volumes'
+
+    id = Column(Integer, primary_key=True)
+    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
+    datetime = Column(DateTime(timezone=True), nullable=False)
+    tweet_count = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    symbol_ref = relationship('Symbol', back_populates='twitter_volumes')
+
+    __table_args__ = (
+        UniqueConstraint('symbol_id', 'datetime', name='uq_twitter_volume_symbol_dt'),
+        Index('ix_twitter_volume_symbol_datetime', 'symbol_id', 'datetime'),
     )
 
 

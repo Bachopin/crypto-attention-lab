@@ -25,12 +25,6 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     TrendReq = None
 
-CACHE_FILENAME_TEMPLATE = "google_trends_{symbol}.csv"
-
-
-def _cache_path(symbol: str):
-    return PROCESSED_DATA_DIR / CACHE_FILENAME_TEMPLATE.format(symbol=symbol.lower())
-
 
 def _normalize_datetime(value: pd.Timestamp | datetime) -> pd.Timestamp:
     ts = pd.Timestamp(value)
@@ -108,24 +102,6 @@ def fetch_google_trends_for_symbol(
     return series
 
 
-def load_cached_google_trends(symbol: str) -> pd.DataFrame:
-    path = _cache_path(symbol)
-    if not path.exists():
-        return pd.DataFrame(columns=["datetime", "value"])
-    df = pd.read_csv(path)
-    if "datetime" in df.columns:
-        df["datetime"] = pd.to_datetime(df["datetime"], utc=True).dt.normalize()
-    return df
-
-
-def save_google_trends_cache(symbol: str, df: pd.DataFrame) -> None:
-    if df.empty:
-        return
-    path = _cache_path(symbol)
-    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
-
-
 def get_google_trends_series(
     symbol: str,
     start: pd.Timestamp,
@@ -138,40 +114,32 @@ def get_google_trends_series(
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
 
-    cached = pd.DataFrame()
-    if not force_refresh:
-        cached = _ensure_datetime_column(load_cached_google_trends(symbol))
-
     db_rows = pd.DataFrame()
     db_handle = None
-    if USE_DATABASE:
-        try:
-            db_handle = get_db()
-            db_rows = _ensure_datetime_column(db_handle.get_google_trends(symbol, start, end))
-        except Exception as exc:  # pragma: no cover - DB optional
-            logger.warning("Failed to load Google Trends rows from DB for %s: %s", symbol, exc)
-            db_handle = None
+    
+    # Always try to get DB handle
+    try:
+        db_handle = get_db()
+    except Exception as exc:
+        logger.warning("Failed to init DB handle for google trends: %s", exc)
+        db_handle = None
 
-    combined_existing = pd.concat(
-        [df for df in (cached, db_rows) if not df.empty],
-        ignore_index=True,
-    )
-    if not combined_existing.empty:
-        combined_existing = (
-            combined_existing
-            .drop_duplicates(subset=["datetime"], keep="last")
-            .sort_values("datetime")
-        )
+    if not force_refresh and db_handle:
+        try:
+            db_rows = _ensure_datetime_column(db_handle.get_google_trends(symbol, start, end))
+        except Exception as exc:
+            logger.warning("Failed to load Google Trends rows from DB for %s: %s", symbol, exc)
 
     coverage_ok = (
         not force_refresh
-        and not combined_existing.empty
-        and combined_existing["datetime"].min() <= start
-        and combined_existing["datetime"].max() >= end
+        and not db_rows.empty
+        and db_rows["datetime"].min() <= start
+        and db_rows["datetime"].max() >= end
     )
 
     need_fetch = force_refresh or not coverage_ok
     fetched = pd.DataFrame()
+    
     if need_fetch:
         fetched = fetch_google_trends_for_symbol(symbol, start, end, geo=cfg.google_geo)
         if fetched.empty:
@@ -181,34 +149,24 @@ def get_google_trends_series(
                 cfg.google_trends_keywords,
             )
         else:
-            if db_handle is None and USE_DATABASE:
-                try:
-                    db_handle = get_db()
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("Failed to init DB handle for google trends: %s", exc)
-                    db_handle = None
-
-            if db_handle is not None:
+            if db_handle:
                 try:
                     db_handle.save_google_trends(symbol, fetched.to_dict("records"))
-                except Exception as exc:  # pragma: no cover
+                except Exception as exc:
                     logger.warning("Failed to persist Google Trends rows for %s: %s", symbol, exc)
 
-    merged = pd.concat(
-        [df for df in (combined_existing, fetched) if not df.empty],
-        ignore_index=True,
-    )
-
-    if merged.empty:
-        return merged
+    # Merge fetched data with existing DB data (if any)
+    dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]
+    if not dfs_to_merge:
+        return pd.DataFrame()
+    
+    merged = pd.concat(dfs_to_merge, ignore_index=True)
 
     merged = (
         merged
         .drop_duplicates(subset=["datetime"], keep="last")
         .sort_values("datetime")
     )
-
-    save_google_trends_cache(symbol, merged[["datetime", "value"]])
 
     mask = (merged["datetime"] >= start) & (merged["datetime"] <= end)
     return merged.loc[mask].copy()

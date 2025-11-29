@@ -9,6 +9,7 @@ import AttentionEvents from '@/components/AttentionEvents'
 import BacktestPanel from '@/components/BacktestPanel'
 import AttentionRegimePanel from '@/components/AttentionRegimePanel'
 import DashboardTab from '@/components/tabs/DashboardTab'
+import MarketOverviewTab from '@/components/tabs/MarketOverviewTab'
 import NewsTab from '@/components/tabs/NewsTab'
 import SettingsTab from '@/components/tabs/SettingsTab'
 import {
@@ -23,7 +24,7 @@ import {
   type NewsItem,
   type SummaryStats,
 } from '@/lib/api'
-import { Activity, TrendingUp, Newspaper, Settings, Network } from 'lucide-react'
+import { Activity, TrendingUp, Newspaper, Settings, Network, LayoutGrid } from 'lucide-react'
 import { Range, Time } from 'lightweight-charts'
 import Link from 'next/link'
 
@@ -42,7 +43,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
   const [updateCountdown, setUpdateCountdown] = useState(0)
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [activeTab, setActiveTab] = useState('overview')
 
   // Chart settings persistence
   const [volumeRatio, setVolumeRatio] = useState(0.2)
@@ -235,6 +236,10 @@ export default function Home() {
             {/* 主导航 Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-auto">
               <TabsList>
+                <TabsTrigger value="overview" className="gap-2">
+                  <LayoutGrid className="w-4 h-4" />
+                  市场概况
+                </TabsTrigger>
                 <TabsTrigger value="dashboard" className="gap-2">
                   <TrendingUp className="w-4 h-4" />
                   代币看板
@@ -263,96 +268,103 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6 space-y-6">
-        {/* Loading State */}
-        {loading && (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-muted-foreground">Loading market data...</p>
-            </div>
-          </div>
-        )}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          {/* 市场概况 - 独立加载，不依赖主页面数据 */}
+          <TabsContent value="overview" className="mt-0 space-y-6">
+            <MarketOverviewTab />
+          </TabsContent>
 
-        {/* Error State */}
-        {!loading && error && (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center max-w-md">
-              <div className="text-5xl mb-4">⚠️</div>
-              <h2 className="text-xl font-semibold mb-2">Failed to Load Data</h2>
-              <p className="text-muted-foreground mb-4">{error}</p>
-              <p className="text-sm text-muted-foreground/70 mb-6">
-                Make sure the FastAPI backend is running at {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}
-              </p>
-              <Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Retry</Button>
-            </div>
-          </div>
-        )}
+          {/* 代币看板 - 需要等待数据加载 */}
+          <TabsContent value="dashboard" className="mt-0 space-y-6">
+            {/* Loading State */}
+            {loading && (
+              <div className="flex items-center justify-center h-64">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-muted-foreground">Loading market data...</p>
+                </div>
+              </div>
+            )}
 
-        {/* Fallback State */}
-        {!loading && !error && !summaryStats && (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center max-w-md text-muted-foreground">
-              <div className="text-5xl mb-4">ℹ️</div>
-              <h2 className="text-xl font-semibold mb-2">No data available</h2>
-              <p className="text-sm">Try refreshing data or check backend.</p>
-              <div className="mt-4"><Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Reload</Button></div>
-            </div>
-          </div>
-        )}
+            {/* Error State */}
+            {!loading && error && (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center max-w-md">
+                  <div className="text-5xl mb-4">⚠️</div>
+                  <h2 className="text-xl font-semibold mb-2">Failed to Load Data</h2>
+                  <p className="text-muted-foreground mb-4">{error}</p>
+                  <p className="text-sm text-muted-foreground/70 mb-6">
+                    Make sure the FastAPI backend is running at {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}
+                  </p>
+                  <Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Retry</Button>
+                </div>
+              </div>
+            )}
 
-        {!loading && summaryStats && (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            {/* 代币看板 */}
-            <TabsContent value="dashboard" className="mt-0 space-y-6">
-              <DashboardTab
-                selectedSymbol={selectedSymbol}
-                availableSymbols={availableSymbols}
-                summaryStats={summaryStats}
-                assetNewsData={assetNewsData}
-                priceData={priceData}
-                overviewPriceData={overviewPriceData}
-                attentionData={attentionData}
-                events={events}
-                selectedTimeframe={selectedTimeframe}
-                timeframes={timeframes}
-                onTimeframeChange={setSelectedTimeframe}
-                volumeRatio={volumeRatio}
-                onVolumeRatioChange={setVolumeRatio}
-                showEventMarkers={showEventMarkers}
-                onShowEventMarkersChange={setShowEventMarkers}
-                onSymbolChange={setSelectedSymbol}
-                onRefresh={refreshCurrentSymbol}
-                updating={updating}
-                updateCountdown={updateCountdown}
-                priceChartRef={priceChartRef}
-                attentionChartRef={attentionChartRef}
-                onPriceRangeChange={handlePriceRangeChange}
-                onAttentionRangeChange={handleAttentionRangeChange}
-                onCrosshairMove={handleCrosshairMove}
-              />
+            {/* Fallback State */}
+            {!loading && !error && !summaryStats && (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center max-w-md text-muted-foreground">
+                  <div className="text-5xl mb-4">ℹ️</div>
+                  <h2 className="text-xl font-semibold mb-2">No data available</h2>
+                  <p className="text-sm">Try refreshing data or check backend.</p>
+                  <div className="mt-4"><Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Reload</Button></div>
+                </div>
+              </div>
+            )}
 
-              {/* Attention Events & Backtest */}
-              <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <AttentionEvents events={events} />
-                <BacktestPanel />
-              </section>
-              
-              <section>
-                <AttentionRegimePanel />
-              </section>
-            </TabsContent>
+            {!loading && summaryStats && (
+              <>
+                <DashboardTab
+                  selectedSymbol={selectedSymbol}
+                  availableSymbols={availableSymbols}
+                  summaryStats={summaryStats}
+                  assetNewsData={assetNewsData}
+                  priceData={priceData}
+                  overviewPriceData={overviewPriceData}
+                  attentionData={attentionData}
+                  events={events}
+                  selectedTimeframe={selectedTimeframe}
+                  timeframes={timeframes}
+                  onTimeframeChange={setSelectedTimeframe}
+                  volumeRatio={volumeRatio}
+                  onVolumeRatioChange={setVolumeRatio}
+                  showEventMarkers={showEventMarkers}
+                  onShowEventMarkersChange={setShowEventMarkers}
+                  onSymbolChange={setSelectedSymbol}
+                  onRefresh={refreshCurrentSymbol}
+                  updating={updating}
+                  updateCountdown={updateCountdown}
+                  priceChartRef={priceChartRef}
+                  attentionChartRef={attentionChartRef}
+                  onPriceRangeChange={handlePriceRangeChange}
+                  onAttentionRangeChange={handleAttentionRangeChange}
+                  onCrosshairMove={handleCrosshairMove}
+                />
 
-            {/* 新闻概览 */}
-            <TabsContent value="news" className="mt-0 space-y-6">
-              <NewsTab news={newsData} />
-            </TabsContent>
+                {/* Attention Events & Backtest */}
+                <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <AttentionEvents events={events} />
+                  <BacktestPanel />
+                </section>
+                
+                <section>
+                  <AttentionRegimePanel />
+                </section>
+              </>
+            )}
+          </TabsContent>
 
-            {/* 系统设置 */}
-            <TabsContent value="settings" className="mt-0 space-y-6">
-              <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
-            </TabsContent>
-          </Tabs>
-        )}
+          {/* 新闻概览 */}
+          <TabsContent value="news" className="mt-0 space-y-6">
+            <NewsTab news={newsData} />
+          </TabsContent>
+
+          {/* 系统设置 */}
+          <TabsContent value="settings" className="mt-0 space-y-6">
+            <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Footer */}

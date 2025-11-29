@@ -101,8 +101,8 @@ Trends、Twitter）与 `composite_attention_score`。
 python scripts/fetch_multi_symbol_google_trends.py --days 365
 ```
 - 根据 `TRACKED_SYMBOLS` 与数据库中的可用币种，批量抓取 Google 搜索热度；
-- 通过 `pytrends` 获取真实 interest-over-time 序列，优先写入 SQLite（`google_trends` 表），并在 `data/processed/google_trends_<symbol>.csv` 下缓存；
-- `attention_features` 读取同一套缓存，不可用时会记录 warning 并退化为 0，确保生成流程不中断。
+- 通过 `pytrends` 获取真实 interest-over-time 序列，写入数据库（`google_trends` 表）；
+- `attention_features` 读取数据库，不可用时会记录 warning 并退化为 0，确保生成流程不中断。
 
 ### 4. 事件检测
 位置：`src/events/attention_events.py`
@@ -624,7 +624,7 @@ print(df.sort_values("ir", ascending=False).head(10))
 
 - Google 通道数据由 `scripts/fetch_multi_symbol_google_trends.py` 批量拉取，支持多币种、日级分辨率。
 - 关键词配置见 `src/config/attention_channels.py`，如未配置则自动 fallback 为 `["<symbol> crypto"]`。
-- 拉取逻辑优先写入数据库 `google_trends` 表，并在 `data/processed/google_trends_<symbol>.csv` 下缓存。
+- 拉取逻辑写入数据库 `google_trends` 表。
 - attention 特征工程会自动 merge 真数据，缺失时自动填 0 并记录 warning 日志。
 - 可用命令：
   ```bash

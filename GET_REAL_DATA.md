@@ -39,19 +39,16 @@ CRYPTOPANIC_API_KEY=your_actual_api_key_here
 
 保存并退出 (Ctrl+O, Enter, Ctrl+X)
 
-#### 步骤 3: 删除旧的 Mock 数据
+#### 步骤 3: 清除旧的 Mock 数据
 
-```bash
-rm data/raw/attention_zec_news.csv
-rm data/processed/attention_features_zec.csv
-```
+由于数据现在存储在数据库中，您可以通过 API 或数据库工具清除旧数据，或者直接让系统更新。
 
 #### 步骤 4: 重新获取数据
 
 ```bash
 # 方式 1: 使用 Python 脚本
 source venv/bin/activate  # 或 source .venv/bin/activate
-python -c "from src.data.attention_fetcher import fetch_zec_news; fetch_zec_news()"
+python scripts/fetch_news_data.py
 
 # 方式 2: 启动 API 会自动获取
 ./scripts/start_api.sh
@@ -82,7 +79,7 @@ nano .env
 NEWS_API_KEY=your_newsapi_key_here
 ```
 
-#### 步骤 3-4: 同上 (删除旧数据并重新获取)
+#### 步骤 3-4: 同上 (重新获取数据)
 
 ---
 
@@ -100,22 +97,12 @@ NEWS_API_KEY=your_newsapi_key
 
 ## 🧪 验证数据获取
 
-### 1. 检查新闻数据文件
+### 1. 检查数据库数据
+
+您可以使用 `scripts/check_news_stats.py` 脚本来检查数据库中的新闻数据统计信息。
 
 ```bash
-cat data/raw/attention_zec_news.csv
-```
-
-**真实数据示例:**
-```csv
-timestamp,datetime,title,source,url
-1700000000000,2023-11-15 12:00:00,Zcash Foundation Announces New Privacy Features,CryptoPanic,https://...
-```
-
-**Mock 数据示例 (需要替换):**
-```csv
-timestamp,datetime,title,source,url
-1763595497465,2025-11-19 23:38:17,ZEC News Sample 8967,Twitter,https://example.com/news
+python scripts/check_news_stats.py
 ```
 
 ### 2. 测试 API 端点
@@ -148,24 +135,13 @@ curl -s 'http://localhost:8000/api/news?symbol=ZEC' | jq '.[0]'
 
 ### 自动更新
 - FastAPI 后端会在启动时检查数据
-- 如果数据文件不存在,会自动调用 fetcher
+- 如果数据不存在,会自动调用 fetcher
 
 ### 手动更新
 
 ```bash
 # 重新获取最近 7 天的新闻
-python -c "
-from datetime import datetime, timedelta, timezone
-from src.data.attention_fetcher import fetch_zec_news
-
-end = datetime.now(timezone.utc)
-start = end - timedelta(days=7)
-fetch_zec_news(start, end)
-"
-
-# 或删除文件让系统自动获取
-rm data/raw/attention_zec_news.csv
-rm data/processed/attention_features_zec.csv
+python scripts/fetch_news_data.py
 ```
 
 ### 定时任务 (可选)
@@ -176,7 +152,7 @@ rm data/processed/attention_features_zec.csv
 crontab -e
 
 # 添加每天凌晨 2 点更新
-0 2 * * * cd /Users/mextrel/VSCode/crypto-attention-lab && source venv/bin/activate && python -c "from src.data.attention_fetcher import fetch_zec_news; fetch_zec_news()" >> logs/fetch.log 2>&1
+0 2 * * * cd /Users/mextrel/VSCode/crypto-attention-lab && source venv/bin/activate && python scripts/fetch_news_data.py >> logs/fetch.log 2>&1
 ```
 
 ---
@@ -222,13 +198,10 @@ tail -f logs/app.log  # 如果有的话
 # 1. 配置 API key
 echo "CRYPTOPANIC_API_KEY=your_key_here" > .env
 
-# 2. 删除旧数据
-rm data/raw/attention_zec_news.csv data/processed/attention_features_zec.csv
-
-# 3. 启动应用 (会自动获取数据)
+# 2. 启动应用 (会自动获取数据)
 ./scripts/start_dev.sh
 
-# 4. 访问前端查看
+# 3. 访问前端查看
 # http://localhost:3000
 ```
 

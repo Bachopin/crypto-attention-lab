@@ -40,9 +40,11 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const chartRef = useRef<IChartApi | null>(null)
     const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
+    const isDisposedRef = useRef(false)
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
+        if (isDisposedRef.current) return
         if (chartRef.current && range) {
           try {
             chartRef.current.timeScale().setVisibleRange(range)
@@ -52,20 +54,35 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         }
       },
       setCrosshair: (time: Time | null) => {
+        if (isDisposedRef.current) return
         if (chartRef.current && candlestickSeriesRef.current) {
-          if (time) {
-            // Find point by matching timestamp (seconds)
-            const point = priceData.find(d => 
-              Math.floor(d.timestamp / 1000) === (time as number)
-            )
-            const price = point ? point.close : 0
-            chartRef.current.setCrosshairPosition(price, time, candlestickSeriesRef.current);
-          } else {
-            chartRef.current.clearCrosshairPosition();
+          try {
+            if (time) {
+              // Find point by matching timestamp (seconds)
+              const point = priceData.find(d => 
+                Math.floor(d.timestamp / 1000) === (time as number)
+              )
+              const price = point ? point.close : 0
+              chartRef.current.setCrosshairPosition(price, time, candlestickSeriesRef.current);
+            } else {
+              chartRef.current.clearCrosshairPosition();
+            }
+          } catch (err) {
+            // Chart may be disposed, ignore
           }
         }
       }
     }))
+
+  // 使用 ref 存储回调，避免图表重建
+  const onVisibleRangeChangeRef = useRef(onVisibleRangeChange)
+  const onCrosshairMoveRef = useRef(onCrosshairMove)
+  
+  // 更新 ref
+  useEffect(() => {
+    onVisibleRangeChangeRef.current = onVisibleRangeChange
+    onCrosshairMoveRef.current = onCrosshairMove
+  }, [onVisibleRangeChange, onCrosshairMove])
 
   useEffect(() => {
     if (!chartContainerRef.current) return
@@ -118,18 +135,18 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     })
     volumeSeriesRef.current = volumeSeries
 
-    // Subscribe to visible range changes
+    // Subscribe to visible range changes - 使用 ref 避免重建
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       const visibleRange = chart.timeScale().getVisibleRange()
-      if (onVisibleRangeChange) {
-        onVisibleRangeChange(visibleRange)
+      if (onVisibleRangeChangeRef.current) {
+        onVisibleRangeChangeRef.current(visibleRange)
       }
     })
 
-    // Subscribe to crosshair moves
+    // Subscribe to crosshair moves - 使用 ref 避免重建
     chart.subscribeCrosshairMove((param) => {
-      if (onCrosshairMove) {
-        onCrosshairMove(param.time || null)
+      if (onCrosshairMoveRef.current) {
+        onCrosshairMoveRef.current(param.time || null)
       }
     })
 
@@ -143,109 +160,124 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     }
 
     window.addEventListener('resize', handleResize)
+    isDisposedRef.current = false
 
     return () => {
+      isDisposedRef.current = true
       window.removeEventListener('resize', handleResize)
       chart.remove()
+      chartRef.current = null
+      candlestickSeriesRef.current = null
+      volumeSeriesRef.current = null
     }
-  }, [height, onVisibleRangeChange, onCrosshairMove])
+  }, [height]) // 只依赖 height，回调通过 ref 处理
 
   // Update volume ratio
   useEffect(() => {
+    if (isDisposedRef.current) return
     if (chartRef.current) {
-      chartRef.current.priceScale('').applyOptions({
-        scaleMargins: {
-          top: 1 - volumeRatio,
-          bottom: 0,
-        },
-      })
+      try {
+        chartRef.current.priceScale('').applyOptions({
+          scaleMargins: {
+            top: 1 - volumeRatio,
+            bottom: 0,
+          },
+        })
+      } catch (err) {
+        // Chart may be disposed, ignore
+      }
     }
   }, [volumeRatio])
 
   // Update data & markers
   useEffect(() => {
+    if (isDisposedRef.current) return
     if (!candlestickSeriesRef.current || !volumeSeriesRef.current) return
 
-    // Use UTC timestamps (seconds) - Chart library handles local time conversion by default
-    const candleData = priceData.map((d) => ({
-      time: Math.floor(d.timestamp / 1000) as any,
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }))
+    try {
+      // Use UTC timestamps (seconds) - Chart library handles local time conversion by default
+      const candleData = priceData.map((d) => ({
+        time: Math.floor(d.timestamp / 1000) as any,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+      }))
 
-    const volumeData = priceData.map((d) => ({
-      time: Math.floor(d.timestamp / 1000) as any,
-      value: d.volume,
-      color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
-    }))
+      const volumeData = priceData.map((d) => ({
+        time: Math.floor(d.timestamp / 1000) as any,
+        value: d.volume,
+        color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)',
+      }))
 
-    candlestickSeriesRef.current.setData(candleData)
-    volumeSeriesRef.current.setData(volumeData)
+      candlestickSeriesRef.current.setData(candleData)
+      volumeSeriesRef.current.setData(volumeData)
 
-    // Set event markers on candles
-    if (candlestickSeriesRef.current) {
-      if (showEventMarkers && events && events.length > 0) {
-        const markers = events.map((e) => {
-          const dt = new Date(e.datetime)
-          const time = Math.floor(dt.getTime() / 1000) as any
-          // Map event type to style
-          let position: 'aboveBar' | 'belowBar' = 'aboveBar'
-          let color = '#f59e0b' // amber for generic
-          let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
-          let text = 'E'
+      // Set event markers on candles
+      if (candlestickSeriesRef.current) {
+        if (showEventMarkers && events && events.length > 0) {
+          const markers = events.map((e) => {
+            const dt = new Date(e.datetime)
+            const time = Math.floor(dt.getTime() / 1000) as any
+            // Map event type to style
+            let position: 'aboveBar' | 'belowBar' = 'aboveBar'
+            let color = '#f59e0b' // amber for generic
+            let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
+            let text = 'E'
 
-          switch (e.event_type) {
-            case 'high_bullish':
-              position = 'aboveBar'
-              color = '#22c55e'
-              shape = 'arrowUp'
-              text = 'Bull'
-              break
-            case 'high_bearish':
-              position = 'belowBar'
-              color = '#ef4444'
-              shape = 'arrowDown'
-              text = 'Bear'
-              break
-            case 'high_weighted_event':
-              position = 'aboveBar'
-              color = '#3b82f6'
-              shape = 'circle'
-              text = 'Wt'
-              break
-            case 'attention_spike':
-              position = 'aboveBar'
-              color = '#f59e0b'
-              shape = 'circle'
-              text = 'Spike'
-              break
-            case 'event_intensity':
-              position = 'aboveBar'
-              color = '#eab308'
-              shape = 'circle'
-              text = 'Evt'
-              break
-          }
+            switch (e.event_type) {
+              case 'high_bullish':
+                position = 'aboveBar'
+                color = '#22c55e'
+                shape = 'arrowUp'
+                text = 'Bull'
+                break
+              case 'high_bearish':
+                position = 'belowBar'
+                color = '#ef4444'
+                shape = 'arrowDown'
+                text = 'Bear'
+                break
+              case 'high_weighted_event':
+                position = 'aboveBar'
+                color = '#3b82f6'
+                shape = 'circle'
+                text = 'Wt'
+                break
+              case 'attention_spike':
+                position = 'aboveBar'
+                color = '#f59e0b'
+                shape = 'circle'
+                text = 'Spike'
+                break
+              case 'event_intensity':
+                position = 'aboveBar'
+                color = '#eab308'
+                shape = 'circle'
+                text = 'Evt'
+                break
+            }
 
-          return {
-            time,
-            position,
-            color,
-            shape,
-            text,
-          } as any
-        })
-        candlestickSeriesRef.current.setMarkers(markers)
-      } else {
-        candlestickSeriesRef.current.setMarkers([])
+            return {
+              time,
+              position,
+              color,
+              shape,
+              text,
+            } as any
+          })
+          candlestickSeriesRef.current.setMarkers(markers)
+        } else {
+          candlestickSeriesRef.current.setMarkers([])
+        }
       }
-    }
 
-    // Fit content
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent()
+      // Fit content - 只有在有数据时才执行
+      if (chartRef.current && candleData.length > 0) {
+        chartRef.current.timeScale().fitContent()
+      }
+    } catch (err) {
+      // Chart may be disposed, ignore
     }
   }, [priceData, events, showEventMarkers])
 

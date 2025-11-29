@@ -21,9 +21,21 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const lineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+    const isDisposedRef = useRef(false)
+    
+    // 使用 ref 存储回调，避免图表重建
+    const onVisibleRangeChangeRef = useRef(onVisibleRangeChange)
+    const onCrosshairMoveRef = useRef(onCrosshairMove)
+    
+    // 更新 ref
+    useEffect(() => {
+      onVisibleRangeChangeRef.current = onVisibleRangeChange
+      onCrosshairMoveRef.current = onCrosshairMove
+    }, [onVisibleRangeChange, onCrosshairMove])
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
+        if (isDisposedRef.current) return
         if (chartRef.current && range) {
           try {
             chartRef.current.timeScale().setVisibleRange(range)
@@ -33,15 +45,20 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         }
       },
       setCrosshair: (time: Time | null) => {
+        if (isDisposedRef.current) return
         if (chartRef.current && lineSeriesRef.current) {
-          if (time) {
-            const point = attentionData.find(d => 
-              Math.floor(d.timestamp / 1000) === (time as number)
-            )
-            const value = point ? point.attention_score : 0
-            chartRef.current.setCrosshairPosition(value, time, lineSeriesRef.current);
-          } else {
-            chartRef.current.clearCrosshairPosition();
+          try {
+            if (time) {
+              const point = attentionData.find(d => 
+                Math.floor(d.timestamp / 1000) === (time as number)
+              )
+              const value = point ? point.attention_score : 0
+              chartRef.current.setCrosshairPosition(value, time, lineSeriesRef.current);
+            } else {
+              chartRef.current.clearCrosshairPosition();
+            }
+          } catch (err) {
+            // Chart may be disposed, ignore
           }
         }
       }
@@ -93,18 +110,18 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       })
       lineSeriesRef.current = lineSeries
 
-      // Subscribe to visible range changes
+      // Subscribe to visible range changes - 使用 ref 避免重建
       chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
         const visibleRange = chart.timeScale().getVisibleRange()
-        if (onVisibleRangeChange) {
-          onVisibleRangeChange(visibleRange)
+        if (onVisibleRangeChangeRef.current) {
+          onVisibleRangeChangeRef.current(visibleRange)
         }
       })
 
-      // Subscribe to crosshair moves
+      // Subscribe to crosshair moves - 使用 ref 避免重建
       chart.subscribeCrosshairMove((param) => {
-        if (onCrosshairMove) {
-          onCrosshairMove(param.time || null)
+        if (onCrosshairMoveRef.current) {
+          onCrosshairMoveRef.current(param.time || null)
         }
       })
 
@@ -118,28 +135,37 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       }
 
       window.addEventListener('resize', handleResize)
+      isDisposedRef.current = false
 
       return () => {
+        isDisposedRef.current = true
         window.removeEventListener('resize', handleResize)
         chart.remove()
+        chartRef.current = null
+        lineSeriesRef.current = null
       }
-    }, [height, onVisibleRangeChange, onCrosshairMove])
+    }, [height]) // 只依赖 height，回调通过 ref 处理
 
     // Update data
     useEffect(() => {
-      if (!lineSeriesRef.current) return
+      if (isDisposedRef.current) return
+      if (!lineSeriesRef.current || !chartRef.current) return
 
-      // Use UTC timestamps (seconds)
-      const attentionChartData = attentionData.map((d) => ({
-        time: Math.floor(d.timestamp / 1000) as any,
-        value: d.attention_score,
-      }))
+      try {
+        // Use UTC timestamps (seconds)
+        const attentionChartData = attentionData.map((d) => ({
+          time: Math.floor(d.timestamp / 1000) as any,
+          value: d.attention_score,
+        }))
 
-      lineSeriesRef.current.setData(attentionChartData)
+        lineSeriesRef.current.setData(attentionChartData)
 
-      // Fit content
-      if (chartRef.current) {
-        chartRef.current.timeScale().fitContent()
+        // Fit content - 只有在有数据时才执行
+        if (attentionChartData.length > 0) {
+          chartRef.current.timeScale().fitContent()
+        }
+      } catch (err) {
+        // Chart may be disposed, ignore
       }
     }, [attentionData])
 

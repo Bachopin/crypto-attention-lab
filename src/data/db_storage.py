@@ -12,7 +12,7 @@ from sqlalchemy import and_, or_, inspect, text
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
-    Symbol, News, Price, AttentionFeature, GoogleTrend,
+    Symbol, News, Price, AttentionFeature, GoogleTrend, TwitterVolume,
     init_database, get_session, get_engine
 )
 
@@ -47,6 +47,7 @@ class DatabaseStorage:
 
     def _ensure_attention_columns(self) -> None:
         columns = {
+            "timeframe": "TEXT DEFAULT 'D'",
             "google_trend_value": "FLOAT DEFAULT 0",
             "google_trend_zscore": "FLOAT DEFAULT 0",
             "google_trend_change_7d": "FLOAT DEFAULT 0",
@@ -60,6 +61,15 @@ class DatabaseStorage:
             "composite_attention_spike_flag": "INTEGER DEFAULT 0",
         }
         _ensure_columns(self.engine, 'attention_features', columns)
+        
+        # 尝试更新旧记录的 timeframe 为默认值 'D'
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "UPDATE attention_features SET timeframe = 'D' WHERE timeframe IS NULL"
+                ))
+        except Exception as exc:
+            logger.debug("Could not update NULL timeframes: %s", exc)
     
     def get_or_create_symbol(self, session, symbol: str, name: str = None, category: str = None) -> Symbol:
         """获取或创建币种记录"""
@@ -284,21 +294,51 @@ class DatabaseStorage:
         finally:
             session.close()
     
-    def save_attention_features(self, symbol: str, features: List[dict]):
-        """保存注意力特征"""
+    def save_attention_features(self, symbol: str, features: List[dict], timeframe: str = 'D'):
+        """
+        保存注意力特征
+        
+        Parameters
+        ----------
+        symbol : str
+            加密货币符号
+        features : List[dict]
+            注意力特征记录列表
+        timeframe : str
+            时间频率，默认 'D'（日级），支持 '4H'（4小时级）
+            
+        Notes
+        -----
+        对于旧数据库（唯一约束不包含 timeframe），4H 数据可能会与日级数据冲突。
+        此时会尝试使用 upsert 逻辑，但如果失败会记录警告并跳过冲突记录。
+        """
         session = get_session(self.engine)
         try:
             sym = self.get_or_create_symbol(session, symbol)
+            skipped_count = 0
             
             for record in features:
                 dt = pd.to_datetime(record['datetime'], utc=True)
+                # 从记录中获取 timeframe，如果没有则使用参数传入的值
+                rec_timeframe = record.get('timeframe', timeframe)
                 
-                existing = session.query(AttentionFeature).filter(
-                    and_(
-                        AttentionFeature.symbol_id == sym.id,
-                        AttentionFeature.datetime == dt
-                    )
-                ).first()
+                # 尝试查询包含 timeframe 的记录
+                try:
+                    existing = session.query(AttentionFeature).filter(
+                        and_(
+                            AttentionFeature.symbol_id == sym.id,
+                            AttentionFeature.datetime == dt,
+                            AttentionFeature.timeframe == rec_timeframe
+                        )
+                    ).first()
+                except Exception:
+                    # 如果表结构中没有 timeframe 列，回退到仅按 datetime 查询
+                    existing = session.query(AttentionFeature).filter(
+                        and_(
+                            AttentionFeature.symbol_id == sym.id,
+                            AttentionFeature.datetime == dt,
+                        )
+                    ).first()
                 
                 if existing:
                     # 更新
@@ -323,6 +363,7 @@ class DatabaseStorage:
                     feat = AttentionFeature(
                         symbol_id=sym.id,
                         datetime=dt,
+                        timeframe=rec_timeframe,
                         news_count=record.get('news_count', 0),
                         attention_score=record.get('attention_score', 0.0),
                         weighted_attention=record.get('weighted_attention', 0.0),
@@ -342,6 +383,26 @@ class DatabaseStorage:
                         composite_attention_spike_flag=record.get('composite_attention_spike_flag', 0),
                     )
                     session.add(feat)
+                    # 尝试 flush 以提前发现约束冲突
+                    try:
+                        session.flush()
+                    except Exception as insert_exc:
+                        # 旧表唯一约束冲突（symbol_id + datetime），跳过此记录
+                        session.rollback()
+                        skipped_count += 1
+                        if skipped_count == 1:
+                            logger.warning(
+                                "Unique constraint conflict for %s at %s (timeframe=%s). "
+                                "Old DB schema may not support timeframe. Skipping conflicting records.",
+                                symbol, dt, rec_timeframe
+                            )
+            
+            if skipped_count > 0:
+                logger.warning(
+                    "Skipped %d records for %s due to unique constraint conflicts. "
+                    "Consider running database migration to add timeframe to unique constraint.",
+                    skipped_count, symbol
+                )
             
             session.commit()
         finally:
@@ -351,16 +412,35 @@ class DatabaseStorage:
         self,
         symbol: str,
         start: Optional[datetime] = None,
-        end: Optional[datetime] = None
+        end: Optional[datetime] = None,
+        timeframe: str = 'D'
     ) -> pd.DataFrame:
-        """查询注意力特征"""
+        """
+        查询注意力特征
+        
+        Parameters
+        ----------
+        symbol : str
+            加密货币符号
+        start : Optional[datetime]
+            开始时间
+        end : Optional[datetime]
+            结束时间
+        timeframe : str
+            时间频率，默认 'D'（日级），支持 '4H'（4小时级）
+        """
         session = get_session(self.engine)
         try:
             sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
             if not sym:
                 return pd.DataFrame()
             
-            query = session.query(AttentionFeature).filter_by(symbol_id=sym.id)
+            query = session.query(AttentionFeature).filter(
+                and_(
+                    AttentionFeature.symbol_id == sym.id,
+                    AttentionFeature.timeframe == timeframe
+                )
+            )
             
             if start:
                 start_ts = start if isinstance(start, pd.Timestamp) else pd.Timestamp(start)
@@ -381,6 +461,7 @@ class DatabaseStorage:
             
             return pd.DataFrame([{
                 'datetime': f.datetime,
+                'timeframe': f.timeframe,
                 'news_count': f.news_count,
                 'attention_score': f.attention_score,
                 'weighted_attention': f.weighted_attention,
@@ -503,6 +584,107 @@ class DatabaseStorage:
                     'datetime': row.datetime,
                     'value': row.trend_value,
                     'keyword_set': row.keyword_set,
+                }
+                for row in rows
+            ])
+        finally:
+            session.close()
+
+    def save_twitter_volume(self, symbol: str, volumes: List[dict]) -> None:
+        """Persist Twitter Volume rows to the relational store."""
+
+        if not volumes:
+            return
+
+        session = get_session(self.engine)
+        try:
+            norm = symbol.upper()
+            if norm.endswith('USDT'):
+                norm = norm[:-4]
+            if '/' in norm:
+                norm = norm.split('/')[0]
+            sym = self.get_or_create_symbol(session, norm)
+
+            for record in volumes:
+                dt = record.get('datetime')
+                if dt is None:
+                    continue
+                dt = pd.to_datetime(dt, utc=True, errors='coerce')
+                if pd.isna(dt):
+                    continue
+
+                value = record.get('value', record.get('tweet_count', 0.0))
+                try:
+                    value = float(value or 0.0)
+                except (TypeError, ValueError):
+                    value = 0.0
+
+                existing = session.query(TwitterVolume).filter(
+                    and_(
+                        TwitterVolume.symbol_id == sym.id,
+                        TwitterVolume.datetime == dt,
+                    )
+                ).first()
+
+                if existing:
+                    existing.tweet_count = value
+                else:
+                    tv = TwitterVolume(
+                        symbol_id=sym.id,
+                        datetime=dt,
+                        tweet_count=value,
+                    )
+                    session.add(tv)
+
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            logger.error("Failed to save Twitter Volume rows for %s: %s", symbol, exc)
+            raise
+        finally:
+            session.close()
+
+    def get_twitter_volume(
+        self,
+        symbol: str,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+    ) -> pd.DataFrame:
+        """Load cached Twitter Volume rows for a symbol."""
+
+        session = get_session(self.engine)
+        try:
+            norm = (symbol or '').upper()
+            if norm.endswith('USDT'):
+                norm = norm[:-4]
+            if '/' in norm:
+                norm = norm.split('/')[0]
+
+            sym = session.query(Symbol).filter_by(symbol=norm).first()
+            if not sym:
+                return pd.DataFrame()
+
+            query = session.query(TwitterVolume).filter(TwitterVolume.symbol_id == sym.id)
+            if start:
+                start_ts = start if isinstance(start, pd.Timestamp) else pd.Timestamp(start)
+                if start_ts.tz is None:
+                    start_ts = start_ts.tz_localize('UTC')
+                query = query.filter(TwitterVolume.datetime >= start_ts)
+            if end:
+                end_ts = end if isinstance(end, pd.Timestamp) else pd.Timestamp(end)
+                if end_ts.tz is None:
+                    end_ts = end_ts.tz_localize('UTC')
+                query = query.filter(TwitterVolume.datetime <= end_ts)
+
+            query = query.order_by(TwitterVolume.datetime)
+            rows = query.all()
+            if not rows:
+                return pd.DataFrame()
+
+            return pd.DataFrame([
+                {
+                    'datetime': row.datetime,
+                    'value': row.tweet_count,
                 }
                 for row in rows
             ])

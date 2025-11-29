@@ -622,7 +622,7 @@ app.add_middleware(
 │  (Port 8000)    │
 └────────┬────────┘
          │
-         ├──► src/data/storage.py (Load CSV)
+         ├──► src/data/storage.py (DB Access)
          │
          ├──► src/data/price_fetcher.py (Fetch if missing)
          │
@@ -632,9 +632,8 @@ app.add_middleware(
               │
               ▼
          ┌──────────────┐
-         │  CSV Files   │
-         │  data/raw/   │
-         │  data/proc/  │
+         │  PostgreSQL  │
+         │  Database    │
          └──────────────┘
 ```
 
@@ -669,7 +668,7 @@ INFO:     127.0.0.1:52345 - "GET /api/price?symbol=ZECUSDT HTTP/1.1" 200 OK
 ### 4. 数据缓存
 
 API 会自动检查数据是否存在:
-- 如果 CSV 文件不存在,会调用 `fetch_and_save_price()` 自动获取
+- 如果数据库中数据不存在,会调用 `fetch_and_save_price()` 自动获取
 - 如果注意力数据不存在,会调用 `fetch_zec_news()` + `process_attention_features()`
 
 ---

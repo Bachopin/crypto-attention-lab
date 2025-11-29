@@ -21,6 +21,15 @@ export interface AttentionPoint {
   bullish_attention?: number;
   bearish_attention?: number;
   event_intensity?: number; // 0/1
+  // Composite Attention fields (来自多渠道融合)
+  news_channel_score?: number;
+  google_trend_value?: number;
+  google_trend_zscore?: number;
+  twitter_volume?: number;
+  twitter_volume_zscore?: number;
+  composite_attention_score?: number;
+  composite_attention_zscore?: number;
+  composite_attention_spike_flag?: number;
 }
 
 export interface NewsItem {
@@ -153,6 +162,7 @@ export interface FetchPriceParams {
   timeframe?: Timeframe;
   start?: string;  // ISO 8601 format
   end?: string;    // ISO 8601 format
+  limit?: number;  // Maximum number of candles to return
 }
 
 export interface FetchAttentionParams {
@@ -221,6 +231,9 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}): 
 /**
  * Fetch price/OHLCV data from backend
  * GET /api/price?symbol=ZECUSDT&timeframe=1d&start=...&end=...
+ * 
+ * Note: If `limit` is provided without `start`, we calculate an approximate start date
+ * based on the timeframe to fetch roughly that many candles.
  */
 export async function fetchPrice(params: FetchPriceParams = {}): Promise<Candle[]> {
   const {
@@ -228,12 +241,28 @@ export async function fetchPrice(params: FetchPriceParams = {}): Promise<Candle[
     timeframe = '1D',
     start,
     end,
+    limit,
   } = params;
+
+  // If limit is specified without start, calculate approximate start date
+  let effectiveStart = start;
+  if (limit && !start) {
+    const now = new Date();
+    const msPerCandle: Record<Timeframe, number> = {
+      '1D': 24 * 60 * 60 * 1000,
+      '4H': 4 * 60 * 60 * 1000,
+      '1H': 60 * 60 * 1000,
+      '15M': 15 * 60 * 1000,
+    };
+    const ms = msPerCandle[timeframe] * limit;
+    const startDate = new Date(now.getTime() - ms);
+    effectiveStart = startDate.toISOString();
+  }
 
   const apiParams = {
     symbol,
     timeframe: TIMEFRAME_MAP[timeframe],
-    start,
+    start: effectiveStart,
     end,
   };
 
