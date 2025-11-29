@@ -99,25 +99,36 @@ function Home() {
     attentionChartRef.current?.setCrosshair(time)
   }, [])
 
-  // Data loader with stable reference
+  // Data loader with stable reference - 渐进式加载优化
   const loadData = useCallback(async (symbol: string, timeframe: Timeframe, showLoading = true) => {
     if (showLoading) {
       setLoading(true)
     }
     setError(null)
+    
     try {
-      const [price, overviewPrice, attention, news, assetNews, summary, attEvents] = await Promise.all([
+      // 第一阶段：优先加载核心数据（价格 + 概览），快速显示主界面
+      const [price, overviewPrice] = await Promise.all([
         fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }),
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }), // 获取所有日线数据
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }),
+      ])
+      setPriceData(price)
+      setOverviewPriceData(overviewPrice)
+      
+      // 立即结束 loading 状态，让用户看到图表
+      if (showLoading) {
+        setLoading(false)
+      }
+      
+      // 第二阶段：后台加载其他数据（注意力、新闻、事件等）
+      const [attention, news, assetNews, summary, attEvents] = await Promise.all([
         fetchAttention({ symbol: symbol, granularity: '1d' }),
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: symbol }),
         fetchSummaryStats(symbol),
         fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.9 }),
       ])
-
-      setPriceData(price)
-      setOverviewPriceData(overviewPrice)
+      
       setAttentionData(attention)
       setNewsData(news)
       setAssetNewsData(assetNews)
@@ -126,7 +137,6 @@ function Home() {
     } catch (error) {
       console.error('Failed to load data:', error)
       setError(error instanceof Error ? error.message : 'Failed to load data from backend')
-    } finally {
       if (showLoading) {
         setLoading(false)
       }
@@ -296,12 +306,21 @@ function Home() {
 
           {/* 代币看板 - 需要等待数据加载 */}
           <TabsContent value="dashboard" className="mt-0 space-y-6">
-            {/* Loading State */}
+            {/* Loading State - 骨架屏 */}
             {loading && (
-              <div className="flex items-center justify-center h-64">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-muted-foreground">Loading market data...</p>
+              <div className="space-y-6 animate-pulse">
+                {/* Header skeleton */}
+                <div className="flex gap-4">
+                  <div className="bg-muted/50 rounded-lg h-24 w-1/3" />
+                  <div className="bg-muted/50 rounded-lg h-24 w-1/3" />
+                  <div className="bg-muted/50 rounded-lg h-24 w-1/3" />
+                </div>
+                {/* Chart skeleton */}
+                <div className="bg-muted/50 rounded-lg h-[400px]" />
+                {/* Bottom section skeleton */}
+                <div className="flex gap-4">
+                  <div className="bg-muted/50 rounded-lg h-[200px] w-2/3" />
+                  <div className="bg-muted/50 rounded-lg h-[200px] w-1/3" />
                 </div>
               </div>
             )}

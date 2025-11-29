@@ -43,12 +43,11 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
           start.setHours(0, 0, 0, 0); // Align to start of day
         }
 
-        // Fetch ALL news for the range to build the radar
-        // Limit to 5000 to ensure we cover the full range without truncation
+        // 初始加载限制为 500 条，足够显示雷达图
         const data = await fetchNews({ 
           symbol: 'ALL', 
           start: start.toISOString(), 
-          limit: 5000 
+          limit: 500 
         });
         setRadarNews(data);
       } catch (e) {
@@ -208,8 +207,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
       {/* Radar Section */}
       <div className="space-y-6">
         {radarLoading ? (
-           <div className="h-[200px] flex items-center justify-center border rounded-lg bg-card text-muted-foreground">
-             Loading Radar Data...
+           <div className="space-y-4">
+             <div className="h-[120px] bg-muted/50 rounded-lg animate-pulse" />
+             <div className="h-[200px] bg-muted/50 rounded-lg animate-pulse" />
            </div>
         ) : (
            <>

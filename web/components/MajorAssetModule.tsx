@@ -133,8 +133,8 @@ function MajorAssetModuleComponent({
     try {
       const tradingSymbol = `${symbol}USDT`
 
-      // 并行获取所有数据
-      const [priceData, attentionData, events] = await Promise.all([
+      // 并行获取所有数据（包括 Regime 分析）
+      const [priceData, attentionData, events, regimeData] = await Promise.all([
         fetchPrice({
           symbol: tradingSymbol,
           timeframe,
@@ -152,22 +152,19 @@ function MajorAssetModuleComponent({
           start: dateRange.start,
           end: dateRange.end,
           lookback_days: 30,
-          min_quantile: 0.8,
+          min_quantile: 0.9,
         }),
-      ])
-
-      // 获取 Regime 分析数据（异步加载，不阻塞主数据）
-      let regimeData: AttentionRegimeResponse | null = null
-      try {
-        regimeData = await fetchAttentionRegimeAnalysis({
+        // Regime 分析也并行加载
+        fetchAttentionRegimeAnalysis({
           symbols: [symbol],
           lookahead_days: [7, 30],
           attention_source: 'composite',
           split_method: 'tercile',
-        })
-      } catch (regimeErr) {
-        console.warn(`[MajorAssetModule] Failed to load regime data for ${symbol}:`, regimeErr)
-      }
+        }).catch(err => {
+          console.warn(`[MajorAssetModule] Failed to load regime data for ${symbol}:`, err)
+          return null
+        }),
+      ])
 
       // 计算摘要统计
       const latestPrice = priceData.length > 0 ? priceData[priceData.length - 1] : null
@@ -282,10 +279,12 @@ function MajorAssetModuleComponent({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Loading 状态 - 仅首次加载时显示 */}
+        {/* Loading 状态 - 使用骨架屏替代转圈 */}
         {data.initialLoading && (
-          <div className="flex items-center justify-center h-48">
-            <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <div className="space-y-4 animate-pulse">
+            <div className="bg-muted/50 rounded-lg h-[220px]" />
+            <div className="bg-muted/50 rounded-lg h-[80px]" />
+            <div className="bg-muted/50 rounded-lg h-[120px]" />
           </div>
         )}
 
