@@ -1,9 +1,10 @@
 """
 Crypto Attention Lab - FastAPI Backend
 提供价格、注意力和新闻数据的 REST API
+支持 WebSocket 实时数据流
 """
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, WebSocket
 from fastapi import Body
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
@@ -28,6 +29,11 @@ from src.backtest.strategy_templates import AttentionCondition
 from src.backtest.attention_rotation import run_attention_rotation_backtest
 from src.features.event_performance import compute_event_performance
 from src.features.node_influence import load_node_carry_factors
+from src.api.websocket_routes import (
+    websocket_price_endpoint,
+    websocket_attention_endpoint,
+    get_ws_manager,
+)
 
 # 设置日志
 logging.basicConfig(
@@ -105,6 +111,18 @@ async def lifespan(app: FastAPI):
     后台任务说明：
     - news_task: 每小时拉取全局新闻数据到数据库
     - price_task: 每2分钟更新价格，并在更新后立即计算 Attention Features
+    - websocket: Binance WebSocket 实时价格流（按需启动，可选功能）
+    
+    数据流说明：
+    1. 核心数据流（定时任务）：
+       - scheduled_price_update: 每2分钟从 Binance REST API 拉取 OHLCV 数据 -> 保存到数据库
+       - scheduled_news_update: 每小时拉取新闻 -> 保存到数据库
+       - 价格更新后自动触发 Attention Features 计算
+       
+    2. WebSocket 实时流（可选增强）：
+       - 当前端订阅时才启动 Binance WebSocket
+       - 仅用于前端实时展示，不保存到数据库
+       - 与核心数据流独立，互不影响
     """
     # 启动后台任务
     news_task = asyncio.create_task(scheduled_news_update())
@@ -112,12 +130,24 @@ async def lifespan(app: FastAPI):
     
     logger.info("[Scheduler] Background tasks started: news_update (hourly), price_update (2min)")
     logger.info("[Scheduler] Attention features will be calculated automatically after price updates")
+    logger.info("[WebSocket] Real-time WebSocket endpoints available at /ws/price and /ws/attention")
+    logger.info("[WebSocket] Note: WebSocket is optional, core data flow uses REST API polling")
     
     yield
     
     # 关闭时取消任务
     news_task.cancel()
     price_task.cancel()
+    
+    # 停止 WebSocket 管理器（如果已初始化）
+    try:
+        ws_manager = get_ws_manager()
+        if ws_manager.binance_ws and hasattr(ws_manager.binance_ws, 'stop'):
+            await ws_manager.binance_ws.stop()
+            logger.info("[WebSocket] Binance WebSocket stopped")
+    except Exception as e:
+        logger.warning(f"[WebSocket] Error stopping Binance WebSocket: {e}")
+    
     try:
         await news_task
     except asyncio.CancelledError:
@@ -130,8 +160,8 @@ async def lifespan(app: FastAPI):
 # 创建 FastAPI 应用
 app = FastAPI(
     title="Crypto Attention Lab API",
-    description="API for cryptocurrency attention analysis and price data",
-    version="0.1.0",
+    description="API for cryptocurrency attention analysis and price data. Supports WebSocket for real-time updates.",
+    version="0.2.0",
     lifespan=lifespan
 )
 
@@ -144,16 +174,54 @@ app.add_middleware(
 )
 
 
+# ==================== WebSocket 端点 ====================
+
+@app.websocket("/ws/price")
+async def ws_price(websocket: WebSocket):
+    """
+    实时价格数据 WebSocket 端点
+    
+    连接后发送订阅消息开始接收数据：
+    {"action": "subscribe", "symbols": ["BTC", "ETH"]}
+    
+    服务端推送格式：
+    {"type": "price_update", "symbol": "BTC", "data": {...}}
+    """
+    await websocket_price_endpoint(websocket)
+
+
+@app.websocket("/ws/attention")
+async def ws_attention(websocket: WebSocket):
+    """
+    实时注意力数据 WebSocket 端点
+    
+    推送注意力分数变化和注意力事件
+    """
+    await websocket_attention_endpoint(websocket)
+
+
+@app.get("/api/ws/stats")
+def get_websocket_stats():
+    """获取 WebSocket 连接统计信息"""
+    ws_manager = get_ws_manager()
+    return ws_manager.get_stats()
+
+
 # ==================== 健康检查 ====================
 
 @app.get("/health")
 @app.get("/ping")
 def health_check():
     """健康检查端点"""
+    ws_manager = get_ws_manager()
     return {
         "status": "healthy",
         "service": "Crypto Attention Lab API",
-        "version": "0.1.0"
+        "version": "0.2.0",
+        "websocket": {
+            "clients": ws_manager.get_stats()["total_clients"],
+            "binance_connected": ws_manager.get_stats()["binance_connected"]
+        }
     }
 
 

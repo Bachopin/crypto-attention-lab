@@ -7,8 +7,8 @@ This is a professional, production-ready Next.js dashboard for cryptocurrency at
 ```
 crypto-attention-lab/
 ├── src/                    # Python backend
-│   ├── api/               # FastAPI endpoints
-│   ├── data/              # Data fetchers
+│   ├── api/               # FastAPI endpoints + WebSocket routes
+│   ├── data/              # Data fetchers + Binance WebSocket
 │   ├── features/          # Feature engineering
 │   └── database/          # SQLAlchemy models
 ├── data/                  # Data storage
@@ -24,9 +24,12 @@ crypto-attention-lab/
     │   ├── StatCards.tsx  # Metrics cards
     │   ├── BacktestPanel.tsx # Basic attention backtest with risk controls
     │   ├── ScenarioPanel.tsx # Similar state analysis panel
+    │   ├── WebSocketStatus.tsx # Real-time connection indicator
+    │   ├── RealtimePrice.tsx # Live price ticker
     │   └── NewsList.tsx   # News feed
     ├── lib/
     │   ├── api.ts        # API layer (mock + real)
+    │   ├── websocket.ts  # WebSocket client & React hooks
     │   └── utils.ts      # Utilities
     └── README.md         # Full documentation
 ```
@@ -280,7 +283,7 @@ Check browser console. Ensure `priceData` and `attentionData` have correct times
 
 ## 🗺️ Roadmap
 
-- [ ] Add WebSocket support for real-time updates
+- [x] Add WebSocket support for real-time updates ✅
 - [ ] Implement user authentication
 - [ ] Add more technical indicators to charts
 - [ ] Create admin panel for data management

@@ -217,7 +217,7 @@ App (page.tsx)
 - [ ] 骨架屏加载动画
 - [ ] 错误边界组件
 - [ ] 图表数据缓存
-- [ ] WebSocket 实时更新
+- [x] WebSocket 实时更新 ✅ (已实现 /ws/price 和 /ws/attention)
 - [ ] 用户偏好保存 (LocalStorage)
 - [ ] 多语言支持 (i18n)
 - [ ] PWA 支持
@@ -242,7 +242,7 @@ App (page.tsx)
 - 优化图表性能
 
 ### 4. 长期 (1 个月+)
-- WebSocket 实时推送
+- [x] WebSocket 实时推送 ✅
 - 多币种支持
 - 移动端适配
 - 技术指标扩展

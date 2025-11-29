@@ -262,12 +262,51 @@ class RealtimePriceUpdater:
             # 2. 立即计算 Attention Features
             try:
                 logger.info(f"[Updater] Calculating attention features for {symbol}...")
-                await asyncio.to_thread(process_attention_features, symbol, freq='D', save_to_db=True)
+                attention_df = await asyncio.to_thread(process_attention_features, symbol, freq='D', save_to_db=True)
                 logger.info(f"[Updater] ✅ Attention features updated for {symbol}")
+                
+                # 3. 通过 WebSocket 广播 Attention 更新（如果有订阅者）
+                if attention_df is not None and not attention_df.empty:
+                    await self._broadcast_attention_update(symbol, attention_df)
+                    
             except Exception as e:
                 logger.error(f"[Updater] ❌ Failed to calculate attention for {symbol}: {e}")
         
         logger.info("[Updater] Update cycle completed")
+    
+    async def _broadcast_attention_update(self, symbol: str, attention_df):
+        """
+        通过 WebSocket 广播 Attention 更新
+        
+        仅在有 WebSocket 订阅者时才广播，避免不必要的开销
+        """
+        try:
+            from src.api.websocket_routes import broadcast_attention_update, get_ws_manager
+            
+            ws_manager = get_ws_manager()
+            # 检查是否有订阅者
+            if symbol.upper() not in ws_manager.active_connections:
+                return
+            
+            # 获取最新一条数据
+            latest = attention_df.iloc[-1]
+            attention_data = {
+                "datetime": str(latest.get('datetime', '')),
+                "attention_score": float(latest.get('attention_score', 0)),
+                "news_count": int(latest.get('news_count', 0)),
+                "composite_attention_score": float(latest.get('composite_attention_score', 0) or 0),
+                "composite_attention_zscore": float(latest.get('composite_attention_zscore', 0) or 0),
+            }
+            
+            await broadcast_attention_update(symbol, attention_data)
+            logger.debug(f"[Updater] Broadcasted attention update for {symbol}")
+            
+        except ImportError:
+            # WebSocket 模块未加载，跳过广播
+            pass
+        except Exception as e:
+            # 广播失败不应影响主流程
+            logger.warning(f"[Updater] Failed to broadcast attention update for {symbol}: {e}")
     
     async def run(self):
         """运行定时更新循环"""

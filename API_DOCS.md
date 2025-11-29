@@ -5,12 +5,207 @@
 本文档描述了 Crypto Attention Lab 的 FastAPI 后端 API 接口规范。
 
 **Base URL:** `http://localhost:8000`  
+**WebSocket URL:** `ws://localhost:8000`  
 **API Docs:** `http://localhost:8000/docs` (Swagger UI)  
 **ReDoc:** `http://localhost:8000/redoc` (Alternative API docs)
 
 ---
 
-## 🔌 API Endpoints
+## 🔌 WebSocket 实时数据流
+
+### WebSocket 端点
+
+#### `WS /ws/price`
+
+实时价格数据推送。连接后通过 Binance WebSocket 获取毫秒级实时 K 线数据。
+
+**连接示例：**
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/price');
+
+ws.onopen = () => {
+  // 订阅 BTC 和 ETH 的实时价格
+  ws.send(JSON.stringify({
+    action: 'subscribe',
+    symbols: ['BTC', 'ETH']
+  }));
+};
+
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  console.log(message);
+};
+```
+
+**客户端发送消息格式：**
+
+| Action | 示例 | 说明 |
+|--------|------|------|
+| subscribe | `{"action": "subscribe", "symbols": ["BTC", "ETH"]}` | 订阅代币的实时数据 |
+| unsubscribe | `{"action": "unsubscribe", "symbols": ["BTC"]}` | 取消订阅 |
+| ping | `{"action": "ping"}` | 心跳检测 |
+| get_stats | `{"action": "get_stats"}` | 获取连接统计信息 |
+
+**服务端推送消息格式：**
+
+1. **价格更新** (`price_update`)
+```json
+{
+  "type": "price_update",
+  "symbol": "BTC",
+  "data": {
+    "timestamp": 1732900800000,
+    "datetime": "2025-11-29T12:00:00+00:00",
+    "open": 95000.5,
+    "high": 95100.0,
+    "low": 94900.0,
+    "close": 95050.0,
+    "volume": 1234.56,
+    "is_closed": false
+  }
+}
+```
+
+2. **订阅确认** (`subscribed`)
+```json
+{
+  "type": "subscribed",
+  "symbols": ["BTC", "ETH"]
+}
+```
+
+3. **心跳响应** (`pong`)
+```json
+{
+  "type": "pong"
+}
+```
+
+4. **连接统计** (`stats`)
+```json
+{
+  "type": "stats",
+  "data": {
+    "total_clients": 5,
+    "subscriptions_by_symbol": {
+      "BTC": 3,
+      "ETH": 2
+    },
+    "binance_connected": true
+  }
+}
+```
+
+---
+
+#### `WS /ws/attention`
+
+实时注意力数据推送。推送注意力分数变化和注意力事件。
+
+**服务端推送消息格式：**
+
+1. **注意力更新** (`attention_update`)
+```json
+{
+  "type": "attention_update",
+  "symbol": "BTC",
+  "data": {
+    "timestamp": 1732900800000,
+    "datetime": "2025-11-29T12:00:00+00:00",
+    "attention_score": 85.5,
+    "news_count": 12,
+    "composite_attention_score": 1.5
+  },
+  "timestamp": "2025-11-29T12:00:00+00:00"
+}
+```
+
+2. **注意力事件** (`attention_event`)
+```json
+{
+  "type": "attention_event",
+  "symbol": "BTC",
+  "event": {
+    "event_type": "attention_spike",
+    "intensity": 25.5,
+    "summary": "news_count=15, att=90.0, w_att=45.0"
+  },
+  "timestamp": "2025-11-29T12:00:00+00:00"
+}
+```
+
+---
+
+#### `GET /api/ws/stats`
+
+获取 WebSocket 连接统计信息（REST API）。
+
+**Response:**
+```json
+{
+  "total_clients": 5,
+  "subscriptions_by_symbol": {
+    "BTC": 3,
+    "ETH": 2,
+    "ZEC": 1
+  },
+  "binance_connected": true
+}
+```
+
+---
+
+### 前端 React Hook 使用示例
+
+```typescript
+import { useRealtimePrice, useRealtimePrices, useWebSocketStatus } from '@/lib/websocket';
+
+// 单个代币实时价格
+function PriceDisplay({ symbol }: { symbol: string }) {
+  const { data, status, lastUpdate } = useRealtimePrice(symbol);
+  
+  if (status !== 'connected') {
+    return <div>连接中...</div>;
+  }
+  
+  return (
+    <div>
+      <span>${data?.close.toFixed(2)}</span>
+      <span>{status === 'connected' ? '🟢' : '🔴'}</span>
+    </div>
+  );
+}
+
+// 多个代币实时价格
+function MultiPriceDisplay({ symbols }: { symbols: string[] }) {
+  const { prices, status } = useRealtimePrices(symbols);
+  
+  return (
+    <div>
+      {symbols.map(symbol => (
+        <div key={symbol}>
+          {symbol}: ${prices[symbol]?.close.toFixed(2) || '--'}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// WebSocket 状态指示器
+function ConnectionStatus() {
+  const { priceStatus, attentionStatus } = useWebSocketStatus();
+  
+  return (
+    <div>
+      价格: {priceStatus} | 注意力: {attentionStatus}
+    </div>
+  );
+}
+```
+
+---
+
+## 🔌 REST API Endpoints
 
 ### 1. Health Check
 

@@ -8,6 +8,7 @@ pytrends>=4.9.2
 # FastAPI Backend Dependencies
 fastapi>=0.109.0
 uvicorn>=0.27.0
+websockets>=12.0
 # Note: uvloop removed due to macOS ARM compatibility issues (SIGSEGV crashes)
 # uvicorn will use standard asyncio instead
 
