@@ -78,9 +78,9 @@ class RealtimePriceUpdater:
         now = datetime.now(timezone.utc)
         
         if last_update is None:
-            # 首次抓取，拉取 90 天历史数据
-            start = now - timedelta(days=90)
-            days = 90
+            # 首次抓取，拉取 500 天历史数据（约 1.4 年）
+            start = now - timedelta(days=500)
+            days = 500
         else:
             # 确保 last_update 是 timezone-aware
             if last_update.tzinfo is None:

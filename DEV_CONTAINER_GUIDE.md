@@ -19,7 +19,6 @@
 |------|------|------|
 | 3000 | Frontend (Next.js) | 前端 Web 界面 |
 | 8000 | Backend API (FastAPI) | 后端 RESTful API |
-| 8501 | Streamlit Dashboard | 数据分析仪表板（可选） |
 
 ## 🚀 启动/停止服务
 
@@ -79,7 +78,7 @@ ps aux | grep -E "(uvicorn|next)" | grep -v grep
 ### 端口转发配置
 
 ```jsonc
-"forwardPorts": [3000, 8000, 8501],
+"forwardPorts": [3000, 8000],
 
 "portsAttributes": {
   "3000": {
@@ -89,10 +88,6 @@ ps aux | grep -E "(uvicorn|next)" | grep -v grep
   "8000": {
     "label": "Backend API (FastAPI)",
     "onAutoForward": "notify"
-  },
-  "8501": {
-    "label": "Streamlit Dashboard",
-    "onAutoForward": "ignore"
   }
 }
 ```

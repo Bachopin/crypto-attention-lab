@@ -10,8 +10,8 @@
 - **一键启动开发环境**：`./scripts/start_dev.sh`（推荐，自动启动 FastAPI + Next.js）
 - **后端独立启动**：`./scripts/start_api.sh` 或 `uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload`
 - **前端独立启动**：`cd web && npm install && npm run dev`
-- **Streamlit Dashboard**：`streamlit run src/dashboard/app.py`
 - **API 文档**：`http://localhost:8000/docs`（Swagger UI）
+- **前端界面**：`http://localhost:3000`（Next.js Web Dashboard）
 
 ## 数据与集成约定
 - **API 设计**：所有数据通过 RESTful API 提供，端点如 `/api/price`、`/api/attention`、`/api/news`，详见 `src/api/main.py` 和 `web/lib/api.ts`。
@@ -26,9 +26,9 @@
 - **代理支持**：后端支持 HTTP/SOCKS5 代理，见 `requests` 配置。
 
 ## 常见问题与调试
-- **端口冲突**：前端 3000/3001，后端 8000，Streamlit 8501/8502。
-- **依赖安装**：后端 `pip install -r requirements.txt`，前端 `npm install`。
-- **数据缺失**：优先检查 `data/raw/` 是否有 mock 数据残留。
+- **端口冲突**：前端 3000/3001，后端 8000。
+- **依赖安装**：后端 `pip install -r requirements.txt`，前端 `cd web && npm install`。
+- **数据缺失**：优先检查 `data/raw/` 是否有 mock 数据残留，或运行后台服务自动获取。
 
 ## 参考文件
 - `README.md`（本目录与 web/）

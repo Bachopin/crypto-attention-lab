@@ -181,46 +181,45 @@ def process_attention_features(
     
     logger.info("Processing composite attention features for %s (freq=%s)", symbol, freq)
 
-    start_date = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=180)
-    news_df = load_news_data(symbol, start=start_date)
 
+    # 强制所有 Attention 相关流程都以价格数据日线区间为准
+    from src.data.db_storage import load_price_data
+    price_data = load_price_data(symbol, timeframe='1d')
+    if isinstance(price_data, tuple):
+        price_df, _ = price_data
+    else:
+        price_df = price_data
+
+    if price_df is None or price_df.empty:
+        logger.error(f"No price data available for {symbol}, cannot generate attention features")
+        return None
+
+    # 使用价格数据的日期范围
+    if 'timestamp' in price_df.columns:
+        price_df['datetime'] = pd.to_datetime(price_df['timestamp'], unit='ms', utc=True)
+    elif 'date' not in price_df.columns and 'datetime' not in price_df.columns:
+        logger.error(f"Price data for {symbol} has no datetime column")
+        return None
+
+    date_col = 'datetime' if 'datetime' in price_df.columns else 'date'
+    date_range = pd.to_datetime(price_df[date_col], utc=True)
+    date_index = pd.date_range(
+        start=date_range.min(),
+        end=date_range.max(),
+        freq='D' if freq == 'D' else '4H',
+        tz='UTC'
+    )
+
+    # 新闻数据处理（如有）
+    from src.data.db_storage import load_news_data
+    news_df = load_news_data(symbol, start=date_range.min(), end=date_range.max())
     has_news = not news_df.empty and 'datetime' in news_df.columns
-    
     if has_news:
         news_df['datetime'] = pd.to_datetime(news_df['datetime'], utc=True, errors='coerce')
         news_df = news_df.dropna(subset=['datetime'])
         has_news = not news_df.empty
-    
+
     if not has_news:
-        logger.warning("No usable news data for %s; will compute attention from Google Trends + Twitter only", symbol)
-        # 创建空的时间序列 DataFrame，基于价格数据的日期范围
-        from src.data.db_storage import load_price_data
-        price_data = load_price_data(symbol, timeframe='1d')
-        if isinstance(price_data, tuple):
-            price_df, _ = price_data
-        else:
-            price_df = price_data
-        
-        if price_df is None or price_df.empty:
-            logger.error(f"No price data available for {symbol}, cannot generate attention features")
-            return None
-        
-        # 使用价格数据的日期范围
-        if 'timestamp' in price_df.columns:
-            price_df['datetime'] = pd.to_datetime(price_df['timestamp'], unit='ms', utc=True)
-        elif 'date' not in price_df.columns and 'datetime' not in price_df.columns:
-            logger.error(f"Price data for {symbol} has no datetime column")
-            return None
-        
-        date_col = 'datetime' if 'datetime' in price_df.columns else 'date'
-        date_range = pd.to_datetime(price_df[date_col], utc=True)
-        date_index = pd.date_range(
-            start=date_range.min(),
-            end=date_range.max(),
-            freq='D' if freq == 'D' else '4H',
-            tz='UTC'
-        )
-        
         # 创建空的新闻统计 DataFrame
         grouped = pd.DataFrame({
             'datetime': date_index,
@@ -370,7 +369,10 @@ def process_attention_features(
             has_tag = day_df['tags'].astype(str).str.len().gt(0).any()
             return int(has_high_source and strong_sent and has_tag)
 
-        intensity = daily.groupby('date').apply(compute_intensity).rename('event_intensity').reset_index()
+        # 使用 agg 代替 apply 以避免 FutureWarning
+        intensity = (daily.groupby('date', as_index=False)
+                     .apply(lambda x: pd.Series({'event_intensity': compute_intensity(x)}), include_groups=False)
+                     )
         grouped = grouped.merge(intensity, left_on='datetime', right_on='date', how='left').drop(columns=['date'])
         grouped['event_intensity'] = grouped['event_intensity'].fillna(0).astype(int)
     else:

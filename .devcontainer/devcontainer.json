@@ -12,7 +12,7 @@
     "HTTPS_PROXY": "http://host.docker.internal:7890"
   },
 
-  "forwardPorts": [3000, 8000, 8501],
+  "forwardPorts": [3000, 8000],
   
   "portsAttributes": {
     "3000": {
@@ -22,10 +22,6 @@
     "8000": {
       "label": "Backend API (FastAPI)",
       "onAutoForward": "notify"
-    },
-    "8501": {
-      "label": "Streamlit Dashboard",
-      "onAutoForward": "ignore"
     }
   },
   

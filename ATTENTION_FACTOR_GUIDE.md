@@ -58,6 +58,11 @@ python scripts/fetch_news_data.py
 - 自动去重、过滤相关性
 - 保存到 `data/raw/attention_zec_news.csv` 和数据库
 
+**注意力数据时间区间对齐机制：**
+- 所有注意力相关数据（Google Trends、Twitter Volume 等）自动以价格数据区间为准
+- 新币种加入时，自动拉取与价格数据相同时间跨度的历史数据
+- 确保多通道注意力特征的时间一致性
+
 ### 2. 新闻特征计算
 位置：`src/features/news_features.py`
 

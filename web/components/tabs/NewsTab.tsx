@@ -138,8 +138,19 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
     if (loadingMore || allNews.length === 0) return
     setLoadingMore(true)
     try {
-      const oldest = allNews.reduce((min, n) => Math.min(min, new Date(n.datetime).getTime()), Number.POSITIVE_INFINITY)
-      const beforeCursor = (currentBefore ? currentBefore : new Date(oldest - 1).toISOString())
+      // 计算最早的新闻时间戳，过滤掉无效日期
+      const validTimestamps = allNews
+        .map(n => new Date(n.datetime).getTime())
+        .filter(t => !isNaN(t) && t > 0);
+      
+      if (validTimestamps.length === 0) {
+        console.warn('No valid timestamps found in news list');
+        setLoadingMore(false);
+        return;
+      }
+      
+      const oldest = Math.min(...validTimestamps);
+      const beforeCursor = currentBefore || new Date(oldest - 1).toISOString();
       
       const symbolParam = newsSymbolFilter === 'ALL' ? 'ALL' : newsSymbolFilter;
 

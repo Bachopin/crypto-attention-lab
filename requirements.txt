@@ -1,10 +1,8 @@
 ccxt
 pandas
 plotly
-streamlit
 requests
 python-dotenv
-streamlit-lightweight-charts
 pytrends>=4.9.2
 
 # FastAPI Backend Dependencies

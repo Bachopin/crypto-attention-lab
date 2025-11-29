@@ -7,11 +7,12 @@ This is a professional, production-ready Next.js dashboard for cryptocurrency at
 ```
 crypto-attention-lab/
 ├── src/                    # Python backend
-│   ├── dashboard/         # Streamlit app (existing)
+│   ├── api/               # FastAPI endpoints
 │   ├── data/              # Data fetchers
-│   └── features/          # Feature engineering
+│   ├── features/          # Feature engineering
+│   └── database/          # SQLAlchemy models
 ├── data/                  # Data storage
-└── web/                   # 🆕 Next.js frontend (THIS PROJECT)
+└── web/                   # Next.js frontend
     ├── app/              
     │   ├── layout.tsx     # Root layout
     │   ├── page.tsx       # Main dashboard

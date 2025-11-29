@@ -165,24 +165,10 @@ def ensure_price_data_exists(symbol: str, timeframe: str) -> bool:
     if price_file.exists() or fallback_file.exists():
         return True
     
-    # 尝试获取数据
-    try:
-        from src.data.price_fetcher import fetch_and_save_price
-        
-        # 转换格式: ZECUSDT -> ZEC/USDT
-        if '/' not in symbol:
-            base = symbol[:-4] if symbol.endswith('USDT') else symbol[:3]
-            quote = symbol[-4:] if symbol.endswith('USDT') else 'USDT'
-            trading_symbol = f"{base}/{quote}"
-        else:
-            trading_symbol = symbol
-        
-        logger.info(f"Fetching price data for {trading_symbol} {timeframe}")
-        fetch_and_save_price(symbol=trading_symbol, timeframe=timeframe, limit=365)
-        return True
-    except Exception as e:
-        logger.error(f"Failed to fetch price data: {e}")
-        return False
+    # 数据不存在 - 应该由后台服务或手动脚本获取
+    logger.warning(f"Price data not found for {symbol} {timeframe}. "
+                   f"Please run realtime_price_updater or fetch_multi_symbol_prices.py")
+    return False
 
 
 def ensure_attention_data_exists(symbol: str) -> bool:

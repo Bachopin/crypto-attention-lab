@@ -39,7 +39,7 @@ def fetch_price_data(
     exchange,
     symbol: str,
     timeframe: str,
-    days: int = 365,
+    days: int = 500,
     limit: int = 1000
 ) -> pd.DataFrame:
     """
@@ -178,13 +178,13 @@ def main():
         for timeframe in TIMEFRAMES:
             # 根据时间周期调整历史天数
             if timeframe in ["1d"]:
-                days = 365  # 1年
+                days = 500  # 约 1.4 年
             elif timeframe in ["4h", "1h"]:
-                days = 180  # 半年
+                days = 365  # 1 年
             elif timeframe == "15m":
-                days = 60   # 2个月
+                days = 90   # 3 个月
             else:
-                days = 90
+                days = 180
             
             df = fetch_price_data(exchange, symbol_pair, timeframe, days=days)
             

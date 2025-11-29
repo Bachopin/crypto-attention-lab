@@ -6,34 +6,41 @@
 
 ## 🏗️ 项目架构
 
-本项目包含两个独立的应用:
+本项目采用现代化全栈架构：
 
-### 1️⃣ Python 后端 + Streamlit Dashboard (现有)
-- 数据获取与处理
-- 特征工程
-- 简单的 Streamlit 可视化界面
+### 🔹 FastAPI 后端
+- 多币种价格数据自动获取（Binance API）
+- 新闻聚合（CryptoPanic, NewsAPI, Google Trends）
+- 注意力特征工程与事件检测
+- RESTful API 接口
+- 后台自动更新服务
 
-### 2️⃣ Next.js 专业前端 Dashboard (新增) 🆕
+### 🔹 Next.js 专业前端
 - 产品级交易终端界面
 - TradingView 风格图表
 - 响应式设计
 - 完整的 TypeScript 类型安全
+- 注意力事件可视化与回测
 
 ```
 crypto-attention-lab/
 ├── src/                    # Python 后端
+│   ├── api/               # FastAPI 接口
 │   ├── data/              # 数据获取模块
 │   ├── features/          # 特征工程
-│   ├── dashboard/         # Streamlit 应用
+│   ├── database/          # 数据库模型
+│   ├── backtest/          # 回测框架
 │   └── config/            # 配置文件
 ├── data/                  # 数据存储
-│   ├── raw/              # 原始数据
-│   └── processed/        # 处理后数据
-├── web/                   # 🆕 Next.js 前端
+│   ├── raw/              # 原始数据 (CSV)
+│   ├── processed/        # 处理后数据
+│   └── crypto_lab.db     # SQLite 数据库
+├── web/                   # Next.js 前端
 │   ├── app/              # Next.js 页面
 │   ├── components/       # React 组件
 │   ├── lib/              # API 与工具
 │   └── README.md         # 前端详细文档
+├── scripts/               # 自动化脚本
 └── WEB_OVERVIEW.md       # 前端架构总览
 ```
 
@@ -85,6 +92,20 @@ python scripts/fetch_price_data.py       # 获取价格数据
 python scripts/generate_attention_data.py # 生成注意力特征
 ```
 
+### 🔄 数据自动对齐机制
+
+**重要特性：** 本项目已实现 Google Trends 数据与价格数据的自动对齐机制：
+
+- ✅ **新币种自动对齐**：添加新币种时，系统自动拉取与价格数据相同时间区间的 Google Trends 数据
+- ✅ **历史数据补齐**：所有 Attention 相关流程强制以价格数据日线区间为准
+- ✅ **无需手动干预**：系统自动检测并补齐缺失的 Google Trends 数据
+
+```bash
+# 如需手动补齐历史数据（通常不需要）
+python scripts/refetch_historical_prices.py  # 拉取 500 天价格数据
+# 系统会自动补齐对应的 Google Trends 数据
+```
+
 ### 选项 1: 运行完整的全栈应用 (推荐) 🌟
 
 ```bash
@@ -125,15 +146,6 @@ npm run dev
 ```
 
 访问前端: **http://localhost:3000**
-
-### 选项 3: 运行 Streamlit Dashboard (旧版)
-
-```bash
-# 启动 Streamlit
-streamlit run src/dashboard/app.py
-```
-
-访问: **http://localhost:8501**
 
 ## 📊 功能特性
 
@@ -446,11 +458,15 @@ const newsData = await fetchNews({
 ```bash
 ccxt              # 交易所数据
 pandas            # 数据处理
-streamlit         # Web 界面 (旧版)
+plotly            # 图表库
 requests          # HTTP 请求
 python-dotenv     # 环境变量
 fastapi>=0.109.0  # REST API 框架
-uvicorn[standard] # ASGI 服务器
+uvicorn           # ASGI 服务器
+sqlalchemy>=2.0.0 # ORM 数据库
+alembic>=1.12.0   # 数据库迁移
+pytrends>=4.9.2   # Google Trends
+ntscraper         # Twitter 数据
 ```
 
 ### Next.js 前端
@@ -466,7 +482,9 @@ shadcn/ui         # UI 组件
 
 - **[web/README.md](./web/README.md)** - 前端详细使用文档
 - **[WEB_OVERVIEW.md](./WEB_OVERVIEW.md)** - 前端架构与集成指南
-- **[src/dashboard/app.py](./src/dashboard/app.py)** - Streamlit 应用源码
+- **[API_DOCS.md](./API_DOCS.md)** - API 接口文档
+- **[GET_REAL_DATA.md](./GET_REAL_DATA.md)** - 真实数据获取指南
+- **[ATTENTION_FACTOR_GUIDE.md](./ATTENTION_FACTOR_GUIDE.md)** - 注意力因子详解
 
 ## 🛠️ 开发工具
 
@@ -484,16 +502,6 @@ python scripts/fetch_price_data.py
 
 # 生成注意力特征
 python scripts/generate_attention_data.py
-```
-
-### Python 开发
-```bash
-# 激活虚拟环境
-source .venv/bin/activate  # macOS/Linux
-.venv\Scripts\activate     # Windows
-
-# 运行 Streamlit
-streamlit run src/dashboard/app.py
 ```
 
 ### 前端开发
@@ -523,15 +531,15 @@ python scripts/sync_symbol_status.py
 
 ## 🐛 故障排除
 
-### Streamlit 端口冲突
-```bash
-streamlit run src/dashboard/app.py --server.port 8502
-```
-
 ### Next.js 端口冲突
 ```bash
 cd web
 npm run dev -- -p 3001
+```
+
+### FastAPI 端口冲突
+```bash
+uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### 代理配置 (Binance API)
@@ -543,7 +551,6 @@ export http_proxy=http://127.0.0.1:7890
 ## 🗺️ 路线图
 
 - [x] 基础数据获取 (价格 + 新闻)
-- [x] Streamlit 简单可视化
 - [x] 真实新闻 API 集成
 - [x] 专业级 Next.js 前端
 - [x] FastAPI 后端实现
@@ -554,7 +561,7 @@ export http_proxy=http://127.0.0.1:7890
 - [x] 数据库存储（SQLite + 多币种支持）🆕
 - [x] 前端事件可视化与交互式回测 🆕
 - [x] 高级回测框架（止损/止盈/仓位管理）🆕
-- [x] 多币种对比分析（基础版，多币种回测对比表）🆕
+- [x] 多币种对比分析 🆕
 - [x] 相似状态分析 (Scenario Analysis) 🆕
 - [ ] WebSocket 实时数据流
 - [ ] 机器学习预测模型集成
@@ -571,4 +578,4 @@ export http_proxy=http://127.0.0.1:7890
 - [CryptoPanic](https://cryptopanic.com/)
 - [Next.js](https://nextjs.org/)
 - [TradingView Lightweight Charts](https://tradingview.github.io/lightweight-charts/)
-- [Streamlit](https://streamlit.io/)
+- [FastAPI](https://fastapi.tiangolo.com/)

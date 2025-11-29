@@ -136,12 +136,17 @@ curl -s 'http://localhost:8000/api/news?symbol=ZEC' | jq '.[0]'
 ### 自动更新
 - FastAPI 后端会在启动时检查数据
 - 如果数据不存在,会自动调用 fetcher
+- **Google Trends 自动对齐**：系统自动确保 Google Trends 数据与价格数据时间区间一致
 
 ### 手动更新
 
 ```bash
 # 重新获取最近 7 天的新闻
 python scripts/fetch_news_data.py
+
+# 拉取更长历史价格数据（如 500 天）
+python scripts/refetch_historical_prices.py
+# 系统会自动补齐对应时间段的 Google Trends 数据
 ```
 
 ### 定时任务 (可选)

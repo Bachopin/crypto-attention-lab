@@ -241,12 +241,22 @@ def get_price_data(
         if start:
             try:
                 start_dt = pd.to_datetime(start, utc=True)
+                # 验证时间范围合理性
+                if start_dt.year < 2009:
+                    raise ValueError(f"Start time {start_dt} is too early (before 2009)")
+                if start_dt > pd.Timestamp.now(tz='UTC'):
+                    raise ValueError(f"Start time {start_dt} is in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid start time format: {e}")
         
         if end:
             try:
                 end_dt = pd.to_datetime(end, utc=True)
+                # 验证时间范围合理性
+                if end_dt.year < 2009:
+                    raise ValueError(f"End time {end_dt} is too early (before 2009)")
+                if end_dt > pd.Timestamp.now(tz='UTC') + pd.Timedelta(days=1):
+                    raise ValueError(f"End time {end_dt} is too far in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
@@ -312,12 +322,22 @@ def get_attention_data(
         if start:
             try:
                 start_dt = pd.to_datetime(start, utc=True)
+                # 验证时间范围合理性
+                if start_dt.year < 2009:
+                    raise ValueError(f"Start time {start_dt} is too early (before 2009)")
+                if start_dt > pd.Timestamp.now(tz='UTC'):
+                    raise ValueError(f"Start time {start_dt} is in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid start time format: {e}")
         
         if end:
             try:
                 end_dt = pd.to_datetime(end, utc=True)
+                # 验证时间范围合理性
+                if end_dt.year < 2009:
+                    raise ValueError(f"End time {end_dt} is too early (before 2009)")
+                if end_dt > pd.Timestamp.now(tz='UTC') + pd.Timedelta(days=1):
+                    raise ValueError(f"End time {end_dt} is too far in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
@@ -399,12 +419,22 @@ def get_news_data(
         if start:
             try:
                 start_dt = pd.to_datetime(start, utc=True)
+                # 验证时间范围合理性（不早于2009年，比特币诞生）
+                if start_dt.year < 2009:
+                    raise ValueError(f"Start time {start_dt} is too early (before 2009)")
+                if start_dt > pd.Timestamp.now(tz='UTC'):
+                    raise ValueError(f"Start time {start_dt} is in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid start time format: {e}")
         
         if end:
             try:
                 end_dt = pd.to_datetime(end, utc=True)
+                # 验证时间范围合理性
+                if end_dt.year < 2009:
+                    raise ValueError(f"End time {end_dt} is too early (before 2009)")
+                if end_dt > pd.Timestamp.now(tz='UTC') + pd.Timedelta(days=1):
+                    raise ValueError(f"End time {end_dt} is too far in the future")
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
         
@@ -412,6 +442,11 @@ def get_news_data(
         if before:
             try:
                 before_dt = pd.to_datetime(before, utc=True)
+                # 验证 before 时间
+                if before_dt.year < 2009:
+                    raise ValueError(f"Before time {before_dt} is too early (before 2009)")
+                if before_dt > pd.Timestamp.now(tz='UTC') + pd.Timedelta(days=1):
+                    raise ValueError(f"Before time {before_dt} is too far in the future")
                 end_dt = before_dt if before_dt else end_dt
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid before time format: {e}")
@@ -482,11 +517,30 @@ def get_news_count(
     获取新闻条目总数（用于分页展示）。
     """
     try:
-        start_dt = pd.to_datetime(start, utc=True) if start else None
-        end_dt = pd.to_datetime(end, utc=True) if end else None
+        start_dt = None
+        end_dt = None
+        
+        if start:
+            try:
+                start_dt = pd.to_datetime(start, utc=True)
+                if start_dt.year < 2009:
+                    raise ValueError(f"Start time {start_dt} is too early (before 2009)")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid start time format: {e}")
+        
+        if end:
+            try:
+                end_dt = pd.to_datetime(end, utc=True)
+                if end_dt.year < 2009:
+                    raise ValueError(f"End time {end_dt} is too early (before 2009)")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid end time format: {e}")
+        
         if before:
             try:
                 before_dt = pd.to_datetime(before, utc=True)
+                if before_dt.year < 2009:
+                    raise ValueError(f"Before time {before_dt} is too early (before 2009)")
                 end_dt = before_dt if before_dt else end_dt
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Invalid before time format: {e}")
