@@ -982,8 +982,11 @@ def load_price_data(
             # 标准化 symbol 格式
             if symbol.endswith('USDT') and '/' not in symbol:
                 base = symbol[:-4]
+            elif '/' in symbol:
+                base = symbol.split('/')[0]
             else:
-                base = symbol.split('/')[0] if '/' in symbol else symbol[:3]
+                # 已经是基础资产名（如 'HYPE', 'BTC'）
+                base = symbol.upper()
 
             df = db.get_prices(base, timeframe, start, end)
             return df, False

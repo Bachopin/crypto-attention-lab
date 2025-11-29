@@ -2,6 +2,7 @@
 """
 Binance Price Fetcher - 无需 API Key 的公共行情接口
 支持批量获取 USDT 计价交易对的 K 线数据
+支持现货（Spot）和合约（Futures）两个市场
 """
 import requests
 import pandas as pd
@@ -13,26 +14,33 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.binance.com/api/v3"
+# Binance API endpoints
+SPOT_BASE_URL = "https://api.binance.com/api/v3"
+FUTURES_BASE_URL = "https://fapi.binance.com/fapi/v1"
 RATE_LIMIT_DELAY = 0.1  # 每个请求间隔 100ms，避免触发限流
 
 
 class BinancePriceFetcher:
-    """币安价格数据获取器"""
+    """币安价格数据获取器 - 支持现货和合约"""
     
     def __init__(self, rate_limit_delay: float = RATE_LIMIT_DELAY):
-        self.base_url = BASE_URL
+        self.spot_url = SPOT_BASE_URL
+        self.futures_url = FUTURES_BASE_URL
         self.rate_limit_delay = rate_limit_delay
         self.session = requests.Session()
         self.session.headers.update({'Accept': 'application/json'})
+        # 缓存：记录交易对的市场类型
+        self._futures_symbols: set = set()
+        self._spot_symbols: set = set()
+        self._unavailable_symbols: set = set()
     
     def get_all_usdt_pairs(self) -> List[str]:
         """
-        获取所有 USDT 计价的活跃交易对
+        获取所有 USDT 计价的活跃交易对（现货）
         Returns: ['BTCUSDT', 'ETHUSDT', ...]
         """
         try:
-            url = f"{self.base_url}/exchangeInfo"
+            url = f"{self.spot_url}/exchangeInfo"
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
@@ -48,6 +56,46 @@ class BinancePriceFetcher:
         except Exception as e:
             logger.error(f"[Binance] Failed to fetch exchange info: {e}")
             return []
+    
+    def _check_symbol_availability(self, symbol: str) -> str:
+        """
+        检查交易对在哪个市场可用（带缓存）
+        Returns: 'spot', 'futures', or 'none'
+        """
+        # 检查缓存
+        if symbol in self._spot_symbols:
+            return 'spot'
+        if symbol in self._futures_symbols:
+            return 'futures'
+        if symbol in self._unavailable_symbols:
+            return 'none'
+        
+        # 先检查现货
+        try:
+            url = f"{self.spot_url}/klines"
+            params = {'symbol': symbol, 'interval': '1d', 'limit': 1}
+            resp = self.session.get(url, params=params, timeout=5)
+            if resp.status_code == 200 and resp.json():
+                self._spot_symbols.add(symbol)
+                logger.info(f"[Binance] {symbol} available on Spot")
+                return 'spot'
+        except:
+            pass
+        
+        # 再检查合约
+        try:
+            url = f"{self.futures_url}/klines"
+            params = {'symbol': symbol, 'interval': '1d', 'limit': 1}
+            resp = self.session.get(url, params=params, timeout=5)
+            if resp.status_code == 200 and resp.json():
+                self._futures_symbols.add(symbol)
+                logger.info(f"[Binance] {symbol} available on Futures")
+                return 'futures'
+        except:
+            pass
+        
+        self._unavailable_symbols.add(symbol)
+        return 'none'
     
     def get_base_assets_from_pairs(self, pairs: List[str]) -> List[str]:
         """
@@ -65,7 +113,7 @@ class BinancePriceFetcher:
         limit: int = 1000
     ) -> List[Dict]:
         """
-        获取 K 线数据
+        获取 K 线数据（自动选择现货或合约 API）
         
         Args:
             symbol: 交易对，如 'BTCUSDT'
@@ -77,8 +125,24 @@ class BinancePriceFetcher:
         Returns:
             List of OHLCV dicts
         """
+        # 如果 symbol 不在任何缓存中，先预检测其可用市场
+        if symbol not in self._futures_symbols and symbol not in self._spot_symbols:
+            # 用快速检测确定市场类型
+            market_type = self._check_symbol_availability(symbol)
+            if market_type == 'none':
+                logger.warning(f"[Binance] {symbol} not available on Spot or Futures")
+                return []
+        
+        # 确定使用哪个 API
+        if symbol in self._futures_symbols:
+            base_url = self.futures_url
+            market = "Futures"
+        else:
+            base_url = self.spot_url
+            market = "Spot"
+        
         try:
-            url = f"{self.base_url}/klines"
+            url = f"{base_url}/klines"
             params = {
                 'symbol': symbol,
                 'interval': interval,
@@ -92,6 +156,7 @@ class BinancePriceFetcher:
             
             time.sleep(self.rate_limit_delay)
             response = self.session.get(url, params=params, timeout=30)
+            
             response.raise_for_status()
             data = response.json()
             
@@ -109,6 +174,9 @@ class BinancePriceFetcher:
                     'volume': float(kline[5]),
                 })
             
+            if result:
+                logger.info(f"[Binance] Fetched {len(result)} {interval} klines for {symbol} ({market})")
+            
             return result
             
         except Exception as e:
@@ -122,11 +190,12 @@ class BinancePriceFetcher:
         days: int = 90
     ) -> List[Dict]:
         """
-        批量获取历史 K 线（自动分段）
+        批量获取历史 K 线（从当前时间往前抓取，最多 days 天）
         币安单次最多 1000 条，需要分段拉取
         """
         all_klines = []
-        end_time = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        earliest_time = now - timedelta(days=days)
         
         # 计算时间跨度
         interval_map = {
@@ -142,11 +211,11 @@ class BinancePriceFetcher:
         max_per_request = 1000
         chunk_duration = delta * max_per_request
         
-        start_time = end_time - timedelta(days=days)
-        current_start = start_time
+        # 从当前时间往前抓取
+        current_end = now
         
-        while current_start < end_time:
-            current_end = min(current_start + chunk_duration, end_time)
+        while current_end > earliest_time:
+            current_start = max(current_end - chunk_duration, earliest_time)
             
             klines = self.fetch_klines(
                 symbol=symbol,
@@ -156,17 +225,18 @@ class BinancePriceFetcher:
                 limit=max_per_request
             )
             
-            if not klines:
-                break
+            if klines:
+                # 插入到列表前面（因为是从后往前抓的）
+                all_klines = klines + all_klines
+                # 移动到更早的时间段
+                first_time = datetime.fromisoformat(klines[0]['datetime'])
+                current_end = first_time - delta
+            else:
+                # 没有数据，尝试更早的时间段
+                current_end = current_start - delta
             
-            all_klines.extend(klines)
-            
-            # 移动到下一段
-            last_time = datetime.fromisoformat(klines[-1]['datetime'])
-            current_start = last_time + delta
-            
-            if len(klines) < max_per_request:
-                # 已经拉完了
+            # 如果已经抓到足够早的数据，停止
+            if current_end <= earliest_time:
                 break
         
         logger.info(f"[Binance] Fetched {len(all_klines)} {interval} klines for {symbol}")

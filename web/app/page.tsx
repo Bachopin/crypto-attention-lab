@@ -223,20 +223,29 @@ function Home() {
     }
   }, [updating, updateCountdown])
 
-  // 刷新当前标的数据
+  // 刷新当前标的数据（调用新的 refresh-symbol API）
   const refreshCurrentSymbol = useCallback(async () => {
     setUpdating(true)
-    setUpdateCountdown(20)
+    setUpdateCountdown(30)
     
     try {
+      // 调用针对单个 symbol 的刷新接口，默认检查数据完整性
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/update-data`,
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/refresh-symbol?symbol=${selectedSymbol}`,
         { method: 'POST' }
       )
       
       if (response.ok) {
-        await new Promise(resolve => setTimeout(resolve, 500))
+        const result = await response.json()
+        console.log('[refreshCurrentSymbol] Result:', result)
+        // 等待一小段时间确保数据已写入
+        await new Promise(resolve => setTimeout(resolve, 300))
+        // 清除缓存并重新加载数据
+        const { clearApiCache } = await import('@/lib/api')
+        clearApiCache()
         await loadDataSilently()
+      } else {
+        console.error('[refreshCurrentSymbol] API error:', await response.text())
       }
     } catch (err) {
       console.error('[refreshCurrentSymbol] Error:', err)
@@ -244,7 +253,7 @@ function Home() {
       setUpdating(false)
       setUpdateCountdown(0)
     }
-  }, [loadDataSilently])
+  }, [loadDataSilently, selectedSymbol])
 
   // 刷新可选代币列表（用于设置页添加后同步看板）
   const refreshSymbols = useCallback(async () => {

@@ -145,7 +145,45 @@ curl "http://localhost:8000/api/attention?symbol=ZEC&granularity=1d&start=2024-0
 
 ---
 
-### 4. News Data
+### 4. Refresh Symbol Data
+
+#### `POST /api/refresh-symbol`
+
+手动刷新单个代币的数据（价格 + Attention Features）。
+
+**Query Parameters:**
+
+| Parameter           | Type   | Required | Default | Description                              |
+|---------------------|--------|----------|---------|------------------------------------------|
+| `symbol`            | string | Yes      | -       | 代币符号（如 BTC, ETH, HYPE）             |
+| `check_completeness`| bool   | No       | true    | 是否检查数据完整性并自动补全缺失数据        |
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/api/refresh-symbol?symbol=BTC&check_completeness=true"
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "symbol": "BTC",
+  "updated": ["price", "attention"],
+  "details": {
+    "price": "Updated with completeness check (missing data auto-filled)",
+    "attention": "500 rows computed"
+  }
+}
+```
+
+**功能说明:**
+- 检查数据完整性（默认开启），自动补全缺失的历史数据
+- 支持 Binance 现货和合约市场的自动切换
+- 刷新完成后自动重新计算 Attention Features
+
+---
+
+### 5. News Data
 
 #### `GET /api/news`
 
@@ -193,7 +231,7 @@ curl "http://localhost:8000/api/news?symbol=ZEC&start=2024-01-01T00:00:00Z&end=2
 
 ---
 
-### 5. Attention Events
+### 6. Attention Events
 
 #### `GET /api/attention-events`
 
@@ -234,7 +272,7 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
 
 ---
 
-### 6. Backtest
+### 7. Backtest
 
 #### `POST /api/backtest/basic-attention`
 
@@ -451,7 +489,7 @@ curl "http://localhost:8000/api/attention-events?symbol=ZEC&lookback_days=30&min
 
 ---
 
-### 7. Attention Event Performance
+### 8. Attention Event Performance
 
 #### `GET /api/attention-events/performance`
 
@@ -488,7 +526,7 @@ curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahea
 
 ---
 
-### 8. Attention Rotation Backtest
+### 9. Attention Rotation Backtest
 
 #### `POST /api/backtest/attention-rotation`
 
@@ -552,7 +590,7 @@ curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahea
 
 ---
 
-### 9. Scenario Analysis (Similar States)
+### 10. Scenario Analysis (Similar States)
 
 #### `GET /api/state/snapshot`
 
@@ -889,10 +927,12 @@ API 会自动检查数据是否存在:
 ## 📝 Notes
 
 1. **时区:** 所有时间戳都是 UTC 时区
-2. **数据来源:** 价格数据来自 Binance,新闻数据来自 CryptoPanic/NewsAPI
-3. **限流:** 当前无限流,生产环境建议添加速率限制
-4. **认证:** 当前无认证,生产环境建议添加 API Key 或 OAuth2
-5. **缓存:** 可考虑添加 Redis 缓存提升性能
+2. **数据来源:** 价格数据来自 Binance（现货优先，合约备用），新闻数据来自 CryptoPanic/NewsAPI
+3. **Binance 市场支持:** 系统自动检测代币在现货或合约市场的可用性，对于只在合约上市的代币（如 HYPE）会自动使用 Futures API
+4. **数据完整性:** 手动刷新时默认检查数据完整性（95% 阈值），自动补全缺失的历史数据
+5. **限流:** 当前无限流,生产环境建议添加速率限制
+6. **认证:** 当前无认证,生产环境建议添加 API Key 或 OAuth2
+7. **缓存:** 可考虑添加 Redis 缓存提升性能
 
 ---
 

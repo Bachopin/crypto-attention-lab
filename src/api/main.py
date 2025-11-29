@@ -571,139 +571,146 @@ def get_symbols():
 
 # ==================== 数据更新 ====================
 
-@app.post("/api/update-data")
-def update_data(
-    update_price: bool = Query(True, description="更新价格数据"),
-    update_attention: bool = Query(True, description="更新注意力数据"),
-    update_news: bool = Query(True, description="更新新闻数据")
+@app.post("/api/refresh-symbol")
+async def refresh_symbol(
+    symbol: str = Query(..., description="要刷新的代币符号，如 BTC, ETH, HYPE"),
+    check_completeness: bool = Query(True, description="是否检查数据完整性并自动补全缺失数据")
 ):
     """
-    手动触发数据更新
-
-    - update_price: 是否更新价格数据
-    - update_attention: 是否更新注意力数据
-    - update_news: 是否更新新闻数据
+    手动刷新单个代币的数据（价格 + Attention）
+    
+    这是前端刷新按钮调用的主要接口，会：
+    1. 检查数据完整性（默认开启），自动补全缺失的历史数据
+    2. 抓取最新的价格数据
+    3. 重新计算 Attention Features
+    
+    参数：
+    - symbol: 代币符号
+    - check_completeness: 是否检查完整性（默认 True，手动刷新应该确保数据完整）
     """
-    from pathlib import Path
-
+    from src.data.realtime_price_updater import RealtimePriceUpdater
+    from src.features.attention_features import process_attention_features
+    from src.database.models import Symbol, get_session
+    
+    symbol = symbol.upper()
+    logger.info(f"[Refresh] Manual refresh triggered for {symbol} (check_completeness={check_completeness})")
+    
     results = {
         "status": "success",
-        "updated": []
+        "symbol": symbol,
+        "updated": [],
+        "details": {}
     }
-
-    project_root = Path(__file__).parent.parent.parent
-    python_exe = "/Users/mextrel/VSCode/.venv/bin/python"
-
+    
     try:
-        if update_price:
-            logger.info("Updating price data...")
-            script_path = project_root / "scripts" / "fetch_price_data.py"
-            try:
-                result = subprocess.run(
-                    [python_exe, str(script_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    cwd=str(project_root),
-                    env={**os.environ, "PYTHONPATH": str(project_root)}
-                )
-
-                if result.returncode == 0:
-                    results["updated"].append("price")
-                    logger.info("Price data updated successfully")
-                else:
-                    logger.error(f"Failed to update price data: {result.stderr}")
-                    results["status"] = "partial"
-                    results["error_price"] = result.stderr
-            except subprocess.TimeoutExpired:
-                logger.error("Price data update timeout (120s)")
-                results["status"] = "partial"
-                results["error_price"] = "Timeout after 120 seconds"
-            except Exception as e:
-                logger.error(f"Price data update crashed: {e}")
-                results["status"] = "partial"
-                results["error_price"] = str(e)
-
-        if update_attention:
-            logger.info("Updating attention data...")
-            script_path = project_root / "scripts" / "generate_attention_data.py"
-            try:
-                result = subprocess.run(
-                    [python_exe, str(script_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    cwd=str(project_root),
-                    env={**os.environ, "PYTHONPATH": str(project_root)}
-                )
-
-                if result.returncode == 0:
-                    results["updated"].append("attention")
-                    logger.info("Attention data updated successfully")
-                else:
-                    logger.error(f"Failed to update attention data: {result.stderr}")
-                    results["status"] = "partial"
-                    results["error_attention"] = result.stderr
-            except subprocess.TimeoutExpired:
-                logger.error("Attention data update timeout (60s)")
-                results["status"] = "partial"
-                results["error_attention"] = "Timeout after 60 seconds"
-            except Exception as e:
-                logger.error(f"Attention data update crashed: {e}")
-                results["status"] = "partial"
-                results["error_attention"] = str(e)
-
-        # Update news data
-        if update_news:
-            logger.info("Updating news data...")
-            script_path = project_root / "scripts" / "fetch_news_data.py"
-            try:
-                # Manual update: fetch last 30 days to ensure coverage without being too slow
-                result = subprocess.run(
-                    [python_exe, str(script_path), "--days", "30"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,  # Increased timeout to 5 minutes
-                    cwd=str(project_root),
-                    env={**os.environ, "PYTHONPATH": str(project_root)}
-                )
-
-                if result.returncode == 0:
-                    results["updated"].append("news")
-                    logger.info("News data updated successfully")
-                    
-                    # Regenerate attention features after news update
-                    logger.info("Regenerating attention features...")
-                    attention_script = project_root / "scripts" / "generate_attention_data.py"
-                    try:
-                        subprocess.run(
-                            [python_exe, str(attention_script)],
-                            capture_output=True,
-                            text=True,
-                            timeout=120,
-                            cwd=str(project_root),
-                            env={**os.environ, "PYTHONPATH": str(project_root)}
-                        )
-                        if "attention" not in results["updated"]:
-                            results["updated"].append("attention")
-                    except Exception as e:
-                        logger.warning(f"Attention regeneration failed (non-critical): {e}")
-                
-                else:
-                    logger.error(f"Failed to update news data: {result.stderr}")
-            except subprocess.TimeoutExpired:
-                logger.error("News data update timeout (300s)")
-                results["status"] = "partial"
-                results["error_news"] = "Timeout after 300 seconds"
-            except Exception as e:
-                logger.error(f"News data update crashed: {e}")
-                results["status"] = "partial"
-                results["error_news"] = result.stderr
-
+        # 获取 last_update 信息
+        session = get_session()
+        try:
+            sym = session.query(Symbol).filter_by(symbol=symbol).first()
+            last_update = sym.last_price_update if sym else None
+        finally:
+            session.close()
+        
+        # 创建更新器
+        updater = RealtimePriceUpdater()
+        
+        # 手动刷新时：如果 check_completeness=True，强制检查每个 timeframe 的完整性
+        # 这样可以自动补全缺失的历史数据
+        if check_completeness:
+            # 传入 last_update=None 强制触发完整性检查
+            await updater.update_single_symbol(symbol, last_update=None, force_full=False)
+            results["details"]["price"] = "Updated with completeness check (missing data auto-filled)"
+        else:
+            # 只做增量更新
+            await updater.update_single_symbol(symbol, last_update=last_update, force_full=False)
+            results["details"]["price"] = "Incremental update only"
+        
+        results["updated"].append("price")
+        
+        # 重新计算 Attention Features
+        try:
+            attention_result = process_attention_features(symbol, freq='D', save_to_db=True)
+            if attention_result is not None:
+                results["updated"].append("attention")
+                results["details"]["attention"] = f"{len(attention_result)} rows computed"
+            else:
+                results["details"]["attention"] = "No data to compute"
+        except Exception as e:
+            logger.error(f"[Refresh] Attention calculation failed for {symbol}: {e}")
+            results["details"]["attention_error"] = str(e)
+        
+        logger.info(f"[Refresh] ✅ {symbol} refresh completed: {results['updated']}")
         return results
-
+        
     except Exception as e:
-        logger.error(f"Error updating data: {e}", exc_info=True)
+        logger.error(f"[Refresh] Failed to refresh {symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/update-data")
+async def update_data(
+    symbol: Optional[str] = Query(None, description="指定代币（留空则更新所有）"),
+    update_price: bool = Query(True, description="更新价格数据"),
+    update_attention: bool = Query(True, description="更新注意力数据"),
+):
+    """
+    手动触发数据更新（兼容旧接口 + 新功能）
+    
+    - 如果指定 symbol，则只更新该代币
+    - 否则更新所有已启用自动更新的代币
+    """
+    from src.data.realtime_price_updater import RealtimePriceUpdater
+    from src.features.attention_features import process_attention_features
+    from src.database.models import Symbol, get_session
+    
+    results = {
+        "status": "success",
+        "updated": [],
+        "symbols_updated": []
+    }
+    
+    try:
+        updater = RealtimePriceUpdater()
+        
+        if symbol:
+            # 更新单个代币
+            symbol = symbol.upper()
+            
+            if update_price:
+                session = get_session()
+                try:
+                    sym = session.query(Symbol).filter_by(symbol=symbol).first()
+                    last_update = sym.last_price_update if sym else None
+                finally:
+                    session.close()
+                
+                await updater.update_single_symbol(symbol, last_update=last_update)
+                results["updated"].append("price")
+            
+            if update_attention:
+                try:
+                    process_attention_features(symbol, freq='D', save_to_db=True)
+                    results["updated"].append("attention")
+                except Exception as e:
+                    logger.warning(f"Attention update failed for {symbol}: {e}")
+            
+            results["symbols_updated"].append(symbol)
+        else:
+            # 更新所有代币
+            if update_price:
+                await updater.update_all_symbols()
+                results["updated"].append("price")
+                results["updated"].append("attention")  # update_all_symbols 会自动计算 attention
+                
+                # 获取更新了哪些代币
+                symbols = updater.get_auto_update_symbols()
+                results["symbols_updated"] = [s["symbol"] for s in symbols]
+        
+        logger.info(f"[Update] Completed: {results}")
+        return results
+        
+    except Exception as e:
+        logger.error(f"[Update] Failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1108,18 +1115,37 @@ async def enable_auto_update(
         for symbol_name in symbols:
             symbol_name = symbol_name.upper()
             
-            # 验证交易对在 Binance 上是否存在
+            # 验证交易对在 Binance 上是否存在（现货或合约）
+            symbol_valid = False
+            market_type = None
+            
+            # 先检查现货
             try:
-                test_url = f"https://api.binance.com/api/v3/klines?symbol={symbol_name}USDT&interval=1d&limit=1"
-                resp = requests.get(test_url, timeout=5)
-                if resp.status_code != 200 or not resp.json():
-                    logger.warning(f"[Enable] {symbol_name}USDT not found on Binance")
-                    invalid.append(symbol_name)
-                    continue
-            except Exception as e:
-                logger.warning(f"[Enable] Failed to validate {symbol_name} on Binance: {e}")
+                spot_url = f"https://api.binance.com/api/v3/klines?symbol={symbol_name}USDT&interval=1d&limit=1"
+                resp = requests.get(spot_url, timeout=5)
+                if resp.status_code == 200 and resp.json():
+                    symbol_valid = True
+                    market_type = "Spot"
+            except:
+                pass
+            
+            # 如果现货不存在，检查合约
+            if not symbol_valid:
+                try:
+                    futures_url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol_name}USDT&interval=1d&limit=1"
+                    resp = requests.get(futures_url, timeout=5)
+                    if resp.status_code == 200 and resp.json():
+                        symbol_valid = True
+                        market_type = "Futures"
+                except:
+                    pass
+            
+            if not symbol_valid:
+                logger.warning(f"[Enable] {symbol_name}USDT not found on Binance (Spot or Futures)")
                 invalid.append(symbol_name)
                 continue
+            
+            logger.info(f"[Enable] {symbol_name}USDT found on Binance {market_type}")
             
             # 获取或创建 Symbol 记录
             sym = db.get_or_create_symbol(session, symbol_name)

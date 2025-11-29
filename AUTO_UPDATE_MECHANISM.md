@@ -132,7 +132,22 @@ POST /api/auto-update/enable
 
 ## 🛠️ **手动触发 API**
 
-### 手动触发价格更新
+### 刷新单个代币（推荐）
+```bash
+POST /api/refresh-symbol?symbol=BTC&check_completeness=true
+```
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `symbol` | 必填 | 代币符号（如 BTC, HYPE） |
+| `check_completeness` | `true` | 是否检查数据完整性并自动补全 |
+
+功能：
+- 检查数据完整性（默认开启）
+- 自动补全缺失的历史数据（如完整性 < 95%）
+- 抓取最新价格
+- 重新计算 Attention Features
+
+### 手动触发价格更新（旧接口）
 ```bash
 POST /api/auto-update/trigger
 {
@@ -157,6 +172,18 @@ POST /api/attention/trigger-update
 
 ## 📝 **重要说明**
 
+### ✅ 数据完整性检查
+系统会智能判断是否需要检查数据完整性：
+- **首次更新**（`last_update` 为空）：强制检查
+- **超过 24 小时未更新**：触发检查
+- **正常 2 分钟周期**：跳过检查，直接增量更新（节省资源）
+- **手动刷新**：默认开启完整性检查
+
+完整性检查策略：
+- 计算数据点数量与预期值的比例（95% 阈值）
+- 检查最早数据是否覆盖到预期范围
+- 如果完整性不足，自动触发全量回填
+
 ### ⚠️ 全量 vs 增量计算
 当前实现为**全量重新计算**：
 - 每次调用 `process_attention_features()` 都会计算所有历史数据
@@ -177,6 +204,12 @@ POST /api/attention/trigger-update
 - 待集成 Twitter API 后可自动获取真实数据
 - 逻辑流程已预留，无需改动框架
 
+### ✅ Binance 现货/合约自动切换
+- 系统会自动检测代币在 Binance 的上市情况
+- 优先使用现货（Spot）API：`https://api.binance.com/api/v3`
+- 如果代币只在合约市场上市（如 HYPE），自动切换到合约（Futures）API：`https://fapi.binance.com/fapi/v1`
+- 检测结果会被缓存，避免重复请求
+
 ---
 
 ## 📌 **与原设计的对比**
@@ -189,6 +222,9 @@ POST /api/attention/trigger-update
 | Google Trends | 独立定时任务？ | 被动获取（由 Attention 触发） | ✅ 已实现 |
 | Twitter Volume | 未实现 | 被动获取（由 Attention 触发，占位0） | ⚠️ 待实现 |
 | 新闻数据拉取 | 全局定时任务（1小时） | 全局定时任务（1小时） | ✅ 保持 |
+| Binance API | 仅现货 | 现货 + 合约自动切换 | ✅ 已实现 |
+| 数据完整性检查 | 无 | 智能检查 + 自动回填 | ✅ 已实现 |
+| 手动刷新 | 全局更新 | 单代币刷新 + 完整性检查 | ✅ 已实现 |
 
 ---
 
@@ -233,4 +269,4 @@ const enableAutoUpdate = async (symbol: string) => {
 ---
 
 **最后更新**: 2025-11-29  
-**版本**: v2.0 - 完整自动化更新机制
+**版本**: v2.1 - 增加 Binance Futures 支持、数据完整性检查
