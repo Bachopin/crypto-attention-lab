@@ -474,8 +474,8 @@ curl "http://localhost:8000/api/news/trend?symbol=ALL&start=2025-11-15T00:00:00Z
 |-------------------|--------|------------------------------------------------------|
 | `time`            | string | 时间标识 (格式: YYYY-MM-DD 或 ISO 8601)              |
 | `count`           | int    | 该时间段内的新闻数量                                 |
-| `attention`       | float  | 原始加权 Attention (Σ source_weight)                 |
-| `attention_score` | float  | **Z-Score 标准化后的分数 (0-100)**                   |
+| `attention`       | float  | ⚠️ **已弃用** 原始加权值，请使用 `attention_score`   |
+| `attention_score` | float  | ⭐ **推荐** Z-Score 标准化后的分数 (0-100)           |
 | `z_score`         | float  | 原始 Z-Score 值                                      |
 | `avg_sentiment`   | float  | 平均情绪分数 (-1 to 1)                               |
 

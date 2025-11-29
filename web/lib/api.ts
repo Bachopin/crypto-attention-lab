@@ -434,8 +434,9 @@ export async function fetchNewsCount(params: FetchNewsParams = {}): Promise<{ to
 export interface NewsTrendPoint {
   time: string;           // 时间标识，如 "2025-11-28" 或 "2025-11-28T14:00:00Z"
   count: number;          // 新闻数量
-  attention: number;      // 加权注意力（source_weight 总和）
-  attention_score: number; // 基于 Z-Score 的标准化分数 (0-100)
+  /** @deprecated 请使用 attention_score，此字段仅保留向后兼容 */
+  attention: number;      // [已弃用] 原始加权值（source_weight 总和）
+  attention_score: number; // ⭐ 推荐使用：基于 Z-Score 的标准化分数 (0-100)
   z_score: number;        // 原始 Z-Score
   avg_sentiment: number;  // 平均情绪
 }
