@@ -33,16 +33,22 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
       try {
         const now = new Date();
         let start = new Date();
-        if (newsRange === '24h') start.setHours(now.getHours() - 24);
-        else if (newsRange === '7d') start.setDate(now.getDate() - 7);
-        else if (newsRange === '30d') start.setDate(now.getDate() - 30);
+        if (newsRange === '24h') {
+          start.setHours(now.getHours() - 24);
+        } else if (newsRange === '7d') {
+          start.setDate(now.getDate() - 7);
+          start.setHours(0, 0, 0, 0); // Align to start of day for cleaner charts
+        } else if (newsRange === '30d') {
+          start.setDate(now.getDate() - 30);
+          start.setHours(0, 0, 0, 0); // Align to start of day
+        }
 
         // Fetch ALL news for the range to build the radar
-        // Limit to 1000 to avoid crashing.
+        // Limit to 5000 to ensure we cover the full range without truncation
         const data = await fetchNews({ 
           symbol: 'ALL', 
           start: start.toISOString(), 
-          limit: 1000 
+          limit: 5000 
         });
         setRadarNews(data);
       } catch (e) {
@@ -58,9 +64,15 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   useEffect(() => {
     const now = new Date();
     let start = new Date();
-    if (newsRange === '24h') start.setHours(now.getHours() - 24);
-    else if (newsRange === '7d') start.setDate(now.getDate() - 7);
-    else if (newsRange === '30d') start.setDate(now.getDate() - 30);
+    if (newsRange === '24h') {
+      start.setHours(now.getHours() - 24);
+    } else if (newsRange === '7d') {
+      start.setDate(now.getDate() - 7);
+      start.setHours(0, 0, 0, 0);
+    } else if (newsRange === '30d') {
+      start.setDate(now.getDate() - 30);
+      start.setHours(0, 0, 0, 0);
+    }
     
     setStartDate(start.toISOString().split('T')[0]);
     setEndDate(now.toISOString().split('T')[0]);

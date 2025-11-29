@@ -31,6 +31,15 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).parent.parent / "data" / "raw"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# 扩展的符号列表用于检测
+EXTENDED_SYMBOLS = [
+    "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOGE", "DOT", "TRX",
+    "MATIC", "LTC", "SHIB", "UNI", "ATOM", "LINK", "XMR", "ETC", "BCH", "FIL",
+    "NEAR", "ALGO", "APT", "QNT", "VET", "ICP", "HBAR", "EGLD", "SAND", "MANA",
+    "ZEC", "DASH", "EOS", "XTZ", "AAVE", "THETA", "AXS", "FTM", "GRT", "MKR",
+    "OP", "ARB", "SUI", "PEPE", "RNDR", "INJ", "LDO", "CRV", "SNX", "COMP"
+]
+
 
 def fetch_cryptocompare_news(days: int = 90) -> List[Dict]:
     """
@@ -93,6 +102,9 @@ def fetch_cryptocompare_news(days: int = 90) -> List[Dict]:
                         "source": article.get("source", "CryptoCompare"),
                         "url": article.get("url", article.get("guid", "")),
                         "relevance": "direct",
+                    "language": "en",
+                        "language": "en",
+                        "language": "en",
                     })
                 
                 if reached_cutoff:
@@ -183,6 +195,8 @@ def fetch_cryptopanic_news(days: int = 14) -> List[Dict]:
                     "source": (item.get("source") or {}).get("title") or "CryptoPanic",
                     "url": item.get("url", ""),
                     "relevance": "direct",
+                    "language": "en",
+                    "language": "en",
                 })
                 page_relevant += 1
             
@@ -270,6 +284,7 @@ def fetch_newsapi_news(days: int = 30) -> List[Dict]:
                         "title": article.get("title", "").strip(),
                         "source": (article.get("source") or {}).get("name", "NewsAPI"),
                         "url": article.get("url", ""),
+                        "language": "en",
                     })
             except Exception as chunk_err:
                 logger.warning(f"[NewsAPI] Chunk failed: {chunk_err}")
@@ -341,7 +356,9 @@ def fetch_rss_feeds() -> List[Dict]:
                     "title": title,
                     "source": source,
                     "url": link,
-                    "relevance": "direct" # 默认相关
+                    "relevance": "direct", # 默认相关
+                    "language": "en",
+                    "language": "en",
                 })
             
             # logger.info(f"[RSS] {source}: {len([n for n in news_list if source in n['source']])} relevant articles")
@@ -372,14 +389,25 @@ def aggregate_and_deduplicate(all_news: List[Dict]) -> pd.DataFrame:
 
 def detect_symbols(text: str) -> str:
     """检测文本中包含的关注币种"""
-    found = []
+    found = set()
     text_lower = text.lower()
+    
+    # 1. Check TRACKED_SYMBOLS
     for sym_pair in TRACKED_SYMBOLS:
         # TRACKED_SYMBOLS 格式如 "ZEC/USDT"
         base = sym_pair.split('/')[0]
         if base.lower() in text_lower:
-            found.append(base)
-    return ','.join(found) if found else ''
+            found.add(base)
+            
+    # 2. Check EXTENDED_SYMBOLS
+    for sym in EXTENDED_SYMBOLS:
+        # Simple word boundary check to avoid partial matches (e.g. "is" matching "S" if S was a symbol)
+        # For now, just check if the symbol is in the text, but maybe be careful with short ones.
+        # Most crypto symbols are 3+ chars.
+        if sym.lower() in text_lower:
+            found.add(sym)
+            
+    return ','.join(sorted(list(found))) if found else ''
 
 def save_news_data(df: pd.DataFrame):
     """保存到本地和数据库"""

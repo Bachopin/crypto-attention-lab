@@ -133,6 +133,7 @@ NEWS_API_KEY=your_newsapi_key
 - `source`: 来源名称
 - `url`: 原文链接
 - `relevance`: 相关性（`direct`=直接提及ZEC，`related`=隐私币相关）
+- `language`: 语言代码（如 `en`），默认为 `en`
 
 ---
 

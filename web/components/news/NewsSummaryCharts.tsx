@@ -9,7 +9,10 @@ import {
   Legend,
   ResponsiveContainer,
   LineChart,
-  Line
+  Line,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewsItem } from '@/lib/api';
@@ -19,6 +22,24 @@ interface NewsSummaryChartsProps {
   news: NewsItem[];
   timeRange: '24h' | '7d' | '30d';
 }
+
+const LANGUAGE_MAP: Record<string, string> = {
+  'en': 'English',
+  'zh': 'Chinese',
+  'ko': 'Korean',
+  'ja': 'Japanese',
+  'ru': 'Russian',
+  'es': 'Spanish',
+  'fr': 'French',
+  'de': 'German',
+  'it': 'Italian',
+  'pt': 'Portuguese',
+  'tr': 'Turkish',
+  'vi': 'Vietnamese',
+  'unknown': 'Unknown'
+};
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
   const timeData = useMemo(() => {
@@ -55,6 +76,14 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
       .map(entry => entry[1]);
   }, [news, timeRange]);
 
+  const dateRangeLabel = useMemo(() => {
+    if (!news.length) return '';
+    const dates = news.map(n => new Date(n.datetime).getTime());
+    const min = new Date(Math.min(...dates));
+    const max = new Date(Math.max(...dates));
+    return `${format(min, 'MM-dd HH:mm')} to ${format(max, 'MM-dd HH:mm')}`;
+  }, [news]);
+
   const sourceData = useMemo(() => {
     const counts = new Map<string, number>();
     news.forEach(item => {
@@ -73,7 +102,12 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
     news.forEach(item => {
       let lang = item.language || 'Unknown';
       if (lang === 'None' || !lang) lang = 'Unknown';
-      counts.set(lang, (counts.get(lang) || 0) + 1);
+      lang = lang.toLowerCase();
+      
+      // Map code to name
+      const name = LANGUAGE_MAP[lang] || (lang.length === 2 ? lang.toUpperCase() : lang.charAt(0).toUpperCase() + lang.slice(1));
+      
+      counts.set(name, (counts.get(name) || 0) + 1);
     });
 
     return Array.from(counts.entries())
@@ -86,7 +120,10 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
       {/* Time Trend */}
       <Card className="col-span-1 md:col-span-3 lg:col-span-1">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">News & Attention Trend</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            News & Attention Trend
+            {dateRangeLabel && <span className="ml-2 text-xs font-normal text-muted-foreground">({dateRangeLabel})</span>}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
@@ -98,6 +135,11 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
                 <YAxis yAxisId="right" orientation="right" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
+                  formatter={(value: number, name: string) => {
+                    if (name === 'Attention') return [value.toFixed(2), name];
+                    return [value, name];
+                  }}
                 />
                 <Legend />
                 <Line yAxisId="left" type="monotone" dataKey="count" stroke="#8884d8" name="News Count" dot={false} strokeWidth={2} />
@@ -123,6 +165,7 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
                 <Tooltip 
                   cursor={{fill: 'transparent'}}
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
                 />
                 <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]} name="Count" />
               </BarChart>
@@ -139,16 +182,27 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
         <CardContent>
           <div className="h-[200px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={languageData}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
-                <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis fontSize={12} tickLine={false} axisLine={false} />
+              <PieChart>
+                <Pie
+                  data={languageData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={40}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {languageData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
                 <Tooltip 
-                  cursor={{fill: 'transparent'}}
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  itemStyle={{ color: 'hsl(var(--foreground))' }}
                 />
-                <Bar dataKey="value" fill="#82ca9d" radius={[4, 4, 0, 0]} name="Count" />
-              </BarChart>
+                <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: '10px' }} />
+              </PieChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
