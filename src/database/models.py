@@ -19,6 +19,8 @@ class Symbol(Base):
     id = Column(Integer, primary_key=True)
     symbol = Column(String(20), unique=True, nullable=False, index=True)  # e.g., 'ZEC', 'BTC'
     name = Column(String(100))  # e.g., 'Zcash', 'Bitcoin'
+    aliases = Column(Text)  # 别名列表，逗号分隔，如 'Zcash,ZCash,z-cash' 用于新闻搜索
+    coingecko_id = Column(String(100), index=True)  # CoinGecko ID，用于获取数据
     category = Column(String(50))  # e.g., 'privacy', 'defi', 'layer1'
     is_active = Column(Boolean, default=True)
     

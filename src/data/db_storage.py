@@ -6,7 +6,7 @@ import os
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 import logging
 from sqlalchemy import and_, or_, inspect, text
 
@@ -22,34 +22,85 @@ logger = logging.getLogger(__name__)
 USE_DATABASE = True  # 设为 False 将回退到 CSV 模式
 DISABLE_CSV_FALLBACK = os.getenv("DISABLE_CSV_FALLBACK", "false").lower() == "true"
 
-# 代币符号到全名的映射，用于新闻搜索时扩展匹配
-# 这样搜索 "ZEC" 时也会匹配包含 "Zcash" 的新闻
-SYMBOL_NAME_MAP = {
-    "ZEC": ["Zcash"],
-    "BTC": ["Bitcoin"],
-    "ETH": ["Ethereum"],
-    "SOL": ["Solana"],
-    "BNB": ["Binance Coin", "BNB Chain"],
-    "XRP": ["Ripple"],
-    "ADA": ["Cardano"],
-    "AVAX": ["Avalanche"],
-    "DOGE": ["Dogecoin"],
-    "DOT": ["Polkadot"],
-    "MATIC": ["Polygon"],
-    "LTC": ["Litecoin"],
-    "SHIB": ["Shiba Inu"],
-    "UNI": ["Uniswap"],
-    "ATOM": ["Cosmos"],
-    "LINK": ["Chainlink"],
-    "XMR": ["Monero"],
-    "NEAR": ["NEAR Protocol"],
-    "APT": ["Aptos"],
-    "ARB": ["Arbitrum"],
-    "OP": ["Optimism"],
-    "SUI": ["Sui"],
-    "PEPE": ["Pepe"],
-    "INJ": ["Injective"],
-}
+# 缓存的符号名称映射（从数据库加载）
+_SYMBOL_NAME_CACHE: Dict[str, List[str]] = {}
+_SYMBOL_NAME_CACHE_TIME: Optional[datetime] = None
+_CACHE_TTL_SECONDS = 3600  # 缓存 1 小时
+
+
+def get_symbol_name_map(engine=None) -> Dict[str, List[str]]:
+    """
+    获取符号到名称/别名的映射
+    优先从数据库 symbols 表获取，缓存 1 小时
+    返回格式: {'BTC': ['Bitcoin', 'bitcoin', ...], ...}
+    """
+    global _SYMBOL_NAME_CACHE, _SYMBOL_NAME_CACHE_TIME
+    
+    now = datetime.now()
+    
+    # 检查缓存是否有效
+    if _SYMBOL_NAME_CACHE and _SYMBOL_NAME_CACHE_TIME:
+        if (now - _SYMBOL_NAME_CACHE_TIME).total_seconds() < _CACHE_TTL_SECONDS:
+            return _SYMBOL_NAME_CACHE
+    
+    # 从数据库加载
+    if engine is None:
+        engine = init_database()
+    
+    try:
+        session = get_session(engine)
+        symbols = session.query(Symbol).filter(Symbol.is_active == True).all()
+        
+        mapping = {}
+        for sym in symbols:
+            names = set()
+            if sym.name:
+                names.add(sym.name)
+            if hasattr(sym, 'aliases') and sym.aliases:
+                names.update(sym.aliases.split(','))
+            
+            if names:
+                mapping[sym.symbol] = list(names)
+        
+        session.close()
+        
+        if mapping:
+            _SYMBOL_NAME_CACHE = mapping
+            _SYMBOL_NAME_CACHE_TIME = now
+            logger.debug(f"从数据库加载了 {len(mapping)} 个符号映射")
+            return mapping
+            
+    except Exception as e:
+        logger.debug(f"从数据库加载符号映射失败: {e}")
+    
+    # 回退到硬编码的映射
+    fallback = {
+        "ZEC": ["Zcash"],
+        "BTC": ["Bitcoin"],
+        "ETH": ["Ethereum"],
+        "SOL": ["Solana"],
+        "BNB": ["Binance Coin", "BNB Chain"],
+        "XRP": ["Ripple"],
+        "ADA": ["Cardano"],
+        "AVAX": ["Avalanche"],
+        "DOGE": ["Dogecoin"],
+        "DOT": ["Polkadot"],
+        "MATIC": ["Polygon"],
+        "LTC": ["Litecoin"],
+        "SHIB": ["Shiba Inu"],
+        "UNI": ["Uniswap"],
+        "ATOM": ["Cosmos"],
+        "LINK": ["Chainlink"],
+        "XMR": ["Monero"],
+        "NEAR": ["NEAR Protocol"],
+        "APT": ["Aptos"],
+        "ARB": ["Arbitrum"],
+        "OP": ["Optimism"],
+        "SUI": ["Sui"],
+        "PEPE": ["Pepe"],
+        "INJ": ["Injective"],
+    }
+    return fallback
 
 
 class DatabaseStorage:
@@ -196,6 +247,9 @@ class DatabaseStorage:
             query = session.query(News)
             
             if symbols:
+                # 获取符号名称映射（从数据库缓存）
+                symbol_name_map = get_symbol_name_map(self.engine)
+                
                 # 构建过滤条件：symbols 字段包含 OR 标题包含代币名称/全名
                 symbol_filters = []
                 for sym in symbols:
@@ -209,10 +263,13 @@ class DatabaseStorage:
                         symbol_filters.append(News.title.ilike(f'%{sym}%'))
                         symbol_filters.append(News.title.ilike(f'%{sym_upper}%'))
                         
-                        # 3. 标题包含代币全名（如 Zcash, Bitcoin 等）
-                        if sym_upper in SYMBOL_NAME_MAP:
-                            for full_name in SYMBOL_NAME_MAP[sym_upper]:
-                                symbol_filters.append(News.title.ilike(f'%{full_name}%'))
+                        # 3. 标题包含代币全名/别名（如 Zcash, Bitcoin 等）
+                        # 从数据库 symbols 表获取映射
+                        if sym_upper in symbol_name_map:
+                            for full_name in symbol_name_map[sym_upper]:
+                                # 只搜索长度 >= 3 的别名，避免误匹配
+                                if len(full_name) >= 3:
+                                    symbol_filters.append(News.title.ilike(f'%{full_name}%'))
                 
                 query = query.filter(or_(*symbol_filters))
             
