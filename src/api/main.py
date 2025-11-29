@@ -18,8 +18,10 @@ from src.data.db_storage import (
     load_price_data,
     load_attention_data,
     load_news_data,
-    get_available_symbols
+    get_available_symbols,
+    get_db,
 )
+from src.database.models import Symbol, get_session
 from src.events.attention_events import detect_attention_events
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
 from src.backtest.strategy_templates import AttentionCondition
@@ -1032,8 +1034,6 @@ def get_auto_update_status():
             ]
         }
     """
-    from src.database.models import Symbol, get_session, get_engine
-    
     try:
         session = get_session()
         symbols = session.query(Symbol).all()
@@ -1072,8 +1072,6 @@ async def enable_auto_update(
             "message": "Auto-update enabled and initial data fetch triggered"
         }
     """
-    from src.database.models import Symbol, get_session, get_engine
-    from src.data.db_storage import get_db
     from src.features.attention_features import process_attention_features
     from src.data.realtime_price_updater import get_realtime_updater
     
@@ -1170,8 +1168,6 @@ def disable_auto_update(
             "symbols": ["BTC"]
         }
     """
-    from src.database.models import Symbol, get_session
-    
     try:
         symbols = payload.get("symbols", [])
         if not symbols:
@@ -1216,7 +1212,6 @@ async def trigger_manual_update(
         }
     """
     from src.data.realtime_price_updater import get_realtime_updater
-    from src.database.models import Symbol, get_session
     
     try:
         symbols = payload.get("symbols", [])
@@ -1270,7 +1265,6 @@ async def trigger_attention_update(
         }
     """
     from src.features.attention_features import process_attention_features
-    from src.database.models import Symbol, get_session
     
     try:
         symbols = payload.get("symbols", [])
@@ -1280,8 +1274,7 @@ async def trigger_attention_update(
         if not symbols:
             session = get_session()
             enabled_symbols = session.query(Symbol).filter(
-                Symbol.auto_update_price == True,
-                Symbol.is_active == True
+                Symbol.auto_update_price == True
             ).all()
             symbols = [s.symbol for s in enabled_symbols]
             session.close()

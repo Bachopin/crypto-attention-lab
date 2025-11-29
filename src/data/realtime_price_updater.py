@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 from src.data.price_fetcher_binance import BinancePriceFetcher
 from src.data.db_storage import get_db, save_price_data
-from src.database.models import Symbol
+from src.database.models import Symbol, get_session
 
 logger = logging.getLogger(__name__)
 
@@ -34,28 +34,22 @@ class RealtimePriceUpdater:
         Returns:
             [{'symbol': 'BTC', 'last_update': datetime}, ...]
         """
-        from src.database.models import get_session
-        
         session = get_session()
         try:
-            symbols = session.query(Symbol).filter_by(
-                auto_update_price=True,
-                is_active=True
+            # 只需要检查 auto_update_price，不需要额外检查 is_active
+            symbols = session.query(Symbol).filter(
+                Symbol.auto_update_price == True
             ).all()
             
-            result = [{
+            return [{
                 'symbol': s.symbol,
                 'last_update': s.last_price_update
             } for s in symbols]
-            
-            return result
         finally:
             session.close()
     
     def update_last_price_update(self, symbol: str, timestamp: datetime):
         """更新标的的最后更新时间"""
-        from src.database.models import get_session
-        
         session = get_session()
         try:
             sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
