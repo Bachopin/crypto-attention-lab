@@ -15,6 +15,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database.models import Symbol, init_database, get_session
+from src.data.db_storage import get_symbol_name_map
 from sqlalchemy import text
 
 logging.basicConfig(level=logging.INFO)
@@ -170,31 +171,6 @@ def sync_coins_to_db(coins: List[Dict], engine, include_all: bool = False):
         session.close()
 
 
-def get_symbol_name_map(engine) -> Dict[str, List[str]]:
-    """
-    从数据库获取符号到名称/别名的映射
-    返回格式: {'BTC': ['Bitcoin', 'bitcoin', ...], ...}
-    """
-    session = get_session(engine)
-    
-    try:
-        symbols = session.query(Symbol).filter(Symbol.is_active == True).all()
-        
-        mapping = {}
-        for sym in symbols:
-            names = set()
-            if sym.name:
-                names.add(sym.name)
-            if sym.aliases:
-                names.update(sym.aliases.split(','))
-            
-            mapping[sym.symbol] = list(names)
-        
-        return mapping
-    finally:
-        session.close()
-
-
 def main():
     import argparse
     
@@ -216,7 +192,7 @@ def main():
         sync_coins_to_db(coins, engine, include_all=args.all)
         
         # 显示统计
-        mapping = get_symbol_name_map(engine)
+        mapping = get_symbol_name_map(engine, symbols_filter=None)  # 传 None 获取所有活跃代币
         logger.info(f"\n数据库中共有 {len(mapping)} 个代币")
         logger.info("\n示例映射:")
         for sym in ['BTC', 'ETH', 'SOL', 'ZEC', 'DOGE'][:5]:
