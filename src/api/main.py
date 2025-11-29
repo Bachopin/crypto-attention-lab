@@ -1036,8 +1036,15 @@ def get_auto_update_status():
     """
     try:
         session = get_session()
-        # 只返回 auto_update_price=True 的代币，避免显示无关代币
-        symbols = session.query(Symbol).filter(Symbol.auto_update_price == True).all()
+        # 显示：auto_update=True 或 曾经更新过价格（last_price_update 不为空）的代币
+        # 这样暂停后的代币仍然会显示在列表中
+        from sqlalchemy import or_
+        symbols = session.query(Symbol).filter(
+            or_(
+                Symbol.auto_update_price == True,
+                Symbol.last_price_update.isnot(None)
+            )
+        ).all()
         
         result = [{
             "symbol": s.symbol,
