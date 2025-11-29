@@ -28,28 +28,63 @@ _SYMBOL_NAME_CACHE_TIME: Optional[datetime] = None
 _CACHE_TTL_SECONDS = 3600  # 缓存 1 小时
 
 
-def get_symbol_name_map(engine=None) -> Dict[str, List[str]]:
+def get_symbol_name_map(engine=None, symbols_filter: List[str] = None) -> Dict[str, List[str]]:
     """
     获取符号到名称/别名的映射
-    优先从数据库 symbols 表获取，缓存 1 小时
+    
+    只加载需要关注的代币（auto_update_price=True 或在 symbols_filter 中指定的）
+    
+    Args:
+        engine: 数据库引擎
+        symbols_filter: 指定要查询的符号列表，如果提供则只返回这些符号的映射
+        
     返回格式: {'BTC': ['Bitcoin', 'bitcoin', ...], ...}
     """
     global _SYMBOL_NAME_CACHE, _SYMBOL_NAME_CACHE_TIME
     
     now = datetime.now()
     
-    # 检查缓存是否有效
+    # 如果指定了 symbols_filter，直接查询这些符号（不使用缓存）
+    if symbols_filter:
+        if engine is None:
+            engine = init_database()
+        try:
+            session = get_session(engine)
+            symbols_upper = [s.upper() for s in symbols_filter]
+            symbols = session.query(Symbol).filter(Symbol.symbol.in_(symbols_upper)).all()
+            
+            mapping = {}
+            for sym in symbols:
+                names = set()
+                if sym.name:
+                    names.add(sym.name)
+                if hasattr(sym, 'aliases') and sym.aliases:
+                    names.update(sym.aliases.split(','))
+                if names:
+                    mapping[sym.symbol] = list(names)
+            
+            session.close()
+            return mapping
+        except Exception as e:
+            logger.debug(f"查询指定符号映射失败: {e}")
+            return {}
+    
+    # 检查缓存是否有效（只缓存活跃代币的映射）
     if _SYMBOL_NAME_CACHE and _SYMBOL_NAME_CACHE_TIME:
         if (now - _SYMBOL_NAME_CACHE_TIME).total_seconds() < _CACHE_TTL_SECONDS:
             return _SYMBOL_NAME_CACHE
     
-    # 从数据库加载
+    # 从数据库加载：只加载 auto_update_price=True 的代币
     if engine is None:
         engine = init_database()
     
     try:
         session = get_session(engine)
-        symbols = session.query(Symbol).filter(Symbol.is_active == True).all()
+        # 只加载开启了自动更新的代币
+        symbols = session.query(Symbol).filter(
+            Symbol.is_active == True,
+            Symbol.auto_update_price == True
+        ).all()
         
         mapping = {}
         for sym in symbols:
@@ -67,7 +102,7 @@ def get_symbol_name_map(engine=None) -> Dict[str, List[str]]:
         if mapping:
             _SYMBOL_NAME_CACHE = mapping
             _SYMBOL_NAME_CACHE_TIME = now
-            logger.debug(f"从数据库加载了 {len(mapping)} 个符号映射")
+            logger.debug(f"从数据库加载了 {len(mapping)} 个活跃代币的符号映射")
             return mapping
             
     except Exception as e:
@@ -247,8 +282,8 @@ class DatabaseStorage:
             query = session.query(News)
             
             if symbols:
-                # 获取符号名称映射（从数据库缓存）
-                symbol_name_map = get_symbol_name_map(self.engine)
+                # 只获取请求的符号的映射（按需查询，不加载全部）
+                symbol_name_map = get_symbol_name_map(self.engine, symbols_filter=symbols)
                 
                 # 构建过滤条件：symbols 字段包含 OR 标题包含代币名称/全名
                 symbol_filters = []
@@ -264,7 +299,7 @@ class DatabaseStorage:
                         symbol_filters.append(News.title.ilike(f'%{sym_upper}%'))
                         
                         # 3. 标题包含代币全名/别名（如 Zcash, Bitcoin 等）
-                        # 从数据库 symbols 表获取映射
+                        # 按需从数据库 symbols 表获取映射
                         if sym_upper in symbol_name_map:
                             for full_name in symbol_name_map[sym_upper]:
                                 # 只搜索长度 >= 3 的别名，避免误匹配
