@@ -630,15 +630,32 @@ print(df.sort_values("ir", ascending=False).head(10))
 
 ## Google Trends 通道说明
 
-- Google 通道数据由 `scripts/fetch_multi_symbol_google_trends.py` 批量拉取，支持多币种、日级分辨率。
+- Google 通道数据由 `scripts/fetch_multi_symbol_google_trends.py` 批量拉取，支持多币种、**日级分辨率**。
 - 关键词配置见 `src/config/attention_channels.py`，如未配置则自动 fallback 为 `["<symbol> crypto"]`。
 - 拉取逻辑写入数据库 `google_trends` 表。
 - attention 特征工程会自动 merge 真数据，缺失时自动填 0 并记录 warning 日志。
-- 可用命令：
-  ```bash
-  python scripts/fetch_multi_symbol_google_trends.py --days 365 --force-refresh
-  ```
+
+### 📊 每日数据保证
+
+**重要**: 系统已实现智能分段拉取，确保无论时间跨度多长都能获得**每日粒度数据**：
+
+```bash
+# ✓ 获取1年每日数据（自动分段拉取，~2-4个请求）
+python scripts/fetch_multi_symbol_google_trends.py --days 365 --force-refresh
+
+# ✓ 获取3个月每日数据（单次请求，更快）
+python scripts/fetch_multi_symbol_google_trends.py --days 90
+```
+
+**技术说明**:
+- Google Trends API 限制: ≤269天返回每日数据，>269天返回每周数据
+- 系统自动检测时间跨度，>269天时会分段拉取并智能合并
+- 详细文档见 `GOOGLE_TRENDS_DAILY_DATA.md`
+
+### 故障处理
+
 - ⚠️ 若 pytrends 未安装或网络异常，Google 通道自动降级为 0，不影响主流程。
+- 检查数据质量: `python scripts/test_google_trends_resolution.py`
 
 ---
 

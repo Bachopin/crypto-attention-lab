@@ -90,54 +90,8 @@ async def scheduled_price_update():
     await updater.run()
 
 
-async def scheduled_attention_update():
-    """
-    后台任务：定期更新 Attention Features
-    每小时运行一次，为所有启用自动更新的代币计算 attention 特征
-    """
-    from src.database.models import Symbol, get_session
-    from src.features.attention_features import process_attention_features
-    
-    while True:
-        try:
-            logger.info("[Scheduler] Starting hourly attention features update...")
-            
-            # 获取所有启用自动更新的代币
-            session = get_session()
-            symbols = session.query(Symbol).filter(
-                Symbol.auto_update_price == True,
-                Symbol.is_active == True
-            ).all()
-            
-            symbol_names = [s.symbol for s in symbols]
-            session.close()
-            
-            if not symbol_names:
-                logger.info("[Scheduler] No symbols enabled for auto-update")
-            else:
-                logger.info(f"[Scheduler] Updating attention features for {len(symbol_names)} symbols: {symbol_names}")
-                
-                # 在线程池中运行同步函数，避免阻塞事件循环
-                for symbol in symbol_names:
-                    try:
-                        logger.info(f"[Scheduler] Calculating attention for {symbol} (1D)...")
-                        await asyncio.to_thread(process_attention_features, symbol, freq='D')
-                        
-                        # 可选：同时更新 4H 周期
-                        # logger.info(f"[Scheduler] Calculating attention for {symbol} (4H)...")
-                        # await asyncio.to_thread(process_attention_features, symbol, freq='4H')
-                        
-                    except Exception as e:
-                        logger.error(f"[Scheduler] Failed to update attention for {symbol}: {e}")
-                
-                logger.info("[Scheduler] Attention features update completed")
-            
-        except Exception as e:
-            logger.error(f"[Scheduler] Attention update cycle error: {e}", exc_info=True)
-        
-        # 等待 1 小时
-        logger.info("[Scheduler] Sleeping for 1 hour until next attention update...")
-        await asyncio.sleep(3600)
+# 注意：Attention Features 更新已整合到 scheduled_price_update 中
+# 价格更新后会立即计算 Attention，无需独立的定时任务
 
 
 @asynccontextmanager
@@ -145,18 +99,23 @@ async def lifespan(app: FastAPI):
     """
     FastAPI 生命周期管理
     启动时开启后台任务
+    
+    后台任务说明：
+    - news_task: 每小时拉取全局新闻数据到数据库
+    - price_task: 每2分钟更新价格，并在更新后立即计算 Attention Features
     """
     # 启动后台任务
     news_task = asyncio.create_task(scheduled_news_update())
     price_task = asyncio.create_task(scheduled_price_update())
-    attention_task = asyncio.create_task(scheduled_attention_update())
+    
+    logger.info("[Scheduler] Background tasks started: news_update (hourly), price_update (2min)")
+    logger.info("[Scheduler] Attention features will be calculated automatically after price updates")
     
     yield
     
     # 关闭时取消任务
     news_task.cancel()
     price_task.cancel()
-    attention_task.cancel()
     try:
         await news_task
     except asyncio.CancelledError:
@@ -165,10 +124,6 @@ async def lifespan(app: FastAPI):
         await price_task
     except asyncio.CancelledError:
         logger.info("[Scheduler] Price task cancelled")
-    try:
-        await attention_task
-    except asyncio.CancelledError:
-        logger.info("[Scheduler] Attention task cancelled")
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -1149,28 +1104,53 @@ async def enable_auto_update(
         
         # 触发初始数据更新和 attention 计算
         updater = get_realtime_updater()
+        initialized = []
+        
         for symbol_name in enabled:
             try:
-                # 1. 更新价格数据
-                logger.info(f"Fetching initial price data for {symbol_name}...")
-                await updater.update_single_symbol(symbol_name)
+                logger.info(f"[Initialize] Starting initialization for {symbol_name}...")
                 
-                # 2. 计算 attention features (1D)
-                logger.info(f"Calculating attention features for {symbol_name} (1D)...")
-                process_attention_features(symbol_name, freq='D')
+                # 1. 检查是否有价格数据
+                from src.data.db_storage import load_price_data
+                price_data = load_price_data(symbol_name, timeframe='1d')
+                if isinstance(price_data, tuple):
+                    df, _ = price_data
+                else:
+                    df = price_data
                 
-                # 3. 计算 attention features (4H) - 如果需要
-                # logger.info(f"Calculating attention features for {symbol_name} (4H)...")
-                # process_attention_features(symbol_name, freq='4H')
+                needs_price_fetch = df is None or df.empty
+                
+                # 如果没有数据或数据过旧（超过7天），拉取历史数据
+                if not needs_price_fetch and not df.empty:
+                    last_date = pd.to_datetime(df['datetime']).max()
+                    days_old = (pd.Timestamp.now(tz='UTC') - last_date).days
+                    if days_old > 7:
+                        needs_price_fetch = True
+                        logger.info(f"[Initialize] {symbol_name} price data is {days_old} days old, will refresh")
+                
+                # 2. 拉取价格数据（如果需要）
+                if needs_price_fetch:
+                    logger.info(f"[Initialize] Fetching historical prices for {symbol_name} (≥1 year)...")
+                    await updater.update_single_symbol(symbol_name, last_update=None)
+                else:
+                    logger.info(f"[Initialize] {symbol_name} has recent price data, skipping fetch")
+                
+                # 3. 计算 Attention Features
+                logger.info(f"[Initialize] Calculating attention features for {symbol_name}...")
+                await asyncio.to_thread(process_attention_features, symbol_name, freq='D', save_to_db=True)
+                
+                initialized.append(symbol_name)
+                logger.info(f"[Initialize] ✅ {symbol_name} initialization completed")
                 
             except Exception as e:
-                logger.error(f"Error initializing data for {symbol_name}: {e}", exc_info=True)
+                logger.error(f"[Initialize] ❌ Failed to initialize {symbol_name}: {e}", exc_info=True)
                 # 继续处理其他 symbol，不中断整个流程
         
         return {
             "status": "success",
             "enabled": enabled,
-            "message": "Auto-update enabled and initial data fetch triggered"
+            "initialized": initialized,
+            "message": f"Enabled and initialized {len(initialized)}/{len(enabled)} symbols"
         }
         
     except Exception as e:

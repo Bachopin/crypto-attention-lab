@@ -220,15 +220,13 @@ def process_attention_features(
         has_news = not news_df.empty
 
     if not has_news:
-        # 创建空的新闻统计 DataFrame
+        # 创建空的新闻统计 DataFrame（按价格区间完整日期索引对齐）
         grouped = pd.DataFrame({
             'datetime': date_index,
             'news_count': 0,
             'weighted_attention': 0.0,
             'bullish_attention': 0.0,
             'bearish_attention': 0.0,
-            'attention_score': 0.0,
-            'news_channel_score': 0.0,
         })
         rolling_window = _get_rolling_window(freq)
     else:
@@ -278,12 +276,19 @@ def process_attention_features(
 
         grouped = grouped.fillna(0).reset_index()
 
-        mn = grouped['news_count'].min()
-        mx = grouped['news_count'].max()
-        grouped['attention_score'] = 0.0 if mx == mn else (grouped['news_count'] - mn) / (mx - mn) * 100.0
+        # 先按价格区间完整日期索引对齐，避免只覆盖有新闻的日期
+        base = pd.DataFrame({'datetime': date_index})
+        grouped = base.merge(grouped, on='datetime', how='left')
+        grouped[['news_count','weighted_attention','bullish_attention','bearish_attention']] = (
+            grouped[['news_count','weighted_attention','bullish_attention','bearish_attention']].fillna(0)
+        )
 
         # 使用频率相关的 rolling window
         rolling_window = _get_rolling_window(freq)
+        # 对齐后再计算 attention_score 与 news_channel_score
+        mn = grouped['news_count'].min()
+        mx = grouped['news_count'].max()
+        grouped['attention_score'] = 0.0 if mx == mn else (grouped['news_count'] - mn) / (mx - mn) * 100.0
         grouped['news_channel_score'] = _rolling_zscore(grouped['weighted_attention'], window=rolling_window)
 
     start_range = grouped['datetime'].min()

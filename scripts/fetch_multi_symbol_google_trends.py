@@ -1,13 +1,25 @@
 #!/usr/bin/env python
 """Batch fetch Google Trends data for all tracked symbols.
 
+🎯 Google Trends 数据说明:
+- 为确保获得每日粒度数据，时间跨度 >269天 时会自动分段拉取
+- Google API 限制: ≤269天返回每日数据，>269天返回每周数据
+- 本脚本已实现智能分段，无论天数多少都能获得每日数据
+
 Usage examples:
+    # 获取1年每日数据（会自动分段拉取）
     python scripts/fetch_multi_symbol_google_trends.py --days 365
+    
+    # 获取指定币种的数据
     python scripts/fetch_multi_symbol_google_trends.py --symbols ZEC,BTC --force-refresh
+    
+    # 获取近3个月数据（单次请求，更快）
+    python scripts/fetch_multi_symbol_google_trends.py --days 90
 
 The script reuses the same caching logic as attention feature generation:
 - Existing data is read from SQLite (when available) and CSV caches under data/processed
 - Missing ranges are fetched via pytrends and stored back into both layers
+- Daily granularity is automatically ensured by chunked fetching when needed
 """
 from __future__ import annotations
 
@@ -76,9 +88,12 @@ def fetch_for_symbol(symbol: str, start: pd.Timestamp, end: pd.Timestamp, force_
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch Google Trends data for multiple symbols")
+    parser = argparse.ArgumentParser(
+        description="Fetch Google Trends data for multiple symbols",
+        epilog="Note: Time spans >269 days automatically use chunked fetching to ensure daily granularity."
+    )
     parser.add_argument("--symbols", help="Comma separated base symbols (defaults to TRACKED_SYMBOLS + DB entries)")
-    parser.add_argument("--days", type=int, default=365, help="Lookback window in days (default: 365)")
+    parser.add_argument("--days", type=int, default=365, help="Lookback window in days (default: 365). Automatically ensures daily data.")
     parser.add_argument("--force-refresh", action="store_true", help="Ignore caches and force a refetch")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging output")
     args = parser.parse_args()

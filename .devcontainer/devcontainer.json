@@ -33,7 +33,9 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode"
+        "esbenp.prettier-vscode",
+        "github.copilot",
+        "github.copilot-chat"
       ]
     }
   }

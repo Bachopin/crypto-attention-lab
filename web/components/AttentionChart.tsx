@@ -52,7 +52,9 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
               const point = attentionData.find(d => 
                 Math.floor(d.timestamp / 1000) === (time as number)
               )
-              const value = point ? point.attention_score : 0
+              const value = point
+                ? (point.composite_attention_score ?? point.attention_score ?? 0)
+                : 0
               chartRef.current.setCrosshairPosition(value, time, lineSeriesRef.current);
             } else {
               chartRef.current.clearCrosshairPosition();
@@ -98,11 +100,11 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
 
       chartRef.current = chart
 
-      // Add line series for attention score
+      // Add line series for attention score (prefer composite)
       const lineSeries = chart.addLineSeries({
         color: '#fbbf24',
         lineWidth: 2,
-        title: 'Attention Score',
+        title: 'Composite Attention',
         priceFormat: {
           type: 'custom',
           formatter: (price: number) => price.toFixed(1),
@@ -116,6 +118,10 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         if (onVisibleRangeChangeRef.current) {
           onVisibleRangeChangeRef.current(visibleRange)
         }
+        // 广播到全局以便其他图表同步
+        try {
+          window.dispatchEvent(new CustomEvent('charts:setVisibleRange', { detail: visibleRange }))
+        } catch {}
       })
 
       // Subscribe to crosshair moves - 使用 ref 避免重建
@@ -135,11 +141,23 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       }
 
       window.addEventListener('resize', handleResize)
+      // 订阅全局可视范围事件以进行同步
+      const handleGlobalRange = (e: Event) => {
+        const ce = e as CustomEvent
+        const range = ce.detail as Range<Time>
+        try {
+          if (!isDisposedRef.current && chartRef.current && range) {
+            chartRef.current.timeScale().setVisibleRange(range)
+          }
+        } catch {}
+      }
+      window.addEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
       isDisposedRef.current = false
 
       return () => {
         isDisposedRef.current = true
         window.removeEventListener('resize', handleResize)
+        window.removeEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
         chart.remove()
         chartRef.current = null
         lineSeriesRef.current = null
@@ -152,10 +170,10 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       if (!lineSeriesRef.current || !chartRef.current) return
 
       try {
-        // Use UTC timestamps (seconds)
+        // Use UTC timestamps (seconds); prefer composite score
         const attentionChartData = attentionData.map((d) => ({
           time: Math.floor(d.timestamp / 1000) as any,
-          value: d.attention_score,
+          value: (d.composite_attention_score ?? d.attention_score ?? 0),
         }))
 
         lineSeriesRef.current.setData(attentionChartData)

@@ -75,6 +75,16 @@ ps aux | grep -E "(uvicorn|next)" | grep -v grep
 
 配置文件: `.devcontainer/devcontainer.json`
 
+### VS Code 扩展
+
+本开发容器已预装以下扩展，开箱即用：
+
+- Python: `ms-python.python`、`ms-python.vscode-pylance`
+- 前端工具: `dbaeumer.vscode-eslint`、`esbenp.prettier-vscode`
+- AI 辅助: `github.copilot`、`github.copilot-chat`
+
+如需禁用 Copilot，可在 VS Code 命令面板输入“Copilot: Disable”暂时关闭。
+
 ### 端口转发配置
 
 ```jsonc

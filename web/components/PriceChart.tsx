@@ -141,6 +141,10 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
       if (onVisibleRangeChangeRef.current) {
         onVisibleRangeChangeRef.current(visibleRange)
       }
+      // 广播到全局以便其他图表同步
+      try {
+        window.dispatchEvent(new CustomEvent('charts:setVisibleRange', { detail: visibleRange }))
+      } catch {}
     })
 
     // Subscribe to crosshair moves - 使用 ref 避免重建
@@ -160,11 +164,23 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     }
 
     window.addEventListener('resize', handleResize)
+    // 订阅全局可视范围事件以进行同步
+    const handleGlobalRange = (e: Event) => {
+      const ce = e as CustomEvent
+      const range = ce.detail as Range<Time>
+      try {
+        if (!isDisposedRef.current && chartRef.current && range) {
+          chartRef.current.timeScale().setVisibleRange(range)
+        }
+      } catch {}
+    }
+    window.addEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
     isDisposedRef.current = false
 
     return () => {
       isDisposedRef.current = true
       window.removeEventListener('resize', handleResize)
+      window.removeEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
       chart.remove()
       chartRef.current = null
       candlestickSeriesRef.current = null

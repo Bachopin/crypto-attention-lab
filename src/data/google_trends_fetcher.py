@@ -50,12 +50,39 @@ def fetch_google_trends(
     end: pd.Timestamp,
     geo: str = "GLOBAL",
 ) -> pd.DataFrame:
-    """Fetch raw Google Trends interest-over-time series."""
+    """Fetch raw Google Trends interest-over-time series.
+    
+    Google Trends API 限制:
+    - ≤269天: 返回每日数据
+    - >269天: 返回每周数据
+    
+    为确保始终获得每日数据，当时间跨度 >269天 时，会自动分段拉取。
+    """
 
     if TrendReq is None:
         logger.warning("pytrends not installed; Google Trends channel will be empty")
         return pd.DataFrame(columns=["datetime", "value"])
 
+    # 计算时间跨度
+    total_days = (end - start).days
+    
+    # 如果 ≤269天，直接单次请求
+    if total_days <= 269:
+        return _fetch_single_chunk(keywords, start, end, geo)
+    
+    # 否则分段拉取以确保每日数据
+    logger.info("Time span %d days > 269, fetching in chunks to ensure daily granularity", total_days)
+    return _fetch_chunked(keywords, start, end, geo, chunk_days=269)
+
+
+def _fetch_single_chunk(
+    keywords: List[str],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    geo: str = "GLOBAL",
+) -> pd.DataFrame:
+    """单次请求获取 Google Trends 数据（≤269天）"""
+    
     timeframe = f"{start.strftime('%Y-%m-%d')} {end.strftime('%Y-%m-%d')}"
     geo_param = "" if geo.upper() == "GLOBAL" else geo
 
@@ -76,6 +103,61 @@ def fetch_google_trends(
     df = pd.DataFrame({"datetime": series.index.normalize(), "value": series.values})
     df = df.groupby("datetime", as_index=False).mean()
     return df
+
+
+def _fetch_chunked(
+    keywords: List[str],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    geo: str = "GLOBAL",
+    chunk_days: int = 269,
+) -> pd.DataFrame:
+    """分段拉取以确保每日粒度
+    
+    Args:
+        keywords: 搜索关键词列表
+        start: 起始日期
+        end: 结束日期
+        geo: 地理位置过滤
+        chunk_days: 每段天数，默认269（Google Trends 每日数据的最大范围）
+    
+    Returns:
+        合并后的每日数据 DataFrame
+    """
+    from datetime import timedelta
+    
+    chunks = []
+    current_start = start
+    chunk_num = 0
+    
+    while current_start < end:
+        chunk_num += 1
+        current_end = min(current_start + pd.Timedelta(days=chunk_days), end)
+        
+        logger.debug("Fetching chunk %d: %s to %s", chunk_num, current_start.date(), current_end.date())
+        
+        chunk_data = _fetch_single_chunk(keywords, current_start, current_end, geo)
+        
+        if not chunk_data.empty:
+            chunks.append(chunk_data)
+        
+        # 移动到下一段
+        current_start = current_end
+    
+    if not chunks:
+        logger.warning("All chunks failed for Google Trends fetch")
+        return pd.DataFrame(columns=["datetime", "value"])
+    
+    # 合并所有段
+    merged = pd.concat(chunks, ignore_index=True)
+    
+    # 去重并排序
+    merged = merged.drop_duplicates(subset=["datetime"], keep="first")
+    merged = merged.sort_values("datetime").reset_index(drop=True)
+    
+    logger.info("Merged %d chunks into %d daily data points", len(chunks), len(merged))
+    
+    return merged
 
 
 def fetch_google_trends_for_symbol(

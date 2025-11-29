@@ -137,7 +137,9 @@ class RealtimePriceUpdater:
             logger.error(f"[Updater] Failed to update {symbol}: {e}")
     
     async def update_all_symbols(self):
-        """更新所有配置为自动更新的标的"""
+        """更新所有配置为自动更新的标的，并在价格更新后立即计算 Attention Features"""
+        from src.features.attention_features import process_attention_features
+        
         symbols = self.get_auto_update_symbols()
         
         if not symbols:
@@ -148,10 +150,18 @@ class RealtimePriceUpdater:
         
         # 顺序更新（避免并发过多触发限流）
         for sym_info in symbols:
-            await self.update_single_symbol(
-                sym_info['symbol'],
-                sym_info['last_update']
-            )
+            symbol = sym_info['symbol']
+            
+            # 1. 更新价格数据
+            await self.update_single_symbol(symbol, sym_info['last_update'])
+            
+            # 2. 立即计算 Attention Features
+            try:
+                logger.info(f"[Updater] Calculating attention features for {symbol}...")
+                await asyncio.to_thread(process_attention_features, symbol, freq='D', save_to_db=True)
+                logger.info(f"[Updater] ✅ Attention features updated for {symbol}")
+            except Exception as e:
+                logger.error(f"[Updater] ❌ Failed to calculate attention for {symbol}: {e}")
         
         logger.info("[Updater] Update cycle completed")
     
