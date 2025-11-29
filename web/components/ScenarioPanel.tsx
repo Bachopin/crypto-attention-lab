@@ -218,19 +218,19 @@ function StateSummary({ target }: { target: StateScenarioResponse['target'] }) {
         <div className="font-semibold">${closePrice.toFixed(2)}</div>
       </div>
       <div className="bg-muted/50 rounded-lg p-3">
-        <div className="text-xs text-muted-foreground mb-1">{target.window_days}日收益</div>
+        <div className="text-xs text-muted-foreground mb-1 cursor-help" title="过去 N 天的累计收益率，反映近期价格走势">{target.window_days}日收益 ⓘ</div>
         <div className={`font-semibold ${returnPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
           {formatPercent(returnPct)}
         </div>
       </div>
       <div className="bg-muted/50 rounded-lg p-3">
-        <div className="text-xs text-muted-foreground mb-1">注意力 Z 值</div>
+        <div className="text-xs text-muted-foreground mb-1 cursor-help" title="注意力 Z 值：表示当前热度偏离平均多少个标准差。>1.5=高关注，<-0.5=偏低">注意力 Z 值 ⓘ</div>
         <div className={`font-semibold ${attentionColor}`}>
           {compositeZ.toFixed(2)} ({attentionStatus})
         </div>
       </div>
       <div className="bg-muted/50 rounded-lg p-3">
-        <div className="text-xs text-muted-foreground mb-1">波动率状态</div>
+        <div className="text-xs text-muted-foreground mb-1 cursor-help" title="波动率状态：基于近期价格波动判断。高波动时风险较大，低波动可能预示突破">波动率 ⓘ</div>
         <div className="font-semibold">
           {volWindow > 1 ? '高波动' : volWindow < -1 ? '低波动' : '正常'}
         </div>
@@ -288,9 +288,9 @@ export default function ScenarioPanel({ symbol, timeframe = '1d', windowDays = 3
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 cursor-help" title="基于当前市场状态（价格趋势、波动率、注意力）寻找历史相似时刻，统计这些时刻后的价格走势分布，提供客观参考">
               <Activity className="w-5 h-5 text-primary" />
-              Attention Scenario Analysis
+              Scenario Analysis ⓘ
             </CardTitle>
             <CardDescription className="mt-1">
               基于历史相似 Attention 状态的未来情景统计推演

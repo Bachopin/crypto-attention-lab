@@ -89,14 +89,14 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
 
   return (
     <div className="bg-card rounded-lg border p-4 space-y-4">
-      <h3 className="text-lg font-semibold">Attention Regime Analysis</h3>
+      <h3 className="text-lg font-semibold cursor-help" title="Attention Regime 分析：将历史注意力分数按分位数划分为低/中/高热度区间，统计不同热度下未来收益的差异，验证注意力因子的有效性">Attention Regime Analysis ⓘ</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Symbols (逗号分隔)</span>
           <input className="px-2 py-1 bg-background border rounded" value={symbolsInput} onChange={e => setSymbolsInput(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Lookahead Days</span>
+          <span className="text-xs text-muted-foreground cursor-help" title="前瞻天数：统计事件发生后 N 天的收益。可输入多个值用逗号分隔，如 7,30 表示同时看 7 天和 30 天后的表现">Lookahead Days ⓘ</span>
           <input className="px-2 py-1 bg-background border rounded" value={lookaheadDaysInput} onChange={e => setLookaheadDaysInput(e.target.value)} />
         </label>
         <div className="flex flex-col gap-1">
@@ -108,7 +108,7 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
           </div>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Split Method</span>
+          <span className="text-xs text-muted-foreground cursor-help" title="分位方法：tercile=三分位(低/中/高)，quartile=四分位(Q1/Q2/Q3/Q4)。影响热度区间的划分粒度">Split Method ⓘ</span>
           <div className="flex gap-2">
             {(['tercile','quartile'] as const).map(m => (
               <button key={m} type="button" onClick={() => setSplitMethod(m)} className={`rounded border px-2 py-1 text-xs ${splitMethod === m ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}>{m}</button>

@@ -42,7 +42,7 @@ export default function AttentionEvents({ events }: { events: AttentionEvent[] }
 
       {perf && eventTypes.length > 0 && (
         <div className="text-xs">
-          <h4 className="font-semibold mb-2">Event Forward Returns (Exp)</h4>
+          <h4 className="font-semibold mb-2 cursor-help" title="事件前瞻收益：统计每种事件类型发生后 N 天的平均收益率，用于评估事件的预测价值">Event Forward Returns ⓘ</h4>
           <div className="overflow-auto">
             <table className="w-full border-collapse">
               <thead className="text-muted-foreground">

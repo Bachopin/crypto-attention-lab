@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InfoIcon } from 'lucide-react';
 import type { BacktestResult, BacktestSummary, MultiBacktestResult, EquityPoint, AttentionCondition, StrategyPreset } from '@/lib/api';
 import { runBasicAttentionBacktest, runMultiSymbolBacktest } from '@/lib/api';
 import { useStrategyPresets, formatConditionSummary } from '@/lib/presets';
@@ -395,9 +397,9 @@ export default function BacktestPanel() {
         <label className="flex flex-col gap-1 group cursor-help">
           <span
             className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit"
-            title="止损（%）：达到该跌幅时强制平仓。"
+            title="止损（%）：当持仓亏损达到该比例时强制平仓，控制单笔交易的最大损失。例如设置5%表示亏损5%时自动卖出。"
           >
-            止损 (%)
+            止损 (%) ⓘ
           </span>
           <input
             className="px-2 py-1 bg-background border rounded"
@@ -416,9 +418,9 @@ export default function BacktestPanel() {
         <label className="flex flex-col gap-1 group cursor-help">
           <span
             className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit"
-            title="止盈（%）：达到该涨幅时强制平仓。"
+            title="止盈（%）：当持仓盈利达到该比例时强制平仓锁定利润。例如设置10%表示盈利10%时自动卖出。"
           >
-            止盈 (%)
+            止盈 (%) ⓘ
           </span>
           <input
             className="px-2 py-1 bg-background border rounded"
@@ -437,9 +439,9 @@ export default function BacktestPanel() {
         <label className="flex flex-col gap-1 group cursor-help">
           <span
             className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit"
-            title="最长持仓天数：超过这个天数强制平仓（即便没有触发止损/止盈）。"
+            title="最长持仓天数：超过这个天数强制平仓，即使没有触发止损/止盈。用于避免资金被长期占用。"
           >
-            最长持仓天数
+            最长持仓 ⓘ
           </span>
           <input
             className="px-2 py-1 bg-background border rounded"
@@ -457,9 +459,9 @@ export default function BacktestPanel() {
         <label className="flex flex-col gap-1 group cursor-help">
           <span
             className="flex items-center gap-1 border-b border-dotted border-muted-foreground/50 w-fit"
-            title="仓位大小：每笔交易使用资金比例（用于影响 equity curve）。"
+            title="仓位大小 (0-1)：每笔交易投入的资金比例。1.0=全仓，0.5=半仓。影响收益曲线的波动幅度。"
           >
-            仓位大小
+            仓位 ⓘ
           </span>
           <input
             className="px-2 py-1 bg-background border rounded"
@@ -682,11 +684,11 @@ export default function BacktestPanel() {
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-            <Stat label="Trades" value={result.summary.total_trades} />
-            <Stat label="Win Rate" value={`${result.summary.win_rate.toFixed(1)}%`} />
-            <Stat label="Avg Return" value={`${(result.summary.avg_return*100).toFixed(2)}%`} />
-            <Stat label="Cumulative" value={`${(result.summary.cumulative_return*100).toFixed(2)}%`} />
-            <Stat label="Max DD" value={`${(result.summary.max_drawdown*100).toFixed(2)}%`} />
+            <Stat label="Trades" value={result.summary.total_trades} tooltip="总交易次数，即策略触发的买卖信号次数" />
+            <Stat label="Win Rate" value={`${result.summary.win_rate.toFixed(1)}%`} tooltip="盈利交易占总交易的百分比，越高表示策略判断准确率越高" />
+            <Stat label="Avg Return" value={`${(result.summary.avg_return*100).toFixed(2)}%`} tooltip="每笔交易的平均收益率，包含盈亏两部分" />
+            <Stat label="Cumulative" value={`${(result.summary.cumulative_return*100).toFixed(2)}%`} tooltip="累计收益率，所有交易收益的总和，反映策略整体表现" />
+            <Stat label="Max DD" value={`${(result.summary.max_drawdown*100).toFixed(2)}%`} tooltip="最大回撤，策略运行期间从最高点到最低点的最大跌幅，反映最大亏损风险" />
           </div>
 
           {result.equity_curve && result.equity_curve.length > 0 && (
@@ -801,13 +803,30 @@ export default function BacktestPanel() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
+function Stat({ label, value, tooltip }: { label: string; value: React.ReactNode; tooltip?: string }) {
+  const content = (
     <div className="bg-background rounded border p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground flex items-center gap-1">
+        {label}
+        {tooltip && <InfoIcon className="w-3 h-3 text-muted-foreground/50" />}
+      </div>
       <div className="text-base font-semibold">{value}</div>
     </div>
-  )
+  );
+  
+  if (tooltip) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {content}
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          <p>{tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  return content;
 }
 
 function StrategyOverview({

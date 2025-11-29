@@ -130,11 +130,11 @@ export function SummaryCard({
         </div>
         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
           <div>
-            <div className="text-sm text-muted-foreground">24h Volume</div>
+            <div className="text-sm text-muted-foreground cursor-help" title="24小时交易量（USDT计价），反映市场活跃程度">24h Volume ⓘ</div>
             <div className="text-xl font-semibold">{formatVolume(volume24h)}</div>
           </div>
           <div>
-            <div className="text-sm text-muted-foreground">Attention</div>
+            <div className="text-sm text-muted-foreground cursor-help" title="注意力分数 (0-100)：基于新闻、社交媒体等多维度数据的综合热度指标。50=平均水平，80+=高热度">Attention ⓘ</div>
             <div className="text-xl font-semibold">{attention.toFixed(1)}/100</div>
           </div>
         </div>
