@@ -45,82 +45,85 @@ def fetch_cryptocompare_news(days: int = 90) -> List[Dict]:
     """
     CryptoCompare News API - 免费，无需 API key
     使用分页方式获取历史新闻
-    为了确保各币种都有足够的历史数据，我们将分别针对每个币种进行抓取
+    获取所有加密货币相关新闻，不限于特定类别
     """
     url = "https://min-api.cryptocompare.com/data/v2/news/"
     news_list = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_ts = int(cutoff.timestamp())
     
-    # 定义要抓取的类别/币种
-    categories = ["ZEC", "BTC", "ETH", "SOL"]
+    logger.info(f"[CryptoCompare] Fetching all crypto news (last {days} days)...")
+    logger.info(f"[CryptoCompare] Cutoff date: {cutoff.isoformat()}")
+    last_ts = None
+    max_pages = 1000  # 增加到 1000 页以获取一年的新闻
+    page_count = 0
     
-    for category in categories:
-        logger.info(f"[CryptoCompare] Fetching news for category: {category}...")
-        last_ts = None
-        max_pages = 50  # 每个币种抓取 50 页
-        page_count = 0
+    import time
+    
+    while page_count < max_pages:
+        params = {
+            "lang": "EN",
+            # 不指定 categories，获取所有新闻
+        }
         
-        while page_count < max_pages:
-            params = {
-                "lang": "EN",
-                "categories": category
-            }
+        if last_ts:
+            params["lTs"] = last_ts
+        
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
             
-            if last_ts:
-                params["lTs"] = last_ts
+            articles = data.get("Data", [])
+            if not articles:
+                logger.info(f"[CryptoCompare] No more articles at page {page_count + 1}")
+                break
             
-            try:
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                data = response.json()
+            oldest_in_page = None
+            reached_cutoff = False
+            
+            for article in articles:
+                published_ts = article.get("published_on", 0)
+                if published_ts == 0: continue
                 
-                articles = data.get("Data", [])
-                if not articles:
-                    break
+                if oldest_in_page is None or published_ts < oldest_in_page:
+                    oldest_in_page = published_ts
                 
-                oldest_in_page = None
-                reached_cutoff = False
+                if published_ts < cutoff_ts:
+                    reached_cutoff = True
+                    continue
                 
-                for article in articles:
-                    published_ts = article.get("published_on", 0)
-                    if published_ts == 0: continue
-                    
-                    if oldest_in_page is None or published_ts < oldest_in_page:
-                        oldest_in_page = published_ts
-                    
-                    if published_ts < cutoff_ts:
-                        reached_cutoff = True
-                        continue
-                    
-                    dt = datetime.fromtimestamp(published_ts, tz=timezone.utc)
-                    
-                    news_list.append({
-                        "timestamp": int(dt.timestamp() * 1000),
-                        "datetime": dt.isoformat(),
-                        "title": article.get("title", ""),
-                        "source": article.get("source", "CryptoCompare"),
-                        "url": article.get("url", article.get("guid", "")),
-                        "relevance": "direct",
+                dt = datetime.fromtimestamp(published_ts, tz=timezone.utc)
+                
+                news_list.append({
+                    "timestamp": int(dt.timestamp() * 1000),
+                    "datetime": dt.isoformat(),
+                    "title": article.get("title", ""),
+                    "source": article.get("source", "CryptoCompare"),
+                    "url": article.get("url", article.get("guid", "")),
                     "language": "en",
-                        "language": "en",
-                        "language": "en",
-                    })
-                
-                if reached_cutoff:
-                    logger.info(f"[CryptoCompare] [{category}] Reached cutoff date")
-                    break
-                
-                if oldest_in_page:
-                    last_ts = oldest_in_page - 1
-                    page_count += 1
-                else:
-                    break
-                    
-            except Exception as e:
-                logger.error(f"[CryptoCompare] Failed for {category}: {e}")
+                })
+            
+            if reached_cutoff:
+                logger.info(f"[CryptoCompare] Reached cutoff date at page {page_count + 1}")
+                break
+            
+            if oldest_in_page:
+                last_ts = oldest_in_page - 1
+                page_count += 1
+                if page_count % 50 == 0:
+                    oldest_dt = datetime.fromtimestamp(oldest_in_page, tz=timezone.utc)
+                    logger.info(f"[CryptoCompare] Progress: page {page_count}, {len(news_list)} articles, oldest: {oldest_dt.date()}")
+                # 添加小延迟避免被限流
+                if page_count % 100 == 0:
+                    time.sleep(1)
+            else:
                 break
                 
+        except Exception as e:
+            logger.error(f"[CryptoCompare] Failed at page {page_count}: {e}")
+            break
+            
     logger.info(f"[CryptoCompare] Total fetched {len(news_list)} articles")
     return news_list
 
@@ -194,8 +197,6 @@ def fetch_cryptopanic_news(days: int = 14) -> List[Dict]:
                     "title": item.get("title", "").strip(),
                     "source": (item.get("source") or {}).get("title") or "CryptoPanic",
                     "url": item.get("url", ""),
-                    "relevance": "direct",
-                    "language": "en",
                     "language": "en",
                 })
                 page_relevant += 1
@@ -254,7 +255,7 @@ def fetch_newsapi_news(days: int = 30) -> List[Dict]:
             current_start = max(current_end - timedelta(days=chunk_size), start_date)
             
             params = {
-                "q": "(crypto OR bitcoin OR ethereum OR blockchain OR Zcash OR ZEC OR Solana OR SOL)",
+                "q": "(cryptocurrency OR crypto OR bitcoin OR ethereum OR blockchain OR altcoin OR DeFi OR NFT)",
                 "language": "en",
                 "sortBy": "publishedAt",
                 "from": current_start.isoformat(),
@@ -356,8 +357,6 @@ def fetch_rss_feeds() -> List[Dict]:
                     "title": title,
                     "source": source,
                     "url": link,
-                    "relevance": "direct", # 默认相关
-                    "language": "en",
                     "language": "en",
                 })
             
