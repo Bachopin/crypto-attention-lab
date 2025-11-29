@@ -15,7 +15,6 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database.models import Symbol, init_database, get_session
-from src.data.db_storage import get_symbol_name_map
 from sqlalchemy import text
 
 logging.basicConfig(level=logging.INFO)
@@ -191,13 +190,15 @@ def main():
     if coins:
         sync_coins_to_db(coins, engine, include_all=args.all)
         
-        # 显示统计
-        mapping = get_symbol_name_map(engine, symbols_filter=None)  # 传 None 获取所有活跃代币
-        logger.info(f"\n数据库中共有 {len(mapping)} 个代币")
-        logger.info("\n示例映射:")
-        for sym in ['BTC', 'ETH', 'SOL', 'ZEC', 'DOGE'][:5]:
-            if sym in mapping:
-                logger.info(f"  {sym}: {mapping[sym][:3]}...")
+        # 显示统计（直接查询数据库，不使用 get_symbol_name_map）
+        session = get_session(engine)
+        total_count = session.query(Symbol).count()
+        active_count = session.query(Symbol).filter(Symbol.auto_update_price == True).count()
+        session.close()
+        
+        logger.info(f"\n数据库统计:")
+        logger.info(f"  总代币数: {total_count}")
+        logger.info(f"  自动更新代币数: {active_count}")
 
 
 if __name__ == "__main__":
