@@ -233,7 +233,32 @@ export interface FetchNewsParams {
 
 // ==================== API Configuration ====================
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const RAW_ENV_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || '').trim();
+const LOCAL_BACKEND_FALLBACK = 'http://localhost:8000';
+
+function normalizeBaseUrl(base: string): string {
+  if (!base) return '';
+  return base.endsWith('/') ? base.slice(0, -1) : base;
+}
+
+export function getApiBaseUrl(): string {
+  if (RAW_ENV_API_BASE_URL) {
+    return normalizeBaseUrl(RAW_ENV_API_BASE_URL);
+  }
+  if (typeof window === 'undefined') {
+    return LOCAL_BACKEND_FALLBACK;
+  }
+  return '';
+}
+
+export function buildApiUrl(path: string): string {
+  const base = getApiBaseUrl();
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return base ? `${base}${normalizedPath}` : normalizedPath;
+}
 
 // Timeframe 映射: 前端格式 -> 后端格式
 const TIMEFRAME_MAP: Record<Timeframe, string> = {
@@ -310,7 +335,7 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, u
     }
   }
   
-  const url = `${API_BASE_URL}${endpoint}${buildQueryString(params)}`;
+  const url = `${buildApiUrl(endpoint)}${buildQueryString(params)}`;
   
   try {
     const response = await fetch(url);
@@ -488,7 +513,7 @@ export async function runBasicAttentionBacktest(params: { symbol?: string; lookb
     start: params.start,
     end: params.end,
   });
-  const url = `${API_BASE_URL}/api/backtest/basic-attention`;
+  const url = buildApiUrl('/api/backtest/basic-attention');
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
@@ -527,7 +552,7 @@ export async function runMultiSymbolBacktest(params: {
     start: params.start,
     end: params.end,
   });
-  const url = `${API_BASE_URL}/api/backtest/basic-attention/multi`;
+  const url = buildApiUrl('/api/backtest/basic-attention/multi');
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
@@ -571,7 +596,7 @@ export async function fetchAttentionRegimeAnalysis(params: {
     start: params.start,
     end: params.end,
   });
-  const url = `${API_BASE_URL}/api/research/attention-regimes`;
+  const url = buildApiUrl('/api/research/attention-regimes');
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
@@ -800,7 +825,7 @@ export async function runAttentionRotationBacktest(params: {
     start: params.start,
     end: params.end,
   });
-  const url = `${API_BASE_URL}/api/backtest/attention-rotation`;
+  const url = buildApiUrl('/api/backtest/attention-rotation');
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }));

@@ -18,9 +18,11 @@
 ### 🔹 Next.js 专业前端
 - 产品级交易终端界面
 - TradingView 风格图表
+- **Turbopack 快速启动**（~1-2秒）
 - 响应式设计
 - 完整的 TypeScript 类型安全
 - 注意力事件可视化与回测
+- **API 调试页面**（`/debug/api-test`）
 
 ```
 crypto-attention-lab/

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
+import { getApiBaseUrl } from '@/lib/api';
 
 interface SymbolStatus {
   symbol: string;
@@ -17,7 +18,7 @@ interface AutoUpdateManagerProps {
 }
 
 export default function AutoUpdateManager({ 
-  apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000',
+  apiBaseUrl = getApiBaseUrl(),
   onUpdate 
 }: AutoUpdateManagerProps) {
   const [symbols, setSymbols] = useState<SymbolStatus[]>([]);

@@ -35,7 +35,8 @@ BACKEND_PID=$!
 sleep 3
 
 # Start Next.js frontend on fixed port 3000 (free if occupied)
-echo -e "${GREEN}[2/2] Starting Next.js frontend...${NC}"
+# Note: npm run dev already includes --turbopack (see package.json)
+echo -e "${GREEN}[2/2] Starting Next.js frontend (Turbopack)...${NC}"
 cd web
 if lsof -ti tcp:3000 >/dev/null 2>&1; then
     echo "Port 3000 is in use. Freeing it..."

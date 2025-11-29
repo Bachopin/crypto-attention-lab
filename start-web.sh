@@ -48,7 +48,7 @@ fi
 
 echo "🎉 Setup complete!"
 echo ""
-echo "🚀 Starting development server..."
+echo "🚀 Starting development server (Turbopack)..."
 echo "   Frontend will be available at: http://localhost:3000"
 echo ""
 echo "   Press Ctrl+C to stop the server"
@@ -57,6 +57,7 @@ echo "=============================================="
 echo ""
 
 # Start dev server on fixed port 3000 (free if occupied)
+# Note: npm run dev already includes --turbopack for faster startup
 if lsof -ti tcp:3000 >/dev/null 2>&1; then
     echo "⚠ Port 3000 is in use. Freeing it..."
     lsof -ti tcp:3000 | xargs -r kill -9

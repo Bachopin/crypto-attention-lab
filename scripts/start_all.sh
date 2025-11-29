@@ -40,7 +40,7 @@ fi
 
 # 启动后端
 echo -e "${GREEN}[1/2] 启动 FastAPI 后端...${NC}"
-/Users/mextrel/VSCode/.venv/bin/uvicorn src.api.main:app \
+uvicorn src.api.main:app \
     --host 0.0.0.0 \
     --port 8000 \
     --reload \
@@ -63,8 +63,8 @@ for i in {1..10}; do
     sleep 1
 done
 
-# 启动前端
-echo -e "${GREEN}[2/2] 启动 Next.js 前端...${NC}"
+# 启动前端 (使用 Turbopack 加速开发，已在 package.json 配置)
+echo -e "${GREEN}[2/2] 启动 Next.js 前端 (Turbopack)...${NC}"
 cd web
 PORT=3000 npm run dev > /tmp/nextjs.log 2>&1 &
 FRONTEND_PID=$!

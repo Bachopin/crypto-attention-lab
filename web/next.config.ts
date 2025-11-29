@@ -12,10 +12,14 @@ const nextConfig: NextConfig = {
     removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error', 'warn'] } : false,
   },
   
-  // 实验性功能：优化包大小
+  // 实验性功能：优化包大小和启动速度
   experimental: {
-    optimizePackageImports: ['lucide-react', 'lightweight-charts'],
+    optimizePackageImports: ['lucide-react', 'lightweight-charts', 'recharts', '@radix-ui/react-icons'],
   },
+  
+  // 开发模式优化：使用 Turbopack（更快的打包器）
+  // 注意：如果遇到兼容性问题可以注释掉这行
+  // turbopack: {},
   
   // 允许后端 API 跨域（开发环境）
   async rewrites() {
@@ -23,6 +27,14 @@ const nextConfig: NextConfig = {
       {
         source: '/api/:path*',
         destination: 'http://localhost:8000/api/:path*', // Python 后端地址
+      },
+      {
+        source: '/health',
+        destination: 'http://localhost:8000/health', // 健康检查端点
+      },
+      {
+        source: '/ping',
+        destination: 'http://localhost:8000/ping', // Ping 端点
       },
     ]
   },

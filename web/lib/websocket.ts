@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { buildApiUrl } from '@/lib/api';
 
 // WebSocket 服务端地址
 const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL || 
@@ -327,7 +328,7 @@ export function useRealtimePrice(symbol: string, enabled = true, fallbackToRest 
     const fetchPrice = async () => {
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/price?symbol=${symbol}USDT&timeframe=15m&limit=1`
+          buildApiUrl(`/api/price?symbol=${symbol}USDT&timeframe=15m&limit=1`)
         );
         if (response.ok) {
           const prices = await response.json();

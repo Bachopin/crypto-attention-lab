@@ -5,9 +5,11 @@ Professional cryptocurrency attention analysis dashboard built with Next.js, Typ
 ## 🚀 Features
 
 - **Modern Tech Stack**: Next.js 15 (App Router) + TypeScript + Tailwind CSS
+- **Turbopack**: Lightning-fast development builds (~1-2s startup)
 - **Professional UI**: Trading terminal-style dashboard with dark theme
 - **Advanced Charts**: TradingView lightweight-charts for price action analysis
-- **Real-time Data**: Ready for backend API integration
+- **Real-time Data**: WebSocket support with REST API fallback
+- **API Debug Page**: Built-in `/debug/api-test` for troubleshooting
 - **Responsive Design**: Works seamlessly on desktop and mobile
 
 ## 📋 Prerequisites
@@ -33,7 +35,7 @@ cd web
 npm install
 ```
 
-3. Start the development server:
+3. Start the development server (with Turbopack):
 ```bash
 npm run dev
 ```
@@ -42,6 +44,13 @@ npm run dev
 ```
 http://localhost:3000
 ```
+
+## 🔧 Debug Tools
+
+Visit `/debug/api-test` to test all API endpoints. This page helps diagnose:
+- Backend connectivity issues
+- Proxy configuration problems
+- API response verification
 
 ## 📦 Project Structure
 
@@ -163,7 +172,8 @@ NEXT_PUBLIC_API_URL=http://your-backend-url:8000/api
 
 ## 📜 Available Scripts
 
-- `npm run dev` - Start development server
+- `npm run dev` - Start development server with Turbopack (fast)
+- `npm run dev:webpack` - Start with webpack (if Turbopack has issues)
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint

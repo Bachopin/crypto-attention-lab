@@ -12,6 +12,8 @@ import {
   fetchNews,
   fetchSummaryStats,
   fetchAttentionEvents,
+  buildApiUrl,
+  getApiBaseUrl,
   type Timeframe,
   type PriceCandle,
   type AttentionData,
@@ -84,7 +86,7 @@ function Home() {
 
   // Fetch available symbols on mount
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`)
+    fetch(buildApiUrl('/api/symbols'))
       .then(res => res.json())
       .then(data => {
         if (data.symbols && data.symbols.length > 0) {
@@ -234,7 +236,7 @@ function Home() {
     try {
       // 调用针对单个 symbol 的刷新接口，默认检查数据完整性
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/refresh-symbol?symbol=${selectedSymbol}`,
+        buildApiUrl(`/api/refresh-symbol?symbol=${selectedSymbol}`),
         { method: 'POST' }
       )
       
@@ -261,7 +263,7 @@ function Home() {
   // 刷新可选代币列表（用于设置页添加后同步看板）
   const refreshSymbols = useCallback(async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`)
+      const res = await fetch(buildApiUrl('/api/symbols'))
       const data = await res.json()
       if (Array.isArray(data.symbols) && data.symbols.length) {
         setAvailableSymbols(data.symbols)
@@ -369,7 +371,7 @@ function Home() {
                   <h2 className="text-xl font-semibold mb-2">Failed to Load Data</h2>
                   <p className="text-muted-foreground mb-4">{error}</p>
                   <p className="text-sm text-muted-foreground/70 mb-6">
-                    Make sure the FastAPI backend is running at {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}
+                    {`Make sure the FastAPI backend is reachable via ${getApiBaseUrl() || 'the Next.js proxy (/api → backend)'}`}
                   </p>
                   <Button onClick={() => loadData(selectedSymbol, selectedTimeframe, true)}>Retry</Button>
                 </div>

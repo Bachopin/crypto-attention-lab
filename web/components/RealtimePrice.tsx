@@ -28,7 +28,11 @@ export function RealtimePriceTicker({
 
   // 价格变化动画
   useEffect(() => {
-    if (data && prevPrice !== null) {
+    if (!data) return
+
+    let timer: NodeJS.Timeout | undefined
+
+    if (prevPrice !== null) {
       if (data.close > prevPrice) {
         setPriceDirection('up')
         setFlashClass('animate-flash-green')
@@ -37,14 +41,15 @@ export function RealtimePriceTicker({
         setFlashClass('animate-flash-red')
       }
 
-      // 移除动画类
-      const timer = setTimeout(() => setFlashClass(''), 300)
-      return () => clearTimeout(timer)
+      timer = setTimeout(() => setFlashClass(''), 300)
     }
-    if (data) {
-      setPrevPrice(data.close)
+
+    setPrevPrice(data.close)
+
+    return () => {
+      if (timer) clearTimeout(timer)
     }
-  }, [data?.close])
+  }, [data, prevPrice])
 
   const sizeClasses = {
     sm: 'text-lg',

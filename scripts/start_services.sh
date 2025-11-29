@@ -45,8 +45,8 @@ else
     exit 1
 fi
 
-# 启动前端
-echo "🌐 启动前端 Next.js (端口 3000)..."
+# 启动前端 (使用 Turbopack 加速开发，已在 package.json 配置)
+echo "🌐 启动前端 Next.js (Turbopack, 端口 3000)..."
 cd web
 nohup npm run dev -- -p 3000 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!

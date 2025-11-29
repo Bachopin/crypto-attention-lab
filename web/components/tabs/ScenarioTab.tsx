@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { fetchStateScenarios, StateScenarioResponse, ScenarioSummary } from '@/lib/api';
+import { buildApiUrl, fetchStateScenarios, StateScenarioResponse, ScenarioSummary } from '@/lib/api';
 import { useSettings } from '@/components/SettingsProvider';
 import { useTabData } from '@/components/TabDataProvider';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -83,7 +83,7 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
     const fetchSymbols = async () => {
       setLoadingSymbols(true);
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/api/symbols`);
+        const response = await fetch(buildApiUrl('/api/symbols'));
         const data = await response.json();
         if (data.symbols && data.symbols.length > 0) {
           setAvailableSymbols(data.symbols);
@@ -106,7 +106,7 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
       }
     };
     fetchSymbols();
-  }, []);
+  }, [primarySymbol]);
 
   // Primary symbol data is handled by ScenarioPanel, but we need to handle comparison here
 
