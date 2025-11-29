@@ -103,7 +103,8 @@ function MajorAssetModuleComponent({
     error: null,
   })
 
-  const [volumeRatio, setVolumeRatio] = useState(0.2)
+  // 市场概况页面：成交量窗格固定为 1/5，不显示控制按钮
+  const volumeRatio = 0.2
   const [showEventMarkers, setShowEventMarkers] = useState(true)
 
   // 使用 ref 存储 crosshairTime，避免因 memo 阻止更新
@@ -321,10 +322,10 @@ function MajorAssetModuleComponent({
                 onVisibleRangeChange={handlePriceRangeChange}
                 events={data.events}
                 volumeRatio={volumeRatio}
-                onVolumeRatioChange={setVolumeRatio}
                 showEventMarkers={showEventMarkers}
                 onShowEventMarkersChange={setShowEventMarkers}
                 onCrosshairMove={onCrosshairMove}
+                hideControls={true}
               />
             </div>
 

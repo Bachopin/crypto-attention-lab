@@ -192,11 +192,23 @@ def get_google_trends_series(
     end: pd.Timestamp,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
-    """Return cached trends and fetch missing ranges if necessary."""
+    """Return cached trends and fetch missing ranges if necessary.
+    
+    获取策略：
+    1. 新代币/首次获取：按价格日线范围获取完整历史数据
+    2. 增量更新：只填补缺失日期，如果缓存已有今天/昨天的数据就 SKIP API
+    
+    这样实现：
+    - 新代币首次调用：缓存为空 → 全量获取 start ~ end
+    - 后续增量调用：缓存已有数据 → 只获取 (latest_cached+1) ~ today
+    - 频繁调用（如每2分钟）：如果今天已有数据 → 直接 SKIP
+    """
 
     cfg = get_symbol_attention_config(symbol)
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
+    today = _normalize_datetime(pd.Timestamp.now(tz="UTC"))
+    yesterday = today - pd.Timedelta(days=1)
 
     db_rows = pd.DataFrame()
     db_handle = None
@@ -214,30 +226,47 @@ def get_google_trends_series(
         except Exception as exc:
             logger.warning("Failed to load Google Trends rows from DB for %s: %s", symbol, exc)
 
-    coverage_ok = (
-        not force_refresh
-        and not db_rows.empty
-        and db_rows["datetime"].min() <= start
-        and db_rows["datetime"].max() >= end
-    )
-
-    need_fetch = force_refresh or not coverage_ok
     fetched = pd.DataFrame()
     
-    if need_fetch:
+    if db_rows.empty:
+        # ========== 场景1：新代币，首次全量获取 ==========
+        logger.info(
+            "Google Trends: no cache for %s, fetching full history %s → %s",
+            symbol, start.date(), end.date()
+        )
         fetched = fetch_google_trends_for_symbol(symbol, start, end, geo=cfg.google_geo)
-        if fetched.empty:
-            logger.warning(
-                "Google Trends fetch returned empty for %s (keywords=%s)",
-                symbol,
-                cfg.google_trends_keywords,
+        
+    else:
+        # ========== 场景2：已有缓存，判断是否需要增量更新 ==========
+        latest_cached = db_rows["datetime"].max()
+        
+        if latest_cached >= yesterday:
+            # 缓存足够新鲜（昨天或今天已有数据），SKIP API 调用
+            logger.debug(
+                "Google Trends cache is fresh for %s (latest: %s), skipping API",
+                symbol, latest_cached.date()
             )
         else:
-            if db_handle:
-                try:
-                    db_handle.save_google_trends(symbol, fetched.to_dict("records"))
-                except Exception as exc:
-                    logger.warning("Failed to persist Google Trends rows for %s: %s", symbol, exc)
+            # 缓存过时，增量获取：从 (latest_cached + 1天) 到 today
+            fetch_start = latest_cached + pd.Timedelta(days=1)
+            fetch_end = today
+            
+            if fetch_start <= fetch_end:
+                logger.info(
+                    "Google Trends: incremental fetch for %s, %s → %s",
+                    symbol, fetch_start.date(), fetch_end.date()
+                )
+                fetched = fetch_google_trends_for_symbol(
+                    symbol, fetch_start, fetch_end, geo=cfg.google_geo
+                )
+    
+    # 保存新获取的数据到数据库
+    if not fetched.empty and db_handle:
+        try:
+            db_handle.save_google_trends(symbol, fetched.to_dict("records"))
+            logger.info("Google Trends: saved %d new records for %s", len(fetched), symbol)
+        except Exception as exc:
+            logger.warning("Failed to persist Google Trends rows for %s: %s", symbol, exc)
 
     # Merge fetched data with existing DB data (if any)
     dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]

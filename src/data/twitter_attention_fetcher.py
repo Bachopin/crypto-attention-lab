@@ -256,6 +256,10 @@ def get_twitter_volume_series(
     """
     获取 Twitter 讨论量数据（智能降级策略）
     
+    获取策略（与 Google Trends 保持一致）：
+    1. 新代币/首次获取：按价格日线范围获取完整历史数据
+    2. 增量更新：只填补缺失日期，如果缓存已有今天/昨天的数据就 SKIP API
+    
     尝试顺序：
     1. 数据库缓存
     2. Twitter API（如果配置了 Bearer Token）
@@ -264,6 +268,8 @@ def get_twitter_volume_series(
     """
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
+    today = _normalize_datetime(pd.Timestamp.now(tz="UTC"))
+    yesterday = today - pd.Timedelta(days=1)
     cfg = get_symbol_attention_config(symbol)
 
     db_rows = pd.DataFrame()
@@ -286,50 +292,93 @@ def get_twitter_volume_series(
         except Exception as exc:
             logger.warning("Failed to load Twitter Volume rows from DB for %s: %s", symbol, exc)
 
-    coverage_ok = (
-        not db_rows.empty
-        and db_rows["datetime"].min() <= start
-        and db_rows["datetime"].max() >= end
-    )
-
-    if not coverage_ok:
-        fetched = pd.DataFrame()
-        
-        # 方法 A：尝试 Twitter API
-        fetched = _request_counts(cfg.twitter_query, start, end + pd.Timedelta(days=1), granularity)
-        
-        if fetched.empty:
-            # 方法 B：尝试基于 CoinGecko followers 的估算
-            logger.info(f"Twitter API not available for {symbol}, trying CoinGecko-based estimation...")
-            
-            followers = _fetch_coingecko_followers(symbol)
-            
-            if followers > 0:
-                logger.info(f"Using CoinGecko followers data for {symbol}")
-                fetched = _generate_volume_from_followers(symbol, followers, start, end)
-            else:
-                # 方法 C：使用高质量 mock 数据
-                logger.info(f"CoinGecko data not available for {symbol}, using intelligent fallback")
-                fetched = _generate_fallback_volume(symbol, start, end)
-        else:
-            logger.info(f"Successfully fetched Twitter data via API for {symbol}")
-        
-        if not fetched.empty:
-            if db_handle:
-                try:
-                    db_handle.save_twitter_volume(symbol, fetched.to_dict("records"))
-                except Exception as exc:
-                    logger.warning("Failed to persist Twitter Volume rows for %s: %s", symbol, exc)
-            
-            # Merge fetched data with existing DB data
-            dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]
-            if dfs_to_merge:
-                db_rows = pd.concat(dfs_to_merge, ignore_index=True)
-                db_rows = db_rows.drop_duplicates(subset=["datetime"], keep="last").sort_values("datetime")
-
+    fetched = pd.DataFrame()
+    
     if db_rows.empty:
-        return db_rows
+        # ========== 场景1：新代币，首次全量获取 ==========
+        logger.info(
+            "Twitter volume: no cache for %s, fetching full history %s → %s",
+            symbol, start.date(), end.date()
+        )
+        fetched = _fetch_twitter_data(symbol, cfg, start, end, granularity)
+        
+    else:
+        # ========== 场景2：已有缓存，判断是否需要增量更新 ==========
+        latest_cached = db_rows["datetime"].max()
+        
+        if latest_cached >= yesterday:
+            # 缓存足够新鲜（昨天或今天已有数据），SKIP API 调用
+            logger.debug(
+                "Twitter volume cache is fresh for %s (latest: %s), skipping fetch",
+                symbol, latest_cached.date()
+            )
+        else:
+            # 缓存过时，增量获取：从 (latest_cached + 1天) 到 today
+            fetch_start = latest_cached + pd.Timedelta(days=1)
+            fetch_end = today
+            
+            if fetch_start <= fetch_end:
+                logger.info(
+                    "Twitter volume: incremental fetch for %s, %s → %s",
+                    symbol, fetch_start.date(), fetch_end.date()
+                )
+                fetched = _fetch_twitter_data(symbol, cfg, fetch_start, fetch_end, granularity)
+    
+    # 保存新获取的数据到数据库
+    if not fetched.empty and db_handle:
+        try:
+            db_handle.save_twitter_volume(symbol, fetched.to_dict("records"))
+            logger.info("Twitter volume: saved %d new records for %s", len(fetched), symbol)
+        except Exception as exc:
+            logger.warning("Failed to persist Twitter Volume rows for %s: %s", symbol, exc)
+    
+    # Merge fetched data with existing DB data (if any)
+    dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]
+    if not dfs_to_merge:
+        return pd.DataFrame()
+    
+    merged = pd.concat(dfs_to_merge, ignore_index=True)
+    merged = merged.drop_duplicates(subset=["datetime"], keep="last").sort_values("datetime")
 
-    mask = (db_rows["datetime"] >= start) & (db_rows["datetime"] <= end)
-    return db_rows.loc[mask].copy()
+    mask = (merged["datetime"] >= start) & (merged["datetime"] <= end)
+    return merged.loc[mask].copy()
+
+
+def _fetch_twitter_data(
+    symbol: str,
+    cfg,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    granularity: str = "day",
+) -> pd.DataFrame:
+    """
+    实际获取 Twitter 数据的内部函数
+    
+    尝试顺序：
+    1. Twitter API（如果配置了 Bearer Token）
+    2. CoinGecko followers 数据 + 智能估算
+    3. 高质量 mock 数据（兜底）
+    """
+    fetched = pd.DataFrame()
+    
+    # 方法 A：尝试 Twitter API
+    fetched = _request_counts(cfg.twitter_query, start, end + pd.Timedelta(days=1), granularity)
+    
+    if fetched.empty:
+        # 方法 B：尝试基于 CoinGecko followers 的估算
+        logger.info(f"Twitter API not available for {symbol}, trying CoinGecko-based estimation...")
+        
+        followers = _fetch_coingecko_followers(symbol)
+        
+        if followers > 0:
+            logger.info(f"Using CoinGecko followers data for {symbol}")
+            fetched = _generate_volume_from_followers(symbol, followers, start, end)
+        else:
+            # 方法 C：使用高质量 mock 数据
+            logger.info(f"CoinGecko data not available for {symbol}, using intelligent fallback")
+            fetched = _generate_fallback_volume(symbol, start, end)
+    else:
+        logger.info(f"Successfully fetched Twitter data via API for {symbol}")
+    
+    return fetched
 

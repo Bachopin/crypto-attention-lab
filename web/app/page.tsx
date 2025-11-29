@@ -108,12 +108,12 @@ function Home() {
     try {
       const [price, overviewPrice, attention, news, assetNews, summary, attEvents] = await Promise.all([
         fetchPrice({ symbol: `${symbol}USDT`, timeframe: timeframe }),
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D', limit: 90 }),
+        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '1D' }), // 获取所有日线数据
         fetchAttention({ symbol: symbol, granularity: '1d' }),
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: symbol }),
         fetchSummaryStats(symbol),
-        fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.8 }),
+        fetchAttentionEvents({ symbol: symbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.9 }),
       ])
 
       setPriceData(price)
@@ -159,12 +159,12 @@ function Home() {
     try {
       const [price, overviewPrice, attention, news, assetNews, summary, attEvents] = await Promise.all([
         fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: selectedTimeframe }),
-        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: '1D', limit: 90 }),
+        fetchPrice({ symbol: `${selectedSymbol}USDT`, timeframe: '1D' }), // 获取所有日线数据
         fetchAttention({ symbol: selectedSymbol, granularity: '1d' }),
         fetchNews({ symbol: 'ALL', limit: 100 }),
         fetchNews({ symbol: selectedSymbol }),
         fetchSummaryStats(selectedSymbol),
-        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.8 }),
+        fetchAttentionEvents({ symbol: selectedSymbol, lookback_days: settings.defaultWindowDays, min_quantile: 0.9 }),
       ])
       if (price.length > 0) setPriceData(price)
       if (overviewPrice.length > 0) setOverviewPriceData(overviewPrice)

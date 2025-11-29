@@ -50,6 +50,9 @@ export default function PriceOverview({ priceData, height = 192 }: PriceOverview
           labelVisible: false,
         },
       },
+      // Disable interaction (no drag/zoom)
+      handleScroll: false,
+      handleScale: false,
     })
 
     chartRef.current = chart

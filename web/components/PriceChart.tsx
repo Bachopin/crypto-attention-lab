@@ -17,6 +17,8 @@ interface PriceChartProps {
   onShowEventMarkersChange?: (show: boolean) => void
   // Crosshair sync
   onCrosshairMove?: (time: Time | null) => void
+  // Hide controls (for MarketOverview page)
+  hideControls?: boolean
 }
 
 export interface PriceChartRef {
@@ -34,7 +36,8 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     onVolumeRatioChange,
     showEventMarkers = true,
     onShowEventMarkersChange,
-    onCrosshairMove
+    onCrosshairMove,
+    hideControls = false
   }, ref) => {
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
@@ -299,52 +302,54 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
   return (
     <div className="relative w-full">
-      {/* Controls */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs text-muted-foreground">成交量窗格:</span>
-        <Button
-          variant={volumeRatio === 0.2 ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onVolumeRatioChange?.(0.2)}
-          className="text-xs h-6 px-2"
-        >
-          1/5
-        </Button>
-        <Button
-          variant={volumeRatio === 0.25 ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onVolumeRatioChange?.(0.25)}
-          className="text-xs h-6 px-2"
-        >
-          1/4
-        </Button>
-        <Button
-          variant={volumeRatio === 0.33 ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onVolumeRatioChange?.(0.33)}
-          className="text-xs h-6 px-2"
-        >
-          1/3
-        </Button>
-        <div className="mx-2 h-4 w-px bg-border" />
-        <span className="text-xs text-muted-foreground">事件标注:</span>
-        <Button
-          variant={showEventMarkers ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onShowEventMarkersChange?.(true)}
-          className="text-xs h-6 px-2"
-        >
-          开
-        </Button>
-        <Button
-          variant={!showEventMarkers ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => onShowEventMarkersChange?.(false)}
-          className="text-xs h-6 px-2"
-        >
-          关
-        </Button>
-      </div>
+      {/* Controls - hidden when hideControls is true */}
+      {!hideControls && (
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-muted-foreground">成交量窗格:</span>
+          <Button
+            variant={volumeRatio === 0.2 ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onVolumeRatioChange?.(0.2)}
+            className="text-xs h-6 px-2"
+          >
+            1/5
+          </Button>
+          <Button
+            variant={volumeRatio === 0.25 ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onVolumeRatioChange?.(0.25)}
+            className="text-xs h-6 px-2"
+          >
+            1/4
+          </Button>
+          <Button
+            variant={volumeRatio === 0.33 ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onVolumeRatioChange?.(0.33)}
+            className="text-xs h-6 px-2"
+          >
+            1/3
+          </Button>
+          <div className="mx-2 h-4 w-px bg-border" />
+          <span className="text-xs text-muted-foreground">事件标注:</span>
+          <Button
+            variant={showEventMarkers ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onShowEventMarkersChange?.(true)}
+            className="text-xs h-6 px-2"
+          >
+            开
+          </Button>
+          <Button
+            variant={!showEventMarkers ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onShowEventMarkersChange?.(false)}
+            className="text-xs h-6 px-2"
+          >
+            关
+          </Button>
+        </div>
+      )}
       <div ref={chartContainerRef} className="w-full" />
     </div>
   )

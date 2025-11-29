@@ -118,7 +118,7 @@ export default function DashboardTab(props: DashboardTabProps) {
         <div className="bg-card rounded-lg border p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-primary" />
-            Price Overview (90 Days)
+            Price Overview ({overviewPriceData.length} Days)
           </h2>
           <PriceOverview priceData={overviewPriceData} height={192} />
         </div>

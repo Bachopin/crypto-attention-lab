@@ -1036,7 +1036,8 @@ def get_auto_update_status():
     """
     try:
         session = get_session()
-        symbols = session.query(Symbol).all()
+        # 只返回 auto_update_price=True 的代币，避免显示无关代币
+        symbols = session.query(Symbol).filter(Symbol.auto_update_price == True).all()
         
         result = [{
             "symbol": s.symbol,
