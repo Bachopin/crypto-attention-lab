@@ -335,15 +335,21 @@ function Home() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6 space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* 市场概况 - 懒加载 */}
-          <TabsContent value="overview" className="mt-0 space-y-6">
+          {/* 
+           * 无感化 Tab 切换：使用 CSS display 控制显示/隐藏，而不是条件渲染
+           * 这样组件不会被卸载，数据保持在内存中
+           * forceMount 确保组件始终被挂载
+           */}
+          
+          {/* 市场概况 - 使用 forceMount + CSS 隐藏实现无感切换 */}
+          <TabsContent value="overview" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
               <MarketOverviewTab />
             </Suspense>
           </TabsContent>
 
-          {/* 代币看板 - 需要等待数据加载 */}
-          <TabsContent value="dashboard" className="mt-0 space-y-6">
+          {/* 代币看板 - 数据存储在父组件 Home 中，本身已经无感化 */}
+          <TabsContent value="dashboard" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
             {/* Loading State - 骨架屏 */}
             {loading && (
               <div className="space-y-6 animate-pulse">
@@ -438,22 +444,22 @@ function Home() {
             )}
           </TabsContent>
 
-          {/* 情景分析 - 懒加载 */}
-          <TabsContent value="scenario" className="mt-0 space-y-6">
+          {/* 情景分析 - 使用 forceMount + CSS 隐藏实现无感切换 */}
+          <TabsContent value="scenario" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'scenario' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
               <ScenarioTab defaultSymbol={selectedSymbol} />
             </Suspense>
           </TabsContent>
 
-          {/* 新闻概览 - 懒加载 */}
-          <TabsContent value="news" className="mt-0 space-y-6">
+          {/* 新闻概览 - 使用 forceMount + CSS 隐藏实现无感切换 */}
+          <TabsContent value="news" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'news' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
               <NewsTab news={newsData} />
             </Suspense>
           </TabsContent>
 
-          {/* 系统设置 - 懒加载 */}
-          <TabsContent value="settings" className="mt-0 space-y-6">
+          {/* 系统设置 - 使用 forceMount + CSS 隐藏实现无感切换 */}
+          <TabsContent value="settings" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
               <SettingsTab onUpdate={() => { loadDataSilently(); refreshSymbols(); }} />
             </Suspense>

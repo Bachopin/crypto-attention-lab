@@ -4,13 +4,24 @@
  * TabDataProvider - Tab 数据缓存 Provider
  * 
  * 用于在 Tab 切换时保持各 Tab 的数据状态，避免每次切换都重新加载。
- * 类似于代币看板的「无感化」体验。
  * 
- * 设计思路：
- * - 各 Tab 首次加载时获取数据并存入 context
- * - 切换回来时直接使用缓存数据，不显示 loading
- * - 提供 refresh 方法用于手动刷新
- * - 数据过期时间可配置（默认 5 分钟）
+ * ============ 无感化切换方案 ============
+ * 
+ * 方案 A（已采用）：使用 forceMount + CSS display 控制
+ * - 在 page.tsx 中，所有 TabsContent 都使用 forceMount 属性
+ * - 通过 style={{ display: activeTab === 'xxx' ? 'block' : 'none' }} 控制显示/隐藏
+ * - 组件不会被卸载，数据保持在组件内部 state 中
+ * - 优点：最简单有效，无需额外代码
+ * - 缺点：所有 Tab 内容同时存在于 DOM 中（内存占用略高）
+ * 
+ * 方案 B（备选）：将数据提升到此 Provider
+ * - 需要把各 Tab 的数据（如 MajorAssetModule 的价格数据）存入此 Provider
+ * - 组件可以安全卸载，再次挂载时从 Provider 恢复数据
+ * - 优点：DOM 更干净
+ * - 缺点：需要大量代码改动，数据结构复杂
+ * 
+ * 当前此 Provider 主要用于保存用户的选择状态（如 range、filter 等），
+ * 实际的数据缓存已通过方案 A（forceMount）实现。
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
