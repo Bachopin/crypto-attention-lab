@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { fetchStateScenarios, StateScenarioResponse, ScenarioSummary } from '@/lib/api';
 import { useSettings } from '@/components/SettingsProvider';
+import { useTabData } from '@/components/TabDataProvider';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,10 +43,23 @@ const getDominantScenario = (scenarios: ScenarioSummary[]) => {
 
 export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   const { settings } = useSettings();
-  const [primarySymbol, setPrimarySymbol] = useState<string>(defaultSymbol);
+  const { state, setScenarioPrimarySymbol, setScenarioCompareData, isCacheValid } = useTabData();
+  
+  // 从 context 恢复状态
+  const [primarySymbol, setPrimarySymbol] = useState<string>(state.scenarioPrimarySymbol || defaultSymbol);
   const [compareSymbolsInput, setCompareSymbolsInput] = useState<string>('BTC, ETH, SOL');
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState(true);
+  
+  // 从缓存恢复对比数据
+  const [compareData, setCompareData] = useState<StateScenarioResponse[]>(
+    state.scenarioCompareData && isCacheValid(state.scenarioCompareData.timestamp) 
+      ? state.scenarioCompareData.data 
+      : []
+  );
+  
+  // 首次加载标记
+  const initialLoadDone = useRef(false);
   
   // Map global timeframe to local supported timeframe
   const initialTimeframe = settings.defaultTimeframe.toLowerCase();
@@ -55,9 +69,14 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   const [windowDays, setWindowDays] = useState<string>(settings.defaultWindowDays.toString());
   const [topK, setTopK] = useState<string>('100');
 
-  const [compareData, setCompareData] = useState<StateScenarioResponse[]>([]);
   const [loadingCompare, setLoadingCompare] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+  
+  // 同步 primarySymbol 到 context
+  const handlePrimarySymbolChange = (symbol: string) => {
+    setPrimarySymbol(symbol);
+    setScenarioPrimarySymbol(symbol);
+  };
 
   // 获取自动更新的代币列表
   useEffect(() => {
@@ -124,6 +143,8 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
         }
       }
       setCompareData(results);
+      // 存入缓存
+      setScenarioCompareData(results);
     } catch (e: any) {
       setCompareError(e.message ?? 'Failed to load compare scenarios');
     } finally {
@@ -173,7 +194,7 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
                 </div>
                 <Select 
                   value={primarySymbol} 
-                  onValueChange={(v) => setPrimarySymbol(v)}
+                  onValueChange={(v) => handlePrimarySymbolChange(v)}
                   disabled={loadingSymbols || availableSymbols.length === 0}
                 >
                   <SelectTrigger>

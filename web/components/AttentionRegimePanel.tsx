@@ -3,6 +3,13 @@
 import React, { useState } from 'react';
 import { fetchAttentionRegimeAnalysis, AttentionRegimeResponse } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Info } from 'lucide-react';
 
 interface Props {
   defaultSymbols?: string[];
@@ -88,19 +95,54 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
   };
 
   return (
+    <TooltipProvider>
     <div className="bg-card rounded-lg border p-4 space-y-4">
-      <h3 className="text-lg font-semibold cursor-help" title="Attention Regime 分析：将历史注意力分数按分位数划分为低/中/高热度区间，统计不同热度下未来收益的差异，验证注意力因子的有效性">Attention Regime Analysis ⓘ</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-lg font-semibold">Attention Regime Analysis</h3>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm">
+            <p className="font-medium mb-1">Attention Regime 分析</p>
+            <p className="text-xs">将历史注意力分数按分位数划分为低/中/高热度区间，统计不同热度下未来收益的差异，验证注意力因子的有效性。</p>
+            <p className="text-xs mt-1 text-muted-foreground">若高热度区间的平均收益显著高于低热度，说明存在「动量效应」；反之可能存在「过热反转」现象。</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Symbols (逗号分隔)</span>
           <input className="px-2 py-1 bg-background border rounded" value={symbolsInput} onChange={e => setSymbolsInput(e.target.value)} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground cursor-help" title="前瞻天数：统计事件发生后 N 天的收益。可输入多个值用逗号分隔，如 7,30 表示同时看 7 天和 30 天后的表现">Lookahead Days ⓘ</span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">Lookahead Days</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p>前瞻天数：统计事件发生后 N 天的收益</p>
+                <p className="text-xs mt-1 text-muted-foreground">可输入多个值用逗号分隔，如 7,30 表示同时看 7 天和 30 天后的表现</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <input className="px-2 py-1 bg-background border rounded" value={lookaheadDaysInput} onChange={e => setLookaheadDaysInput(e.target.value)} />
         </label>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Attention Source</span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">Attention Source</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p><strong>composite</strong>: 综合注意力分数，融合新闻、社交等多维度</p>
+                <p className="mt-1"><strong>news_channel</strong>: 仅使用新闻渠道的注意力数据</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="flex gap-2">
             {(['composite','news_channel'] as const).map(src => (
               <button key={src} type="button" onClick={() => setAttentionSource(src)} className={`rounded border px-2 py-1 text-xs ${attentionSource === src ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}>{src}</button>
@@ -108,7 +150,19 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
           </div>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground cursor-help" title="分位方法：tercile=三分位(低/中/高)，quartile=四分位(Q1/Q2/Q3/Q4)。影响热度区间的划分粒度">Split Method ⓘ</span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">Split Method</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p><strong>tercile</strong>: 三分位（低/中/高），每组约33%样本</p>
+                <p className="mt-1"><strong>quartile</strong>: 四分位（Q1/Q2/Q3/Q4），每组约25%样本</p>
+                <p className="text-xs mt-1 text-muted-foreground">四分位可提供更细粒度的分析，但每组样本量减少</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="flex gap-2">
             {(['tercile','quartile'] as const).map(m => (
               <button key={m} type="button" onClick={() => setSplitMethod(m)} className={`rounded border px-2 py-1 text-xs ${splitMethod === m ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted'}`}>{m}</button>
@@ -132,13 +186,53 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
               <table className="w-full">
                 <thead className="text-muted-foreground">
                   <tr>
-                    <th className="text-left py-1">Regime</th>
-                    <th className="text-right py-1">Samples</th>
+                    <th className="text-left py-1">
+                      <div className="flex items-center gap-1">
+                        Regime
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>热度区间名称（Low/Mid/High 或 Q1-Q4）</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </th>
+                    <th className="text-right py-1">
+                      <div className="flex items-center justify-end gap-1">
+                        Samples
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>该热度区间包含的历史样本数量</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </th>
                     {data.meta.lookahead_days.map(k => (
-                      <th key={k} className="text-right py-1">Avg {k}d</th>
+                      <th key={k} className="text-right py-1">
+                        <div className="flex items-center justify-end gap-1">
+                          Avg {k}d
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>{k}天后的平均收益率</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </th>
                     ))}
                     {data.meta.lookahead_days.map(k => (
-                      <th key={`pos-${k}`} className="text-right py-1">Pos {k}d</th>
+                      <th key={`pos-${k}`} className="text-right py-1">
+                        <div className="flex items-center justify-end gap-1">
+                          Pos {k}d
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>{k}天后收益为正的概率（胜率）</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -175,5 +269,6 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }

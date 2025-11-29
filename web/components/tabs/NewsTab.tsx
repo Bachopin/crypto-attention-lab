@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import NewsList from '@/components/NewsList'
 import type { NewsItem } from '@/lib/api'
 import { fetchNews, fetchNewsCount } from '@/lib/api'
@@ -8,13 +8,19 @@ import { Newspaper } from 'lucide-react'
 import { NewsSummaryCharts } from '@/components/news/NewsSummaryCharts'
 import { SymbolNewsHeatTable } from '@/components/news/SymbolNewsHeatTable'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useTabData } from '@/components/TabDataProvider'
 
 export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
-  // --- Radar State ---
-  const [newsRange, setNewsRange] = useState<'24h' | '7d' | '14d' | '30d'>('14d');
-  const [newsSymbolFilter, setNewsSymbolFilter] = useState<string>('ALL');
+  const { state, setNewsRadar, getNewsRadar, setNewsRange, setNewsSymbolFilter } = useTabData();
+  
+  // --- Radar State (从 context 恢复) ---
+  const [newsRange, setNewsRangeLocal] = useState<'24h' | '7d' | '14d' | '30d'>(state.newsRange);
+  const [newsSymbolFilter, setNewsSymbolFilterLocal] = useState<string>(state.newsSymbolFilter);
   const [radarNews, setRadarNews] = useState<NewsItem[]>([]);
   const [radarLoading, setRadarLoading] = useState(false);
+  
+  // 首次加载标记
+  const initialLoadDone = useRef(false);
 
   // --- Existing List State ---
   const [sourceFilter, setSourceFilter] = useState<string>('ALL')
@@ -26,9 +32,17 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   const [totalItems, setTotalItems] = useState<number>(initialNews.length)
   const [currentBefore, setCurrentBefore] = useState<string | null>(null)
 
-  // --- Fetch Radar Data ---
+  // --- Fetch Radar Data (带缓存) ---
   useEffect(() => {
     const fetchRadarData = async () => {
+      // 检查缓存
+      const cached = getNewsRadar(newsRange);
+      if (cached && cached.length > 0) {
+        setRadarNews(cached);
+        initialLoadDone.current = true;
+        return;
+      }
+      
       setRadarLoading(true);
       try {
         const now = new Date();
@@ -53,6 +67,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
           limit: 500 
         });
         setRadarNews(data);
+        // 存入缓存
+        setNewsRadar(data, newsRange);
+        initialLoadDone.current = true;
       } catch (e) {
         console.error("Failed to fetch radar news", e);
       } finally {
@@ -60,7 +77,18 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
       }
     };
     fetchRadarData();
-  }, [newsRange]);
+  }, [newsRange, getNewsRadar, setNewsRadar]);
+  
+  // 同步 range 和 filter 到 context
+  const handleRangeChange = (v: '24h' | '7d' | '14d' | '30d') => {
+    setNewsRangeLocal(v);
+    setNewsRange(v);
+  };
+  
+  const handleSymbolFilterChange = (symbol: string) => {
+    setNewsSymbolFilterLocal(symbol);
+    setNewsSymbolFilter(symbol);
+  };
 
   // --- Sync List with Radar Selection ---
   useEffect(() => {
@@ -197,7 +225,7 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
         
         <div className="flex items-center gap-2">
            <span className="text-sm text-muted-foreground">Range:</span>
-           <Select value={newsRange} onValueChange={(v: any) => setNewsRange(v)}>
+           <Select value={newsRange} onValueChange={(v: any) => handleRangeChange(v)}>
             <SelectTrigger className="w-[120px]">
               <SelectValue placeholder="Range" />
             </SelectTrigger>
@@ -224,7 +252,7 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
              <SymbolNewsHeatTable 
                 news={radarNews} 
                 selectedSymbol={newsSymbolFilter} 
-                onSymbolSelect={setNewsSymbolFilter} 
+                onSymbolSelect={handleSymbolFilterChange} 
              />
            </>
         )}

@@ -23,6 +23,7 @@ import { Range, Time } from 'lightweight-charts'
 import Link from 'next/link'
 
 import { SettingsProvider, useSettings } from '@/components/SettingsProvider'
+import { TabDataProvider } from '@/components/TabDataProvider'
 
 // 懒加载非首屏组件
 const MarketOverviewTab = lazy(() => import('@/components/tabs/MarketOverviewTab'))
@@ -46,7 +47,9 @@ function TabLoading() {
 export default function Page() {
   return (
     <SettingsProvider>
-      <Home />
+      <TabDataProvider>
+        <Home />
+      </TabDataProvider>
     </SettingsProvider>
   )
 }

@@ -4,9 +4,11 @@
  * 市场概况 Tab - 主流币总览
  * 
  * 展示 BTC / ETH / BNB / SOL 四个主流币的长期 Attention 与行情
+ * 
+ * 优化：MajorAssetModule 内部已实现数据缓存，避免重复加载
  */
 
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import MajorAssetModule from '@/components/MajorAssetModule'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -14,6 +16,7 @@ import { Calendar, Clock } from 'lucide-react'
 import type { Timeframe } from '@/lib/api'
 import { Time } from 'lightweight-charts'
 import { useSettings } from '@/components/SettingsProvider'
+import { useTabData } from '@/components/TabDataProvider'
 
 // 主流币列表
 const MAJOR_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL'] as const
@@ -48,6 +51,7 @@ function getStartDate(range: TimeRange): string | undefined {
 
 export default function MarketOverviewTab() {
   const { settings } = useSettings();
+  const { setMarketOverviewLoaded } = useTabData();
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('6M')
 
   // Check if global setting is supported here
@@ -66,6 +70,11 @@ export default function MarketOverviewTab() {
   const handleCrosshairMove = useCallback((time: Time | null) => {
     setCrosshairTime(time)
   }, [])
+  
+  // 标记 Tab 已加载
+  useEffect(() => {
+    setMarketOverviewLoaded(true);
+  }, [setMarketOverviewLoaded]);
 
   return (
     <div className="space-y-4">
