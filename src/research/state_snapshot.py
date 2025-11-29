@@ -834,6 +834,159 @@ def compute_state_snapshots_batch(
     return results
 
 
+def compute_features_vectorized(
+    symbol: str,
+    price_df: pd.DataFrame,
+    attention_df: pd.DataFrame,
+    timeframe: str = "1d",
+    window_days: int = 30,
+) -> pd.DataFrame:
+    """
+    Vectorized computation of state features for the entire history.
+    
+    Returns a DataFrame with datetime index and columns for features and raw_stats.
+    """
+    # Ensure sorted by date
+    df = price_df.sort_values('datetime').copy()
+    df.set_index('datetime', inplace=True)
+    
+    # Merge attention data
+    if not attention_df.empty:
+        att_df = attention_df.sort_values('datetime').copy()
+        att_df.set_index('datetime', inplace=True)
+        # Use merge_asof or reindex to align attention data to price candles
+        # Since price is 1d/4h and attention is 1d, we might need forward fill
+        # But for crypto, 24/7, so gaps are data issues.
+        # We'll ffill strictly to avoid lookahead, but limit it.
+        cols_to_fill = [c for c in att_df.columns if c not in df.columns]
+        # Join attention data
+        df = df.join(att_df[cols_to_fill], how='left')
+        df[cols_to_fill] = df[cols_to_fill].ffill(limit=3)
+    
+    # Initialize result DataFrame
+    res = pd.DataFrame(index=df.index)
+    res['symbol'] = symbol
+    
+    # --- Price Features ---
+    if 'close' in df.columns:
+        close = df['close']
+        # Log returns
+        log_ret = np.log(close / close.shift(1))
+        
+        # 1. ret_window
+        # Window return (sum of log returns)
+        win_ret = log_ret.rolling(window=window_days).sum()
+        res['raw_return_window_pct'] = np.exp(win_ret) - 1
+        
+        # Normalize against recent history (approx 2x window)
+        hist_win = window_days * 2
+        ret_mean = win_ret.rolling(window=hist_win, min_periods=window_days).mean()
+        ret_std = win_ret.rolling(window=hist_win, min_periods=window_days).std()
+        res['feat_ret_window'] = (win_ret - ret_mean) / ret_std
+        res['feat_ret_window'] = res['feat_ret_window'].fillna(0.0)
+        
+        # 2. vol_window
+        # Rolling volatility (std of log returns)
+        vol = log_ret.rolling(window=window_days).std()
+        res['raw_volatility_window'] = vol
+        
+        vol_mean = vol.rolling(window=hist_win, min_periods=window_days).mean()
+        vol_std = vol.rolling(window=hist_win, min_periods=window_days).std()
+        res['feat_vol_window'] = (vol - vol_mean) / vol_std
+        res['feat_vol_window'] = res['feat_vol_window'].fillna(0.0)
+        
+        # 3. volume_zscore
+        if 'volume' in df.columns:
+            vol_7d = df['volume'].rolling(window=7).mean()
+            vol_win = df['volume'].rolling(window=window_days).mean()
+            vol_win_std = df['volume'].rolling(window=window_days).std()
+            
+            res['feat_volume_zscore'] = (vol_7d - vol_win) / vol_win_std
+            res['feat_volume_zscore'] = res['feat_volume_zscore'].fillna(0.0)
+            
+            res['raw_avg_volume_7d'] = vol_7d
+            res['raw_avg_volume_window'] = vol_win
+        
+        res['raw_close_price'] = close
+        res['raw_high_window'] = df['high'].rolling(window=window_days).max()
+        res['raw_low_window'] = df['low'].rolling(window=window_days).min()
+        
+    # --- Attention Features ---
+    if 'composite_attention_score' in df.columns:
+        # 4. att_composite_z
+        if 'composite_attention_zscore' in df.columns:
+            res['feat_att_composite_z'] = df['composite_attention_zscore'].fillna(0.0)
+        else:
+            res['feat_att_composite_z'] = 0.0
+            
+        res['raw_composite_attention_score'] = df['composite_attention_score']
+        
+        # 5. att_trend_7d (Slope)
+        # Weights for 7 days: -3 to 3
+        weights = np.array([-3, -2, -1, 0, 1, 2, 3])
+        w_sum_sq = 28.0
+        
+        # Simple numpy stride trick for rolling window dot product
+        def rolling_dot(a, w):
+            if len(a) < len(w): return np.full(len(a), np.nan)
+            # Pad beginning
+            pad_width = len(w) - 1
+            # Use convolution
+            # convolve(a, w[::-1], mode='valid') gives dot product
+            # We want result aligned at the end of window
+            from scipy.signal import convolve
+            # Fill nan with 0 for convolution
+            a_filled = np.nan_to_num(a)
+            # mode='valid' returns N - K + 1 results
+            conv = convolve(a_filled, w[::-1], mode='valid')
+            # Pad beginning with NaNs
+            return np.concatenate([np.full(pad_width, np.nan), conv])
+
+        try:
+            y = df['composite_attention_score'].values
+            slopes = rolling_dot(y, weights) / w_sum_sq
+            slope_series = pd.Series(slopes, index=df.index)
+            
+            # Normalize slope
+            slope_std = slope_series.rolling(window=window_days).std()
+            res['feat_att_trend_7d'] = (slope_series / slope_std).fillna(0.0)
+            
+        except Exception:
+            res['feat_att_trend_7d'] = 0.0
+
+        # 6. Channel Shares
+        news_z = df['news_channel_score'].abs().fillna(0) if 'news_channel_score' in df.columns else 0
+        google_z = df['google_trend_zscore'].abs().fillna(0) if 'google_trend_zscore' in df.columns else 0
+        twitter_z = df['twitter_volume_zscore'].abs().fillna(0) if 'twitter_volume_zscore' in df.columns else 0
+        
+        total_z = news_z + google_z + twitter_z
+        # Avoid div by zero
+        total_z = total_z.replace(0, 1.0)
+        
+        res['feat_att_news_share'] = news_z / total_z
+        res['feat_att_google_share'] = google_z / total_z
+        res['feat_att_twitter_share'] = twitter_z / total_z
+        
+        res['feat_att_news_z'] = df['news_channel_score'].fillna(0) if 'news_channel_score' in df.columns else 0
+        res['feat_att_spike_flag'] = df['composite_attention_spike_flag'].fillna(0) if 'composite_attention_spike_flag' in df.columns else 0
+        
+        res['raw_news_count_7d'] = df['news_count'].rolling(7).sum() if 'news_count' in df.columns else 0
+        
+    # --- Sentiment ---
+    res['feat_sentiment_mean_window'] = 0.0
+    res['feat_bullish_minus_bearish'] = 0.0
+    
+    if 'bullish_attention' in df.columns and 'bearish_attention' in df.columns:
+        diff = df['bullish_attention'] - df['bearish_attention']
+        diff_std = diff.rolling(window=window_days*2).std()
+        res['feat_bullish_minus_bearish'] = (diff / diff_std).fillna(0.0)
+        
+        res['raw_avg_bullish'] = df['bullish_attention'].rolling(window=window_days).mean()
+        res['raw_avg_bearish'] = df['bearish_attention'].rolling(window=window_days).mean()
+
+    return res
+
+
 if __name__ == "__main__":
     # 测试代码
     import logging

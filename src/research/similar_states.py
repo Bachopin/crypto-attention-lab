@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.db_storage import load_price_data, load_attention_data, load_news_data, get_available_symbols
-from src.research.state_snapshot import StateSnapshot, compute_state_snapshot
+from src.research.state_snapshot import StateSnapshot, compute_state_snapshot, compute_features_vectorized
 
 logger = logging.getLogger(__name__)
 
@@ -328,70 +328,80 @@ def iter_historical_states(
                 attention_df['datetime'] = pd.to_datetime(attention_df['datetime'], utc=True)
                 attention_df = attention_df.sort_values('datetime')
             
-            # 加载新闻数据
-            news_df = load_news_data(symbol, start_date, end_date)
-            if not news_df.empty and 'datetime' in news_df.columns:
-                news_df['datetime'] = pd.to_datetime(news_df['datetime'], utc=True)
-                news_df = news_df.sort_values('datetime')
+            # 加载新闻数据 (Vectorized computation currently doesn't use news_df heavily, but we pass it)
+            # news_df = load_news_data(symbol, start_date, end_date)
+            # if not news_df.empty and 'datetime' in news_df.columns:
+            #     news_df['datetime'] = pd.to_datetime(news_df['datetime'], utc=True)
+            #     news_df = news_df.sort_values('datetime')
                 
         except Exception as e:
             logger.error(f"Failed to load data for {symbol}: {e}")
             continue
 
-        # 2. 确定采样日期
-        # 使用 price_df 中的日期作为基准
-        available_dates = price_df['datetime'].tolist()
-        available_dates = [pd.Timestamp(d).to_pydatetime() for d in available_dates]
-        
-        # 过滤掉太早的日期（确保有足够 lookback）
-        min_date = start_date + timedelta(days=lookback_buffer)
-        valid_dates = [d for d in available_dates if d >= min_date]
-        
-        if not valid_dates:
-            if verbose: logger.warning(f"No valid dates for {symbol} after filtering")
-            continue
+        # 2. Vectorized Computation
+        try:
+            features_df = compute_features_vectorized(
+                symbol=symbol,
+                price_df=price_df,
+                attention_df=attention_df,
+                timeframe=timeframe,
+                window_days=window_days
+            )
             
-        # 按步长采样
-        # 注意：valid_dates 已经是升序
-        # 我们只取最后 max_history_days 范围内的
-        history_start = end_date - timedelta(days=max_history_days)
-        target_dates = [d for d in valid_dates if d >= history_start]
-        
-        if not target_dates:
-            continue
-
-        # 采样
-        if timeframe == '1d':
-            sample_dates = target_dates[::step_days]
-        else:
-            sample_dates = target_dates[::step_days]
-        
-        symbol_count = 0
-        for as_of in sample_dates:
-            try:
-                # 传入预加载的数据
-                snapshot = compute_state_snapshot(
+            if features_df.empty:
+                continue
+                
+            # 3. Filter by date range and step
+            history_start = end_date - timedelta(days=max_history_days)
+            
+            # Filter dates >= history_start
+            mask = features_df.index >= history_start
+            target_df = features_df[mask]
+            
+            if target_df.empty:
+                continue
+                
+            # Apply step
+            # Since index is datetime, we can't just slice by step if there are gaps
+            # But assuming daily data is mostly contiguous
+            if timeframe == '1d':
+                target_df = target_df.iloc[::step_days]
+            else:
+                target_df = target_df.iloc[::step_days]
+            
+            symbol_count = 0
+            
+            # 4. Yield Snapshots
+            for dt, row in target_df.iterrows():
+                # Extract features and raw stats
+                feat_cols = [c for c in row.index if c.startswith('feat_')]
+                raw_cols = [c for c in row.index if c.startswith('raw_')]
+                
+                features = {c[5:]: float(row[c]) for c in feat_cols}
+                raw_stats = {c[4:]: row[c] for c in raw_cols}
+                
+                # Ensure as_of is datetime
+                as_of = dt.to_pydatetime() if isinstance(dt, pd.Timestamp) else dt
+                
+                snapshot = StateSnapshot(
                     symbol=symbol,
                     as_of=as_of,
                     timeframe=timeframe,
                     window_days=window_days,
-                    price_df=price_df,
-                    attention_df=attention_df,
-                    news_df=news_df
+                    features=features,
+                    raw_stats=raw_stats
                 )
                 
-                if snapshot is not None:
-                    yield snapshot
-                    symbol_count += 1
-                    total_yielded += 1
-                    
-            except Exception as e:
-                if verbose:
-                    logger.warning(f"Failed to compute snapshot for {symbol} at {as_of}: {e}")
-                continue
-        
-        if verbose:
-            logger.info(f"Generated {symbol_count} snapshots for {symbol}")
+                yield snapshot
+                symbol_count += 1
+                total_yielded += 1
+                
+            if verbose:
+                logger.info(f"Generated {symbol_count} snapshots for {symbol}")
+                
+        except Exception as e:
+            logger.error(f"Vectorized computation failed for {symbol}: {e}")
+            continue
     
     if verbose:
         logger.info(f"Total historical snapshots generated: {total_yielded}")

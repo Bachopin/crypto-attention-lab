@@ -156,6 +156,9 @@ streamlit run src/dashboard/app.py
 - ✅ **POST /api/backtest/basic-attention** - 运行基础注意力策略回测
   - 入参: `symbol`, `lookback_days`, `attention_quantile`, `max_daily_return`, `holding_days`, `start`, `end`
   - 返回: `{ summary, trades, equity_curve }`
+- ✅ **GET /api/state/scenarios** - 获取相似状态情景分析
+  - 参数: `symbol`, `top_k`, `lookahead`
+  - 返回: `{ current_state, scenarios, similar_dates }`
 - ✅ 自动 CORS 配置 (支持跨域请求)
 - ✅ 自动数据检查 (如果数据不存在自动获取)
 - ✅ 完整的 API 文档 (FastAPI Swagger UI)

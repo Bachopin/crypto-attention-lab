@@ -554,6 +554,57 @@ curl "http://localhost:8000/api/attention-events/performance?symbol=ZEC&lookahea
 
 ### 9. Scenario Analysis (Similar States)
 
+#### `GET /api/state/snapshot`
+
+获取当前（或指定日期）的市场状态特征向量。
+
+**Query Parameters:**
+
+| Parameter | Type   | Required | Default | Description                    |
+|-----------|--------|----------|---------|--------------------------------|
+| `symbol`  | string | No       | ZEC     | 币种符号                       |
+| `date`    | string | No       | -       | 指定日期 (ISO 8601)，默认为最新数据 |
+
+**Response:**
+
+```json
+{
+  "date": "2024-03-20T00:00:00",
+  "price": 150.5,
+  "features": {
+    "trend_7d": 0.05,
+    "volatility_30d": 0.02,
+    "attention_score": 75.0,
+    "rel_volume": 1.2
+  }
+}
+```
+
+#### `GET /api/state/similar-cases`
+
+查找历史相似状态。
+
+**Query Parameters:**
+
+| Parameter | Type   | Required | Default | Description                    |
+|-----------|--------|----------|---------|--------------------------------|
+| `symbol`  | string | No       | ZEC     | 币种符号                       |
+| `top_k`   | int    | No       | 50      | 返回相似案例的数量             |
+
+**Response:**
+
+```json
+[
+  {
+    "date": "2023-05-15T00:00:00",
+    "similarity": 0.95,
+    "price": 140.0,
+    "features": { ... }
+  },
+  ...
+]
+```
+
 #### `GET /api/state/scenarios`
 
 基于当前市场状态（价格趋势、波动率、注意力特征）寻找历史相似时刻，并统计后续走势分布。

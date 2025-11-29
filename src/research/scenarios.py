@@ -274,6 +274,7 @@ def compute_sample_future_performance(
     similar_state: SimilarState,
     lookahead_days: List[int] = DEFAULT_LOOKAHEAD_DAYS,
     timeframe: str = "1d",
+    price_df: Optional[pd.DataFrame] = None,
 ) -> Optional[SampleFuturePerformance]:
     """
     计算单个相似状态样本的未来表现
@@ -286,6 +287,8 @@ def compute_sample_future_performance(
         lookahead 窗口列表
     timeframe : str
         时间粒度
+    price_df : pd.DataFrame | None
+        预加载的价格数据（可选）
     
     Returns
     -------
@@ -294,13 +297,20 @@ def compute_sample_future_performance(
     """
     symbol = similar_state.symbol
     start_dt = similar_state.datetime
+    max_lookahead = max(lookahead_days)
     
     # 获取未来价格数据
-    max_lookahead = max(lookahead_days)
-    future_df = _get_future_prices(symbol, start_dt, max_lookahead, timeframe)
+    if price_df is None:
+        future_df = _get_future_prices(symbol, start_dt, max_lookahead, timeframe)
+    else:
+        # 从预加载数据中切片
+        # 假设 price_df 已经包含所需列且 datetime 为 UTC
+        end_dt = start_dt + timedelta(days=max_lookahead + 5)
+        mask = (price_df['datetime'] >= start_dt) & (price_df['datetime'] <= end_dt)
+        future_df = price_df.loc[mask].copy()
     
     if future_df.empty or 'close' not in future_df.columns:
-        logger.debug(f"No future price data for {symbol} @ {start_dt}")
+        # logger.debug(f"No future price data for {symbol} @ {start_dt}")
         return None
     
     # 获取起始价格
@@ -376,17 +386,43 @@ def compute_all_sample_performances(
     """
     performances = []
     
-    for state in similar_states:
+    # Group by symbol to optimize data loading
+    states_by_symbol = defaultdict(list)
+    for s in similar_states:
+        states_by_symbol[s.symbol].append(s)
+        
+    max_lookahead = max(lookahead_days)
+    
+    for symbol, states in states_by_symbol.items():
         try:
-            perf = compute_sample_future_performance(
-                similar_state=state,
-                lookahead_days=lookahead_days,
-                timeframe=timeframe,
-            )
-            if perf is not None:
-                performances.append(perf)
+            # Determine date range for bulk load
+            min_date = min(s.datetime for s in states)
+            max_date = max(s.datetime for s in states) + timedelta(days=max_lookahead + 5)
+            
+            # Load data once per symbol
+            symbol_code = symbol if symbol.endswith('USDT') else f"{symbol}USDT"
+            df, _ = load_price_data(symbol_code, timeframe, min_date, max_date)
+            
+            if not df.empty and 'datetime' in df.columns:
+                df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
+                df = df.sort_values('datetime')
+            
+            for state in states:
+                try:
+                    perf = compute_sample_future_performance(
+                        similar_state=state,
+                        lookahead_days=lookahead_days,
+                        timeframe=timeframe,
+                        price_df=df
+                    )
+                    if perf is not None:
+                        performances.append(perf)
+                except Exception as e:
+                    # logger.warning(f"Error computing performance for {state.symbol} @ {state.datetime}: {e}")
+                    continue
+                    
         except Exception as e:
-            logger.warning(f"Error computing performance for {state.symbol} @ {state.datetime}: {e}")
+            logger.error(f"Error processing batch for {symbol}: {e}")
             continue
     
     logger.info(f"Computed future performance for {len(performances)}/{len(similar_states)} samples")

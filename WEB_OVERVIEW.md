@@ -18,9 +18,11 @@ crypto-attention-lab/
     │   └── globals.css    # Tailwind styles
     ├── components/
     │   ├── ui/           # Base UI components
+    │   ├── tabs/         # Tab content components
     │   ├── PriceChart.tsx # TradingView chart
     │   ├── StatCards.tsx  # Metrics cards
     │   ├── BacktestPanel.tsx # Basic attention backtest with risk controls
+    │   ├── ScenarioPanel.tsx # Similar state analysis panel
     │   └── NewsList.tsx   # News feed
     ├── lib/
     │   ├── api.ts        # API layer (mock + real)
