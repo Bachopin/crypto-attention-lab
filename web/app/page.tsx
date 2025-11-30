@@ -38,7 +38,7 @@ export default function Page() {
 function Home() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('dashboard')
 
   const refreshSymbols = () => {
     fetch(buildApiUrl('/api/symbols'))

@@ -4,6 +4,25 @@
 本项目旨在研究加密货币二级市场中「注意力（Attention）与价格」的关系。
 长期目标是构建一个基于注意力机制的交易信号系统，通过识别关键影响力节点和事件来预测价格走势。
 
+## 🚀 Quick Product Tour
+
+Experience the power of Attention-based trading in 3 steps:
+
+1.  **Launch the System**
+    ```bash
+    ./scripts/start_dev.sh
+    ```
+    *(Starts FastAPI backend on port 8000 and Next.js frontend on port 3000)*
+
+2.  **Access the Dashboard**
+    Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+    You will land on the **Token Dashboard** ("代币看板").
+
+3.  **Explore Key Modules**
+    *   **📈 Price & Attention Chart**: Observe how the yellow "Attention Score" line correlates with price movements.
+    *   **🧠 Scenario Analysis**: Switch to the "情景分析" tab to see AI-predicted market regimes (Trend Up/Down probabilities).
+    *   **⚙️ Auto Update**: Go to "系统设置" -> "Auto Update Manager" to add a new symbol (e.g., `DOGE`) and watch it initialize in real-time.
+
 ## 🏗️ 项目架构
 
 本项目采用现代化全栈架构：
