@@ -132,6 +132,10 @@ class AttentionFeature(Base):
     composite_attention_zscore = Column(Float, default=0.0)
     composite_attention_spike_flag = Column(Integer, default=0)
     
+    # 预计算的事件（JSON 格式，存储当天检测到的事件列表）
+    # 格式: [{"event_type": "attention_spike", "intensity": 0.5, "summary": "..."}, ...]
+    detected_events = Column(Text)  # JSON 字符串
+    
     # 关系
     symbol_ref = relationship('Symbol', back_populates='attention_features')
     

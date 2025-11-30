@@ -12,7 +12,12 @@ from src.data.db_storage import load_price_data, load_news_data, get_db, USE_DAT
 from src.data.google_trends_fetcher import get_google_trends_series
 from src.data.twitter_attention_fetcher import get_twitter_volume_series
 from src.features.calculators import calculate_composite_attention
-from src.features.event_detectors import detect_attention_spikes, AttentionEvent
+from src.features.event_detectors import (
+    detect_attention_spikes, 
+    detect_events_per_row,
+    events_from_json,
+    AttentionEvent
+)
 from src.config.settings import ROLLING_WINDOW_CONTEXT_DAYS
 from typing import List
 
@@ -29,7 +34,9 @@ class AttentionService:
     ) -> List[AttentionEvent]:
         """
         Get attention events for a symbol.
-        Orchestrates data loading and event detection logic.
+        
+        优先从数据库读取预计算的事件（detected_events 字段），
+        如果没有预计算事件，则实时计算。
         
         Args:
             symbol: Symbol name.
@@ -46,11 +53,29 @@ class AttentionService:
         if df.empty:
             return []
         
-        # 2. Apply Logic (CPU)
         # Ensure datetime is present and valid
         if 'datetime' in df.columns:
             df = df.dropna(subset=['datetime'])
+        
+        # 2. 检查是否有预计算的事件
+        if 'detected_events' in df.columns:
+            # 尝试从预计算字段读取
+            precomputed_events: List[AttentionEvent] = []
+            has_precomputed = False
             
+            for _, row in df.iterrows():
+                events_json = row.get('detected_events')
+                if events_json:
+                    has_precomputed = True
+                    dt = pd.to_datetime(row['datetime'])
+                    precomputed_events.extend(events_from_json(dt, events_json))
+            
+            if has_precomputed:
+                logger.debug(f"Using precomputed events for {symbol}: {len(precomputed_events)} events")
+                return precomputed_events
+        
+        # 3. 没有预计算事件，实时计算（兼容旧数据）
+        logger.debug(f"No precomputed events for {symbol}, calculating in real-time")
         return detect_attention_spikes(df, lookback_days, min_quantile)
 
     @staticmethod
@@ -135,6 +160,10 @@ class AttentionService:
         if result_df is None or result_df.empty:
             logger.warning(f"Calculation returned empty result for {symbol}")
             return None
+        
+        # 3.5 计算并添加事件检测结果
+        result_df = detect_events_per_row(result_df, lookback_days=30, min_quantile=0.8)
+        logger.info(f"Detected events for {len(result_df)} rows for {symbol}")
             
         # 4. Persist Results
         if USE_DATABASE and save_to_db:
@@ -295,6 +324,9 @@ class AttentionService:
         if result_df is None or result_df.empty:
             logger.warning(f"Calculation returned empty result for {symbol}")
             return None
+        
+        # 8.5 计算并添加事件检测结果（在完整上下文上计算，确保分位数准确）
+        result_df = detect_events_per_row(result_df, lookback_days=30, min_quantile=0.8)
         
         # 9. 仅保留新数据部分（去掉上下文窗口部分）
         result_df['datetime'] = pd.to_datetime(result_df['datetime'], utc=True)
