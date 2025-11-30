@@ -152,7 +152,21 @@ async def ws_attention(websocket: WebSocket):
 def get_websocket_stats():
     """获取 WebSocket 连接统计信息"""
     ws_manager = get_ws_manager()
-    return ws_manager.get_stats()
+    stats = ws_manager.get_stats()
+    
+    # 添加更详细的 Binance WS 状态
+    if ws_manager.binance_ws:
+        stats["binance_details"] = {
+            "is_running": ws_manager.binance_ws.is_running,
+            "websocket_connected": ws_manager.binance_ws.websocket is not None,
+            "subscriptions": list(ws_manager.binance_ws.subscriptions),
+            "callbacks_registered": list(ws_manager.binance_ws.callbacks.keys()),
+            "tasks_count": len(ws_manager.binance_ws._tasks),
+        }
+    else:
+        stats["binance_details"] = None
+    
+    return stats
 
 
 # ==================== 健康检查与根路径 ====================

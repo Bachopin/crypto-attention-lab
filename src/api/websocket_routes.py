@@ -172,9 +172,10 @@ class ConnectionManager:
             if trading_pair not in self._binance_subscriptions:
                 self._binance_subscriptions.add(trading_pair)
                 
-                # 注册回调
-                async def on_kline(data: dict):
-                    await self._on_binance_kline(symbol, data)
+                # 注册回调 - 使用默认参数捕获当前 symbol 值
+                async def on_kline(data: dict, sym: str = symbol):
+                    logger.debug(f"[WS] Received kline for {sym}: close={data.get('close')}")
+                    await self._on_binance_kline(sym, data)
                 
                 try:
                     await self.binance_ws.subscribe(trading_pair, "1m", on_kline)
@@ -185,6 +186,8 @@ class ConnectionManager:
     
     async def _on_binance_kline(self, symbol: str, data: dict):
         """处理 Binance K 线数据，广播给订阅者"""
+        logger.debug(f"[WS] Broadcasting price_update for {symbol} to {len(self.active_connections.get(symbol, set()))} clients")
+        
         # 转换为前端格式
         message = {
             "type": "price_update",
