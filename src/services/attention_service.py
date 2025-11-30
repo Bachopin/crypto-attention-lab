@@ -381,7 +381,7 @@ class AttentionService:
                 
                 # 触发预计算更新
                 # - state_snapshots: 增量更新（只计算新时间点）
-                # - event_performance: 使用缓存（增量数据变化小，无需每次重算）
+                # - event_performance: 检查冷却期（12h），过期则重算
                 try:
                     from src.services.precomputation_service import PrecomputationService
                     PrecomputationService.update_all_precomputations(symbol, force_refresh=False)

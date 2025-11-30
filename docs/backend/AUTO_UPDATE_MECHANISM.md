@@ -173,16 +173,16 @@ WebSocket 广播（如有订阅者）                                     │
 ### ✅ **预计算存储策略**
 系统预计算并存储以下静态/准静态数据，减少 API 请求时的实时计算开销：
 
-| 预计算类型 | 存储位置 | 更新策略 | 缓存参数 |
-|-----------|---------|----------|---------|
-| `event_performance` | Symbol 表 `event_performance_cache` | 全量特征更新后重算 | `lookahead_days=[1,3,5,10]` |
-| `state_snapshots` | `state_snapshots` 表 | 增量更新（仅计算新时间点） | `window_days=30`, `timeframe=1d/4h` |
+| 预计算类型 | 存储位置 | 更新策略 | 冷却期 | 缓存参数 |
+|-----------|---------|----------|-------|---------|
+| `event_performance` | Symbol 表 `event_performance_cache` | 冷却期控制 | **12小时** | `lookahead_days=[1,3,5,10]` |
+| `state_snapshots` | `state_snapshots` 表 | 增量更新 | 无 | `window_days=30`, `timeframe=1d/4h` |
 
 **触发机制：**
-- **全量特征更新** → `force_refresh=True` → 重算所有预计算
+- **全量特征更新** → `force_refresh=True` → 强制重算所有预计算
 - **增量特征更新** → `force_refresh=False` → 
   - `state_snapshots`: 增量更新（只计算新时间点）
-  - `event_performance`: 使用缓存（增量数据变化小，无需每次重算）
+  - `event_performance`: 检查冷却期（12h），过期则重算，未过期则用缓存
 - **API 请求时无缓存** → 按需触发计算并存储
 
 **非默认参数实时计算：**

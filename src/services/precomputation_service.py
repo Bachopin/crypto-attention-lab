@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOOKAHEAD_DAYS = [1, 3, 5, 10]  # 事件表现固定的前瞻天数
 DEFAULT_SNAPSHOT_WINDOW = 30  # 状态快照固定的窗口天数
 SNAPSHOT_TIMEFRAMES = ['1d', '4h']  # 支持的时间粒度
+EVENT_PERFORMANCE_COOLDOWN_HOURS = 12  # 事件表现更新冷却期（小时）
 
 
 class PrecomputationService:
@@ -56,9 +57,8 @@ class PrecomputationService:
         计算并存储事件表现统计
         
         策略：
-        - 如果已有缓存且不强制刷新，直接返回缓存
-        - 否则重新计算并更新缓存
-        - 数据更新后由 AttentionService 触发 force_refresh=True
+        - force_refresh=True: 强制重新计算
+        - force_refresh=False: 检查冷却期（12小时），未过冷却期则用缓存
         
         Args:
             symbol: 币种符号
@@ -79,9 +79,30 @@ class PrecomputationService:
                 logger.warning(f"Symbol {symbol} not found in database")
                 return {}
             
-            # 检查缓存是否有效（无过期时间，由 force_refresh 控制刷新）
-            if not force_refresh and symbol_record.event_performance_cache:
-                logger.debug(f"Using cached event_performance for {symbol}")
+            # 检查是否需要更新
+            need_update = force_refresh
+            
+            if not need_update:
+                if not symbol_record.event_performance_cache:
+                    # 没有缓存，需要计算
+                    need_update = True
+                elif symbol_record.event_performance_updated_at:
+                    # 检查冷却期
+                    last_update = symbol_record.event_performance_updated_at
+                    if last_update.tzinfo is None:
+                        last_update = last_update.replace(tzinfo=timezone.utc)
+                    age_hours = (datetime.now(timezone.utc) - last_update).total_seconds() / 3600
+                    if age_hours >= EVENT_PERFORMANCE_COOLDOWN_HOURS:
+                        need_update = True
+                        logger.info(f"Event performance cooldown passed for {symbol} ({age_hours:.1f}h >= {EVENT_PERFORMANCE_COOLDOWN_HOURS}h)")
+                    else:
+                        logger.debug(f"Event performance within cooldown for {symbol} ({age_hours:.1f}h < {EVENT_PERFORMANCE_COOLDOWN_HOURS}h)")
+                else:
+                    # 有缓存但没有更新时间，需要更新
+                    need_update = True
+            
+            if not need_update:
+                # 使用缓存
                 cached = json.loads(symbol_record.event_performance_cache)
                 return PrecomputationService._deserialize_event_performance(cached)
             
@@ -478,6 +499,12 @@ class PrecomputationService:
     ) -> Dict[str, Any]:
         """
         更新某个 symbol 的所有预计算数据
+        
+        更新策略：
+        - force_refresh=True: 强制刷新所有预计算
+        - force_refresh=False: 
+          - event_performance: 检查冷却期（12h），过期则更新
+          - state_snapshots: 增量更新（只计算新时间点）
         
         Args:
             symbol: 币种符号
