@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, Query, HTTPException
 from typing import Optional, List, Dict, Any
 import pandas as pd
 import logging
+from datetime import datetime, timezone
 
 from src.research.attention_regimes import analyze_attention_regimes
 from src.research.state_snapshot import compute_state_snapshot, compute_state_snapshots_batch
@@ -9,6 +10,7 @@ from src.research.similar_states import find_similar_states
 from src.research.scenarios import analyze_scenarios
 from src.features.node_influence import load_node_carry_factors
 from src.data.db_storage import get_available_symbols
+from src.services.precomputation_service import PrecomputationService, DEFAULT_SNAPSHOT_WINDOW
 from src.api.schemas import (
     Timeframe, 
     AttentionRegimeParams, 
@@ -62,32 +64,74 @@ def get_state_snapshot(
 ):
     """
     获取指定 symbol 当前的状态快照
+    
+    策略：
+    - 如果 window_days=30（默认值），优先读取缓存
+    - 如果没有缓存，触发计算并存储
+    - 如果参数非默认值，实时计算（不缓存）
     """
     try:
         # Normalize symbol
         symbol = symbol.upper()
+        tf_value = timeframe.value
         
-        # 计算状态快照
-        snapshot = compute_state_snapshot(
-            symbol=symbol,
-            as_of=None,  # 使用当前时间
-            timeframe=timeframe.value,
-            window_days=window_days,
-        )
+        # 检查是否使用默认参数（可以使用缓存）
+        use_cache = (window_days == DEFAULT_SNAPSHOT_WINDOW)
         
-        if snapshot is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No data available for symbol {symbol}. "
-                       f"Please ensure price and attention data exist for this symbol."
+        result = None
+        
+        if use_cache:
+            # 1. 尝试读取最新缓存
+            as_of = datetime.now(timezone.utc)
+            cached = PrecomputationService.get_cached_state_snapshot(
+                symbol=symbol,
+                as_of=as_of,
+                timeframe=tf_value,
             )
+            
+            if cached:
+                logger.debug(f"Using cached state_snapshot for {symbol} ({tf_value})")
+                result = cached
+            else:
+                # 2. 没有缓存，触发计算并存储
+                logger.info(f"No cached state_snapshot for {symbol} ({tf_value}), computing...")
+                count = PrecomputationService.compute_and_store_state_snapshots(
+                    symbol=symbol,
+                    timeframe=tf_value,
+                    force_full=False,  # 增量更新
+                )
+                
+                if count > 0:
+                    # 重新读取缓存
+                    cached = PrecomputationService.get_cached_state_snapshot(
+                        symbol=symbol,
+                        as_of=as_of,
+                        timeframe=tf_value,
+                    )
+                    if cached:
+                        result = cached
         
-        # 转换为可序列化的字典
-        result = snapshot.to_dict()
+        # 非默认参数或缓存计算失败，实时计算
+        if not result:
+            snapshot = compute_state_snapshot(
+                symbol=symbol,
+                as_of=None,  # 使用当前时间
+                timeframe=tf_value,
+                window_days=window_days,
+            )
+            
+            if snapshot is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No data available for symbol {symbol}. "
+                           f"Please ensure price and attention data exist for this symbol."
+                )
+            
+            result = snapshot.to_dict()
         
         logger.info(
             f"State snapshot returned for {symbol}: "
-            f"{len(snapshot.features)} features, {len(snapshot.raw_stats)} raw stats"
+            f"{len(result.get('features', {}))} features, {len(result.get('raw_stats', {}))} raw stats"
         )
         
         return result

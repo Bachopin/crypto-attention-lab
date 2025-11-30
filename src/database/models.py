@@ -30,6 +30,10 @@ class Symbol(Base):
     last_attention_update = Column(DateTime(timezone=True))  # 最后一次特征值更新时间
     last_google_trends_update = Column(DateTime(timezone=True))  # 最后一次 Google Trends 更新时间
     
+    # 预计算缓存字段
+    event_performance_cache = Column(Text)  # JSON: 事件表现统计缓存
+    event_performance_updated_at = Column(DateTime(timezone=True))  # 事件表现缓存更新时间
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -38,6 +42,7 @@ class Symbol(Base):
     attention_features = relationship('AttentionFeature', back_populates='symbol_ref', cascade='all, delete-orphan')
     google_trends = relationship('GoogleTrend', back_populates='symbol_ref', cascade='all, delete-orphan')
     twitter_volumes = relationship('TwitterVolume', back_populates='symbol_ref', cascade='all, delete-orphan')
+    state_snapshots = relationship('StateSnapshot', back_populates='symbol_ref', cascade='all, delete-orphan')
 
 
 class News(Base):
@@ -269,6 +274,61 @@ class NodeCarryFactorModel(Base):
             lookback_days=int(rec.get('lookback_days', 365)),
             updated_at=rec.get('updated_at') or datetime.now(timezone.utc),
         )
+
+
+class StateSnapshot(Base):
+    """状态快照预计算表
+    
+    存储每个时间点的状态特征向量，避免实时计算开销。
+    支持 1d 和 4h 两种时间粒度，固定 window_days=30。
+    """
+    
+    __tablename__ = 'state_snapshots'
+    
+    id = Column(Integer, primary_key=True)
+    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
+    datetime = Column(DateTime(timezone=True), nullable=False, index=True)
+    timeframe = Column(String(10), nullable=False, default='1d', index=True)  # '1d' 或 '4h'
+    window_days = Column(Integer, nullable=False, default=30)  # 固定为 30
+    
+    # 特征值 (JSON 存储)
+    features = Column(Text, nullable=False)  # JSON: 标准化特征向量
+    raw_stats = Column(Text)  # JSON: 原始统计数据
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # 关系
+    symbol_ref = relationship('Symbol', back_populates='state_snapshots')
+    
+    __table_args__ = (
+        UniqueConstraint('symbol_id', 'datetime', 'timeframe', 'window_days', name='uq_state_snapshot_key'),
+        Index('ix_state_snapshot_lookup', 'symbol_id', 'timeframe', 'datetime'),
+    )
+    
+    @classmethod
+    def from_computed(cls, symbol_id: int, dt: datetime, timeframe: str, 
+                      features: dict, raw_stats: dict = None, window_days: int = 30):
+        """从计算结果创建记录"""
+        import json
+        return cls(
+            symbol_id=symbol_id,
+            datetime=dt,
+            timeframe=timeframe,
+            window_days=window_days,
+            features=json.dumps(features, ensure_ascii=False),
+            raw_stats=json.dumps(raw_stats, ensure_ascii=False) if raw_stats else None,
+        )
+    
+    def to_dict(self) -> dict:
+        """转换为字典格式"""
+        import json
+        return {
+            'datetime': self.datetime.isoformat() if self.datetime else None,
+            'timeframe': self.timeframe,
+            'window_days': self.window_days,
+            'features': json.loads(self.features) if self.features else {},
+            'raw_stats': json.loads(self.raw_stats) if self.raw_stats else {},
+        }
 
 
 # 数据库引擎和会话工厂

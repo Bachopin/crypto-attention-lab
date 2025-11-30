@@ -163,10 +163,31 @@ POST /api/auto-update/remove
     ↓                                                          │
 Google Trends 更新（冷却期过滤）                                 │
     ↓                                                          │
+预计算更新（EventPerformance + StateSnapshots）                  │
+    ↓                                                          │
 WebSocket 广播（如有订阅者）                                     │
     ↓                                                          │
 等待下一个标的 ──→ 延迟（错峰间隔） ──→ 循环处理下一个标的 ────────┘
 ```
+
+### ✅ **预计算存储策略**
+系统预计算并存储以下静态/准静态数据，减少 API 请求时的实时计算开销：
+
+| 预计算类型 | 存储位置 | 更新策略 | 缓存参数 |
+|-----------|---------|----------|---------|
+| `event_performance` | Symbol 表 `event_performance_cache` | 全量特征更新后重算 | `lookahead_days=[1,3,5,10]` |
+| `state_snapshots` | `state_snapshots` 表 | 增量更新（仅计算新时间点） | `window_days=30`, `timeframe=1d/4h` |
+
+**触发机制：**
+- **全量特征更新** → `force_refresh=True` → 重算所有预计算
+- **增量特征更新** → `force_refresh=False` → 
+  - `state_snapshots`: 增量更新（只计算新时间点）
+  - `event_performance`: 使用缓存（增量数据变化小，无需每次重算）
+- **API 请求时无缓存** → 按需触发计算并存储
+
+**非默认参数实时计算：**
+- `event_performance`: 非 `[1,3,5,10]` 的 `lookahead_days` 实时计算
+- `state_snapshots`: 非 `30` 的 `window_days` 实时计算
 
 ### ✅ **被动数据获取**
 - **Google Trends** 和 **Twitter** 数据由 Attention 计算触发
@@ -410,6 +431,6 @@ GOOGLE_TRENDS_COOLDOWN=43200       # 12小时
 ---
 
 **最后更新**: 2025-11-30  
-**版本**: v3.1 - 增量计算 + 错峰更新 + 冷却期控制 + 事件预计算
+**版本**: v3.2 - 增量计算 + 错峰更新 + 冷却期控制 + 事件预计算 + 预计算存储
 
 ````

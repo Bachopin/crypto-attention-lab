@@ -200,6 +200,15 @@ class AttentionService:
                 # Pass timeframe param to distinguish frequencies
                 db.save_attention_features(symbol, result_df.to_dict('records'), timeframe=freq)
                 logger.info(f"Saved {len(result_df)} attention rows for {symbol} (freq={freq})")
+                
+                # 触发预计算更新（异步风格，失败不影响主流程）
+                try:
+                    from src.services.precomputation_service import PrecomputationService
+                    PrecomputationService.update_all_precomputations(symbol, force_refresh=True)
+                    logger.info(f"Triggered precomputation update for {symbol}")
+                except Exception as precomp_err:
+                    logger.warning(f"Precomputation update failed for {symbol}: {precomp_err}")
+                    
             except TypeError as te:
                 logger.warning(
                     f"save_attention_features does not support timeframe param yet; "
@@ -369,6 +378,17 @@ class AttentionService:
             try:
                 db.save_attention_features(symbol, new_features_df.to_dict('records'), timeframe=freq)
                 logger.info(f"[Incremental] Saved {len(new_features_df)} new attention rows for {symbol}")
+                
+                # 触发预计算更新
+                # - state_snapshots: 增量更新（只计算新时间点）
+                # - event_performance: 使用缓存（增量数据变化小，无需每次重算）
+                try:
+                    from src.services.precomputation_service import PrecomputationService
+                    PrecomputationService.update_all_precomputations(symbol, force_refresh=False)
+                    logger.debug(f"[Incremental] Triggered precomputation update for {symbol}")
+                except Exception as precomp_err:
+                    logger.warning(f"[Incremental] Precomputation update failed for {symbol}: {precomp_err}")
+                    
             except Exception as exc:
                 logger.error(f"Failed to persist incremental attention features: {exc}")
         

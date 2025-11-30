@@ -6,6 +6,7 @@ import logging
 from src.data.db_storage import load_attention_data
 from src.services.attention_service import AttentionService
 from src.features.event_performance import compute_event_performance
+from src.services.precomputation_service import PrecomputationService, DEFAULT_LOOKAHEAD_DAYS
 from src.api.utils import validate_date_param
 from src.api.schemas import Timeframe
 
@@ -120,10 +121,38 @@ def get_attention_event_performance(
     """按事件类型与前瞻窗口统计平均收益和样本数。
 
     lookahead_days: 逗号分隔的天数列表，例如 "1,3,5,10"。
+    
+    策略：
+    - 如果 lookahead_days 等于默认值 [1,3,5,10]，优先读取缓存
+    - 如果没有缓存，触发计算并存储
+    - 如果参数非默认值，实时计算（不缓存）
     """
     try:
-        days = [int(x) for x in lookahead_days.split(",") if x.strip()]
-        perf = compute_event_performance(symbol=symbol, lookahead_days=days)
+        symbol = symbol.upper()
+        days = sorted([int(x) for x in lookahead_days.split(",") if x.strip()])
+        
+        # 检查是否使用默认参数（可以使用缓存）
+        use_cache = (days == DEFAULT_LOOKAHEAD_DAYS)
+        
+        perf = None
+        
+        if use_cache:
+            # 1. 尝试读取缓存
+            perf = PrecomputationService.get_cached_event_performance(symbol)
+            
+            if perf:
+                logger.debug(f"Using cached event_performance for {symbol}")
+            else:
+                # 2. 没有缓存，触发计算并存储
+                logger.info(f"No cached event_performance for {symbol}, computing...")
+                perf = PrecomputationService.compute_and_store_event_performance(
+                    symbol=symbol, force_refresh=True
+                )
+        
+        # 非默认参数或缓存计算失败，实时计算
+        if not perf:
+            perf = compute_event_performance(symbol=symbol, lookahead_days=days)
+        
         # 转为可 JSON 化结构
         out: Dict[str, Dict[str, dict]] = {}
         for etype, per_h in perf.items():
