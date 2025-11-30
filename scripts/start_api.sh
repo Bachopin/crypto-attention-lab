@@ -22,8 +22,11 @@ echo ""
 # 第一步：彻底清理旧的后端服务
 # ========================================
 echo -e "${YELLOW}[清理] 停止旧的后端服务...${NC}"
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null || true
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+
+# Safer kill: exclude .vscode-server processes
+ps aux | grep "uvicorn.*src.api.main" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "python.*src.api" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+
 lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 1
 echo -e "${GREEN}✓ 端口 8000 已释放${NC}"

@@ -17,8 +17,10 @@ echo ""
 
 # 彻底清理旧进程
 echo "🧹 清理旧进程..."
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null || true
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+# Safer kill
+ps aux | grep "uvicorn.*src.api.main" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "python.*src.api" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+
 lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 1
 echo "✅ 旧进程已清理"

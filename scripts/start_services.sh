@@ -24,15 +24,15 @@ BACKOFF_DELAY=2
 # ========================================
 echo "🧹 彻底清理所有旧服务..."
 
-# 停止后端进程
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null || true
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+# 停止后端进程 (Safer kill)
+ps aux | grep "uvicorn.*src.api.main" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "python.*src.api" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
 
-# 停止前端进程
-pkill -9 -f "next dev" 2>/dev/null || true
-pkill -9 -f "next-server" 2>/dev/null || true
-pkill -9 -f "node.*next" 2>/dev/null || true
-pkill -9 -f "node.*turbopack" 2>/dev/null || true
+# 停止前端进程 (Safer kill)
+ps aux | grep "next dev" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "next-server" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "node.*next" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
+ps aux | grep "node.*turbopack" | grep -v grep | grep -v .vscode-server | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
 
 # 强制释放端口
 lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
