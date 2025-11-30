@@ -40,8 +40,7 @@ function Home() {
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [activeTab, setActiveTab] = useState('overview')
 
-  // Fetch available symbols on mount
-  useEffect(() => {
+  const fetchSymbols = () => {
     fetch(buildApiUrl('/api/symbols'))
       .then(res => res.json())
       .then(data => {
@@ -50,6 +49,11 @@ function Home() {
         }
       })
       .catch(err => console.error('Failed to fetch symbols:', err))
+  }
+
+  // Fetch available symbols on mount
+  useEffect(() => {
+    fetchSymbols()
   }, [])
 
   return (
@@ -130,7 +134,7 @@ function Home() {
 
           <TabsContent value="settings" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
-              <SettingsTab onUpdate={() => { window.location.reload() }} />
+              <SettingsTab onUpdate={fetchSymbols} />
             </Suspense>
           </TabsContent>
         </Tabs>
