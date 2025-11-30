@@ -369,7 +369,9 @@ class RealtimePriceUpdater:
                 except Exception as e:
                     logger.error(f"[Updater] ❌ Failed to calculate attention for {symbol}: {e}")
             else:
-                cooldown_remaining = FEATURE_UPDATE_COOLDOWN - (datetime.now(timezone.utc) - last_attention).total_seconds() if last_attention else 0
+                # 确保 last_attention 是 timezone-aware
+                last_attention_aware = self._ensure_aware_datetime(last_attention)
+                cooldown_remaining = FEATURE_UPDATE_COOLDOWN - (datetime.now(timezone.utc) - last_attention_aware).total_seconds() if last_attention_aware else 0
                 logger.debug(f"[Updater] Skipping attention for {symbol} (cooldown: {cooldown_remaining/60:.0f}min remaining)")
             
             # 错峰延迟（最后一个标的不需要等待）
