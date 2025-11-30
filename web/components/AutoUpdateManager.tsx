@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { getApiBaseUrl } from '@/lib/api';
+import { buildApiUrl } from '@/lib/api';
 
 interface SymbolStatus {
   symbol: string;
@@ -13,12 +13,10 @@ interface SymbolStatus {
 }
 
 interface AutoUpdateManagerProps {
-  apiBaseUrl?: string;
   onUpdate?: () => void; // 触发数据刷新的回调
 }
 
 export default function AutoUpdateManager({ 
-  apiBaseUrl = getApiBaseUrl(),
   onUpdate 
 }: AutoUpdateManagerProps) {
   const [symbols, setSymbols] = useState<SymbolStatus[]>([]);
@@ -29,7 +27,7 @@ export default function AutoUpdateManager({
   // 加载标的状态
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/status`);
+      const res = await fetch(buildApiUrl('/api/auto-update/status'));
       const data = await res.json();
       setSymbols(data.symbols);
     } catch (err) {
@@ -37,13 +35,13 @@ export default function AutoUpdateManager({
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl]);
+  }, []);
 
   // 启用自动更新
   const enableAutoUpdate = async (symbol: string) => {
     setActionLoading(symbol);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/enable`, {
+      const res = await fetch(buildApiUrl('/api/auto-update/enable'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [symbol] })
@@ -64,7 +62,7 @@ export default function AutoUpdateManager({
   const disableAutoUpdate = async (symbol: string) => {
     setActionLoading(symbol);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/disable`, {
+      const res = await fetch(buildApiUrl('/api/auto-update/disable'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [symbol] })
@@ -87,7 +85,7 @@ export default function AutoUpdateManager({
     
     setActionLoading(`remove-${symbol}`);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/remove`, {
+      const res = await fetch(buildApiUrl('/api/auto-update/remove'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [symbol] })
@@ -108,7 +106,7 @@ export default function AutoUpdateManager({
   const triggerUpdate = async (symbol: string) => {
     setActionLoading(`trigger-${symbol}`);
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/trigger`, {
+      const res = await fetch(buildApiUrl('/api/auto-update/trigger'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [symbol] })
@@ -131,7 +129,7 @@ export default function AutoUpdateManager({
     
     setActionLoading('add-new');
     try {
-      const res = await fetch(`${apiBaseUrl}/api/auto-update/enable`, {
+      const res = await fetch(buildApiUrl('/api/auto-update/enable'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [newSymbol.toUpperCase()] })
@@ -200,7 +198,7 @@ export default function AutoUpdateManager({
         <CardTitle className="flex items-center gap-2">
           实时价格跟踪管理
           <span className="text-sm font-normal text-gray-500">
-            (每 2 分钟自动更新)
+            (每 10 分钟自动更新)
           </span>
         </CardTitle>
       </CardHeader>
