@@ -26,7 +26,8 @@ def get_price_data(
     symbol: str = Query(default="ZECUSDT", description="交易对符号，如 ZECUSDT"),
     timeframe: Timeframe = Query(default=Timeframe.DAILY, description="时间周期"),
     start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
-    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式")
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    limit: Optional[int] = Query(default=None, description="返回最近 N 条 K 线，从最新向前取")
 ):
     """
     获取价格 OHLCV 数据
@@ -45,6 +46,10 @@ def get_price_data(
         
         if df.empty:
             return []
+        
+        # 应用 limit：取最近 N 条（从最新向前）
+        if limit is not None and limit > 0:
+            df = df.tail(limit)
         
         # 转换为 API 响应格式
         result = []

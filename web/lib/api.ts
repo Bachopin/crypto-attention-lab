@@ -100,9 +100,9 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-// 简单的内存缓存，TTL 30秒（适合实时数据）
+// 简单的内存缓存，TTL 5分钟（价格数据变化不频繁，延长缓存减少请求）
 const requestCache = new Map<string, CacheEntry<any>>();
-const CACHE_TTL = 30 * 1000; // 30 seconds
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function getCacheKey(endpoint: string, params: Record<string, any>): string {
   return `${endpoint}:${JSON.stringify(params)}`;
