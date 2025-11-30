@@ -216,6 +216,7 @@ export default function AutoUpdateManager({
             className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-primary bg-card text-foreground placeholder:text-muted-foreground border-border"
           />
           <Button 
+            type="button"
             onClick={addSymbol}
             disabled={!newSymbol.trim() || actionLoading === 'add-new'}
           >
@@ -295,6 +296,7 @@ export default function AutoUpdateManager({
                         {actionLoading === sym.symbol ? '启动中...' : '启动'}
                       </Button>
                       <Button
+                        type="button"
                         size="sm"
                         variant="outline"
                         onClick={() => removeSymbol(sym.symbol)}
