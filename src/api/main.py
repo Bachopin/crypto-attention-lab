@@ -33,6 +33,10 @@ async def scheduled_news_update():
     """
     from scripts.fetch_news_data import run_news_fetch_pipeline
     
+    # 启动延迟：等待服务器就绪后再开始
+    logger.info("[Scheduler] News update will start in 30 seconds...")
+    await asyncio.sleep(30)
+    
     while True:
         try:
             logger.info("[Scheduler] Starting news update...")
@@ -53,6 +57,10 @@ async def scheduled_price_update():
     """
     from src.data.realtime_price_updater import get_realtime_updater
     
+    # 启动延迟：等待服务器就绪后再开始，错开新闻更新
+    logger.info("[Scheduler] Price update will start in 10 seconds...")
+    await asyncio.sleep(10)
+    
     updater = get_realtime_updater(update_interval=300)  # 5 分钟
     await updater.run()
 
@@ -67,7 +75,8 @@ async def lifespan(app: FastAPI):
     news_task = asyncio.create_task(scheduled_news_update())
     price_task = asyncio.create_task(scheduled_price_update())
     
-    logger.info("[Scheduler] Background tasks started: news_update (hourly), price_update (2min)")
+    logger.info("[Scheduler] Background tasks started (with startup delay to ensure server readiness)")
+    logger.info("[Scheduler] Price update starts in 10s, News update starts in 30s")
     logger.info("[Scheduler] Attention features will be calculated automatically after price updates")
     logger.info("[WebSocket] Real-time WebSocket endpoints available at /ws/price and /ws/attention")
     
