@@ -42,6 +42,36 @@ POST /api/auto-update/enable
 }
 ```
 
+### 🗑️ **移除代币**
+
+当您不再需要跟踪某个代币时，可以将其移除：
+
+#### API 端点
+```
+POST /api/auto-update/remove
+{
+  "symbols": ["BTC"]
+}
+```
+
+#### 执行流程
+1. **更新数据库标记**
+   - 设置 `auto_update_price = False`
+   - 设置 `is_active = False`
+2. **保留历史数据**
+   - 数据库中的价格和 Attention 数据**不会**被物理删除
+   - 只是停止了后台的自动更新任务
+   - 重新启用时可直接利用现有数据
+
+#### 响应示例
+```json
+{
+  "status": "success",
+  "removed": ["BTC"],
+  "message": "Disabled auto-update for 1 symbols"
+}
+```
+
 ---
 
 ### 🔄 **已有代币的持续维护**
@@ -268,5 +298,7 @@ const enableAutoUpdate = async (symbol: string) => {
 
 ---
 
-**最后更新**: 2025-11-29  
-**版本**: v2.1 - 增加 Binance Futures 支持、数据完整性检查
+**最后更新**: 2025-11-30  
+**版本**: v2.2 - 增加移除代币功能
+
+````

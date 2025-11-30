@@ -72,7 +72,13 @@ crypto-attention-lab/
 - **Persistence**: Settings are saved to `localStorage` and persist across sessions.
 - **Auto-Sync**: Changes in settings automatically update relevant modules (Charts, Scenarios, Backtests).
 
-### 5. **Technology Stack**
+### 5. **Real-time Price Tracking Management (New)**
+- **Auto Update Manager**: Interface to manage which symbols are automatically tracked and updated.
+- **Add Symbol**: Enable auto-updates for new symbols. Triggers immediate data fetching (price + attention) and initialization.
+- **Remove Symbol**: Disable auto-updates for symbols. Preserves historical data but stops background tasks.
+- **Status Monitoring**: View current status (active/inactive), last update time, and data completeness.
+
+### 6. **Technology Stack**
 - **Framework**: Next.js 15 (App Router)
 - **Language**: TypeScript (full type safety)
 - **Styling**: Tailwind CSS + CSS Variables
@@ -80,7 +86,7 @@ crypto-attention-lab/
 - **Charts**: lightweight-charts (TradingView)
 - **Icons**: Lucide React
 
-### 4. **API Integration Ready**
+### 7. **API Integration Ready**
 - Mock data generators for development
 - Clean API abstraction layer
 - Type-safe interfaces matching Python backend
@@ -189,6 +195,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 - **Scenario Cards**: Displays "Trend Up", "Sideways", "Trend Down", "Crash" scenarios with their probabilities and historical average returns.
 - **Similar Dates List**: Shows the top historical dates that match the current market state, including their similarity score and subsequent return.
 - **Interactive**: Allows users to adjust `top_k` (number of similar states) and `lookahead` (forecast horizon).
+- **Compact View**: Optimized layout for embedding in the Major Asset Module.
 
 ### StatCards Components
 - **SummaryCard**: Main asset display with gradient background
