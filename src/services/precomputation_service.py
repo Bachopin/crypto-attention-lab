@@ -40,6 +40,7 @@ DEFAULT_LOOKAHEAD_DAYS = [1, 3, 5, 10]  # 事件表现固定的前瞻天数
 DEFAULT_SNAPSHOT_WINDOW = 30  # 状态快照固定的窗口天数
 SNAPSHOT_TIMEFRAMES = ['1d', '4h']  # 支持的时间粒度
 EVENT_PERFORMANCE_COOLDOWN_HOURS = 12  # 事件表现更新冷却期（小时）
+SNAPSHOT_COOLDOWN = {'1d': 24, '4h': 4}  # 状态快照更新冷却期（小时）
 
 
 class PrecomputationService:
@@ -207,9 +208,8 @@ class PrecomputationService:
         计算并存储状态快照
         
         策略：
-        - 检查已有快照的最新时间
-        - 如果没有数据或 force_full=True，执行全量计算
-        - 否则执行增量计算（从最新快照之后开始）
+        - force_full=True: 强制全量计算
+        - force_full=False: 检查冷却期（1d→24h，4h→4h），过期则增量计算
         
         Args:
             symbol: 币种符号
@@ -241,7 +241,6 @@ class PrecomputationService:
                 return 0
             
             price_start, price_end = price_range
-            logger.info(f"Price data range for {symbol} ({timeframe}): {price_start} to {price_end}")
             
             # 检查已有快照的最新时间
             latest_snapshot = session.query(func.max(StateSnapshot.datetime)).filter(
@@ -249,6 +248,18 @@ class PrecomputationService:
                 StateSnapshot.timeframe == timeframe,
                 StateSnapshot.window_days == DEFAULT_SNAPSHOT_WINDOW,
             ).scalar()
+            
+            # 检查冷却期
+            cooldown_hours = SNAPSHOT_COOLDOWN.get(timeframe, 24)
+            if not force_full and latest_snapshot is not None:
+                if latest_snapshot.tzinfo is None:
+                    latest_snapshot = latest_snapshot.replace(tzinfo=timezone.utc)
+                age_hours = (datetime.now(timezone.utc) - latest_snapshot).total_seconds() / 3600
+                if age_hours < cooldown_hours:
+                    logger.debug(f"State snapshot within cooldown for {symbol} ({timeframe}): {age_hours:.1f}h < {cooldown_hours}h")
+                    return 0
+            
+            logger.info(f"Price data range for {symbol} ({timeframe}): {price_start} to {price_end}")
             
             # 确定计算起始时间
             if force_full or latest_snapshot is None:

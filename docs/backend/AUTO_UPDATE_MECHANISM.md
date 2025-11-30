@@ -176,13 +176,15 @@ WebSocket 广播（如有订阅者）                                     │
 | 预计算类型 | 存储位置 | 更新策略 | 冷却期 | 缓存参数 |
 |-----------|---------|----------|-------|---------|
 | `event_performance` | Symbol 表 `event_performance_cache` | 冷却期控制 | **12小时** | `lookahead_days=[1,3,5,10]` |
-| `state_snapshots` | `state_snapshots` 表 | 增量更新 | 无 | `window_days=30`, `timeframe=1d/4h` |
+| `state_snapshots (1d)` | `state_snapshots` 表 | 冷却期控制 | **24小时** | `window_days=30` |
+| `state_snapshots (4h)` | `state_snapshots` 表 | 冷却期控制 | **4小时** | `window_days=30` |
 
 **触发机制：**
 - **全量特征更新** → `force_refresh=True` → 强制重算所有预计算
 - **增量特征更新** → `force_refresh=False` → 
-  - `state_snapshots`: 增量更新（只计算新时间点）
-  - `event_performance`: 检查冷却期（12h），过期则重算，未过期则用缓存
+  - `event_performance`: 检查冷却期（12h），过期则重算
+  - `state_snapshots (1d)`: 检查冷却期（24h），过期则增量计算
+  - `state_snapshots (4h)`: 检查冷却期（4h），过期则增量计算
 - **API 请求时无缓存** → 按需触发计算并存储
 
 **非默认参数实时计算：**
