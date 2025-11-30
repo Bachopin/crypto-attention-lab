@@ -21,6 +21,8 @@ interface Props {
   timeframe?: string;
   windowDays?: number;
   topK?: number;
+  compact?: boolean;
+  maxScenarios?: number;
 }
 
 // 情景标签对应的图标和颜色
@@ -239,7 +241,14 @@ function StateSummary({ target }: { target: StateScenarioResponse['target'] }) {
   );
 }
 
-export default function ScenarioPanel({ symbol, timeframe = '1d', windowDays = 30, topK = 100 }: Props) {
+export default function ScenarioPanel({ 
+  symbol, 
+  timeframe = '1d', 
+  windowDays = 30, 
+  topK = 100,
+  compact = false,
+  maxScenarios = 3
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StateScenarioResponse | null>(null);
@@ -282,6 +291,71 @@ export default function ScenarioPanel({ symbol, timeframe = '1d', windowDays = 3
   useEffect(() => {
     loadScenarios();
   }, [symbol, loadScenarios]);
+
+  if (compact) {
+    return (
+      <div className="bg-muted/30 rounded-lg p-3 border border-border/50 h-full flex flex-col">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-medium flex items-center gap-2 cursor-help" title="基于当前市场状态（价格趋势、波动率、注意力）寻找历史相似时刻，统计这些时刻后的价格走势分布">
+            <Activity className="w-4 h-4 text-primary" />
+            Scenario Analysis
+          </h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={loadScenarios}
+            disabled={loading}
+            className="h-6 px-2 text-xs gap-1 hover:bg-background"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? '分析中...' : '刷新'}
+          </Button>
+        </div>
+
+        <div className="flex-1 min-h-[200px]">
+          {/* 加载状态 */}
+          {loading && !data && (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-xs text-muted-foreground">分析中...</p>
+              </div>
+            </div>
+          )}
+
+          {/* 错误状态 */}
+          {error && (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                <p className="text-xs text-red-500 mb-2">{error}</p>
+                <Button variant="outline" size="sm" onClick={loadScenarios} className="h-7 text-xs">
+                  重试
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 数据展示 */}
+          {data && !loading && (
+            <div className="h-full flex flex-col">
+              {data.scenarios.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 h-full">
+                  {data.scenarios.slice(0, maxScenarios).map((scenario) => (
+                    <ScenarioCard key={scenario.label} scenario={scenario} />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                  暂无足够的历史数据进行情景分析
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Card>

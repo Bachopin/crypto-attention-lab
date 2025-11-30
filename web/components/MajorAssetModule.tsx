@@ -374,6 +374,8 @@ function MajorAssetModuleComponent({
                 timeframe={timeframe}
                 windowDays={30}
                 topK={100}
+                compact={true}
+                maxScenarios={3}
               />
             </div>
           </>
