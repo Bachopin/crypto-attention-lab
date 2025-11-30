@@ -126,14 +126,35 @@ POST /api/auto-update/remove
 
 ## ⚙️ **配置参数**
 
-所有更新相关的配置都在 `src/config/settings.py` 中：
+所有更新相关的配置都在 `src/config/settings.py` 和 `src/services/precomputation_service.py` 中：
 
+### 基础配置 (`settings.py`)
 | 参数 | 默认值 | 环境变量 | 说明 |
 |------|--------|----------|------|
 | `PRICE_UPDATE_INTERVAL` | 600s (10min) | `PRICE_UPDATE_INTERVAL` | 价格更新周期 |
 | `FEATURE_UPDATE_COOLDOWN` | 3600s (1h) | `FEATURE_UPDATE_COOLDOWN` | 特征值更新冷却期 |
 | `GOOGLE_TRENDS_COOLDOWN` | 43200s (12h) | `GOOGLE_TRENDS_COOLDOWN` | Google Trends 更新冷却期 |
 | `ROLLING_WINDOW_CONTEXT_DAYS` | 45 | - | 增量计算保留的上下文天数 |
+
+### 预计算配置 (`precomputation_service.py`)
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `EVENT_PERFORMANCE_COOLDOWN_HOURS` | 12h | 事件表现统计更新冷却期 |
+| `SNAPSHOT_COOLDOWN['1d']` | 24h | 日线状态快照更新冷却期 |
+| `SNAPSHOT_COOLDOWN['4h']` | 4h | 4小时状态快照更新冷却期 |
+| `DEFAULT_LOOKAHEAD_DAYS` | [1,3,5,10] | 事件表现默认前瞻天数 |
+| `DEFAULT_SNAPSHOT_WINDOW` | 30 | 状态快照默认窗口天数 |
+
+### 🕐 **冷却期总览**
+| 数据类型 | 冷却期 | 更新策略 | 触发时机 |
+|---------|-------|---------|---------|
+| 价格数据 | 无 | 增量（3-7天） | 每 10 分钟 |
+| 特征值 | 1h | 增量 | 价格更新后 |
+| Google Trends | 12h | 增量 | 特征值更新时 |
+| 新闻数据 | 无 | 全局拉取 | 每 1 小时 |
+| event_performance | 12h | 全量重算 | 特征值更新后 |
+| state_snapshots (1d) | 24h | 增量 | 特征值更新后 |
+| state_snapshots (4h) | 4h | 增量 | 特征值更新后 |
 
 ---
 
