@@ -11,6 +11,8 @@ PROJECT_ROOT=$(pwd)
 # 设置 NO_PROXY 避免本地通信走代理
 export NO_PROXY="localhost,127.0.0.1,0.0.0.0,host.docker.internal,*.local"
 export no_proxy="$NO_PROXY"
+# 确保 Python 能找到项目根（避免从子目录启动报 ModuleNotFoundError: src）
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH}"
 
 # Colors for terminal output
 GREEN='\033[0;32m'
@@ -68,6 +70,7 @@ trap cleanup SIGINT SIGTERM
 # Start FastAPI backend in background
 echo -e "${GREEN}[1/2] 启动 FastAPI 后端...${NC}"
 uvicorn src.api.main:app \
+    --app-dir "$PROJECT_ROOT" \
     --host 0.0.0.0 \
     --port 8000 \
     --reload &

@@ -15,7 +15,7 @@
 ```bash
 ./scripts/api.sh
 # 或者直接使用 uvicorn
-uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+PYTHONPATH=$(pwd) uvicorn src.api.main:app --app-dir "$(pwd)" --reload --host 0.0.0.0 --port 8000
 ```
 
 ### 3. 仅前端模式 (Frontend Only)
@@ -55,6 +55,16 @@ pkill -f "next-server"
 ```
 
 ## 故障排除
+### 后端启动报 `ModuleNotFoundError: No module named 'src'`
+
+原因：当前工作目录不在项目根，或 Python 路径未包含项目根。
+
+解决：
+```bash
+export PYTHONPATH=$(pwd)
+uvicorn src.api.main:app --app-dir "$(pwd)" --reload --host 0.0.0.0 --port 8000
+```
+或使用脚本：`./scripts/api.sh`、`./scripts/dev.sh`（已内置修复）。
 
 ### 1. 端口被占用
 错误信息: `Address already in use`

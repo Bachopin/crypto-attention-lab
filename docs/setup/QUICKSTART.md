@@ -59,6 +59,20 @@ cp web/.env.example web/.env.local
 - 打开浏览器访问 [http://localhost:3000](http://localhost:3000)
 - 查看 API 文档 [http://localhost:8000/docs](http://localhost:8000/docs)
 
+### 仅后端快速启动（可选）
+如果你只想启动后端：
+```bash
+./scripts/api.sh
+```
+或者手动（确保加入项目根路径以避免 `ModuleNotFoundError: src`）：
+```bash
+PYTHONPATH=$(pwd) uvicorn src.api.main:app \
+	--app-dir "$(pwd)" \
+	--reload \
+	--host 0.0.0.0 \
+	--port 8000
+```
+
 ## 5. 常见问题
 
 - **端口冲突**: 确保 3000 和 8000 端口未被占用。

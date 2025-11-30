@@ -5,6 +5,7 @@
 
 # Change to project root directory
 cd "$(dirname "$0")/.."
+PROJECT_ROOT=$(pwd)
 
 # Colors
 GREEN='\033[0;32m'
@@ -55,4 +56,11 @@ echo ""
 echo -e "${YELLOW}按 Ctrl+C 停止服务${NC}"
 echo ""
 
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+# 确保无论从何处启动都能找到项目根（避免 ModuleNotFoundError: src）
+export PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH}"
+
+uvicorn src.api.main:app \
+    --app-dir "$PROJECT_ROOT" \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --reload
