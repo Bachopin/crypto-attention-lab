@@ -74,10 +74,13 @@ const CATEGORIES = ['基础', '价格', '注意力', '新闻', '研究', '管理
 const REALTIME_TEST_SYMBOLS = ['BTC', 'ETH', 'SOL', 'BNB']
 
 // 更新频率配置（与实际实现保持一致）
+// 参考：docs/backend/AUTO_UPDATE_MECHANISM.md
 const UPDATE_INTERVALS = [
   { name: '实时价格', source: 'WebSocket', interval: '实时推送', description: 'Dashboard SummaryCard 价格' },
-  { name: 'K线/注意力', source: 'REST API', interval: '5 分钟', description: 'Dashboard 和 Market Overview 数据' },
-  { name: '新闻数据', source: 'REST API', interval: '30 分钟', description: 'News Radar 雷达图数据' },
+  { name: '价格数据', source: 'REST API', interval: '10 分钟', description: 'K线数据，多标的错峰更新' },
+  { name: '特征值', source: 'REST API', interval: '1 小时冷却', description: '注意力分数等特征值计算' },
+  { name: 'Google Trends', source: 'REST API', interval: '12 小时冷却', description: '热度趋势数据' },
+  { name: '新闻数据', source: 'REST API', interval: '1 小时', description: '全局新闻抓取' },
 ]
 
 const MAX_BODY_LENGTH = 1500
@@ -369,19 +372,19 @@ function RealtimeUpdateTestSection() {
     isUpdating: boolean
   }>({ lastUpdate: null, countdown: 0, isUpdating: false })
   
-  // 模拟 5 分钟倒计时（展示自动刷新机制）
+  // 模拟 10 分钟倒计时（与实际 PRICE_UPDATE_INTERVAL 一致）
   useEffect(() => {
     const interval = setInterval(() => {
       setRestTestResults(prev => {
         if (prev.countdown <= 0) {
-          return { ...prev, countdown: 300, lastUpdate: new Date(), isUpdating: false }
+          return { ...prev, countdown: 600, lastUpdate: new Date(), isUpdating: false }
         }
         return { ...prev, countdown: prev.countdown - 1 }
       })
     }, 1000)
     
     // 初始化
-    setRestTestResults({ lastUpdate: new Date(), countdown: 300, isUpdating: false })
+    setRestTestResults({ lastUpdate: new Date(), countdown: 600, isUpdating: false })
     
     return () => clearInterval(interval)
   }, [])
@@ -491,7 +494,7 @@ function RealtimeUpdateTestSection() {
           <div className="flex items-center gap-4 p-3 bg-muted/30 rounded-md">
             <Clock className="w-5 h-5 text-primary" />
             <div className="flex-1">
-              <p className="text-sm font-medium">下次 K线/注意力数据刷新</p>
+              <p className="text-sm font-medium">下次价格数据刷新周期</p>
               <p className="text-xs text-muted-foreground">
                 上次更新: {restTestResults.lastUpdate?.toLocaleTimeString() || '未知'}
               </p>
@@ -503,6 +506,9 @@ function RealtimeUpdateTestSection() {
               <p className="text-xs text-muted-foreground">剩余时间</p>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            💡 多标的采用<strong>错峰更新</strong>策略：间隔 = (10min × 0.8) / 标的数量
+          </p>
         </div>
       </CardContent>
     </Card>
