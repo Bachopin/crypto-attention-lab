@@ -29,6 +29,7 @@ _SYMBOL_NAME_CACHE_TIME: Optional[datetime] = None
 _CACHE_TTL_SECONDS = 3600  # 缓存 1 小时
 
 
+
 def fetch_symbol_aliases_from_coingecko(symbol: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     从 CoinGecko 获取代币的名称和别名
@@ -80,6 +81,143 @@ def fetch_symbol_aliases_from_coingecko(symbol: str) -> Tuple[Optional[str], Opt
     except Exception as e:
         logger.warning(f"从 CoinGecko 获取 {symbol} 信息失败: {e}")
         return None, None, None
+
+
+def fetch_symbol_aliases_from_binance(symbol: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    备用方案1：从 Binance 获取代币基本信息（现货 + 合约）
+    
+    Binance 不提供完整的代币名称，但可以验证代币是否存在
+    
+    Args:
+        symbol: 代币符号 (如 'BTC')
+        
+    Returns:
+        (name, aliases_str) 或 (None, None) 如果失败
+    """
+    symbol_upper = symbol.upper()
+    
+    # 尝试现货
+    try:
+        url = "https://api.binance.com/api/v3/exchangeInfo"
+        resp = requests.get(url, params={"symbol": f"{symbol_upper}USDT"}, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            symbols_info = data.get('symbols', [])
+            if symbols_info:
+                base_asset = symbols_info[0].get('baseAsset', symbol_upper)
+                aliases = set([base_asset, base_asset.lower()])
+                aliases_str = ','.join(sorted(aliases))
+                logger.info(f"从 Binance Spot 获取到 {symbol} 的信息")
+                return base_asset, aliases_str
+    except Exception as e:
+        logger.debug(f"从 Binance Spot 获取 {symbol} 信息失败: {e}")
+    
+    # 尝试合约
+    try:
+        url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+        resp = requests.get(url, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            symbols_info = data.get('symbols', [])
+            for sym_info in symbols_info:
+                if sym_info.get('symbol') == f"{symbol_upper}USDT":
+                    base_asset = sym_info.get('baseAsset', symbol_upper)
+                    aliases = set([base_asset, base_asset.lower()])
+                    aliases_str = ','.join(sorted(aliases))
+                    logger.info(f"从 Binance Futures 获取到 {symbol} 的信息")
+                    return base_asset, aliases_str
+    except Exception as e:
+        logger.debug(f"从 Binance Futures 获取 {symbol} 信息失败: {e}")
+    
+    return None, None
+
+
+def fetch_symbol_aliases_from_cryptocompare(symbol: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    备用方案2：从 CryptoCompare 获取代币名称和别名
+    
+    CryptoCompare 提供代币全名，且限流较宽松
+    
+    Args:
+        symbol: 代币符号 (如 'BTC')
+        
+    Returns:
+        (name, cryptocompare_id, aliases_str) 或 (None, None, None) 如果失败
+    """
+    try:
+        # CryptoCompare 的代币信息 API
+        url = "https://min-api.cryptocompare.com/data/all/coinlist"
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        coins = data.get('Data', {})
+        symbol_upper = symbol.upper()
+        
+        if symbol_upper in coins:
+            coin = coins[symbol_upper]
+            name = coin.get('CoinName') or coin.get('FullName') or symbol_upper
+            cc_id = coin.get('Id', '')
+            
+            # 生成别名
+            aliases = set()
+            aliases.add(name)
+            aliases.add(name.lower())
+            if ' ' in name:
+                aliases.add(name.replace(' ', ''))
+                aliases.add(name.replace(' ', '-'))
+            
+            aliases_str = ','.join(sorted(aliases))
+            
+            logger.info(f"从 CryptoCompare 获取到 {symbol} 的信息: name={name}")
+            return name, cc_id, aliases_str
+        
+        logger.debug(f"CryptoCompare 未找到代币: {symbol}")
+        return None, None, None
+        
+    except Exception as e:
+        logger.warning(f"从 CryptoCompare 获取 {symbol} 信息失败: {e}")
+        return None, None, None
+
+
+def fetch_symbol_aliases_with_fallback(symbol: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    获取代币别名（带备用方案）
+    
+    尝试顺序：
+    1. CoinGecko（最完整）
+    2. CryptoCompare（备用，限流宽松）
+    3. Binance（验证存在性）
+    
+    Args:
+        symbol: 代币符号
+        
+    Returns:
+        (name, source_id, aliases_str) 或使用符号本身作为兜底
+    """
+    symbol_upper = symbol.upper()
+    
+    # 方案1: CoinGecko
+    name, cg_id, aliases = fetch_symbol_aliases_from_coingecko(symbol)
+    if name and aliases:
+        return name, cg_id, aliases
+    
+    # 方案2: CryptoCompare
+    name, cc_id, aliases = fetch_symbol_aliases_from_cryptocompare(symbol)
+    if name and aliases:
+        return name, cc_id, aliases
+    
+    # 方案3: Binance（仅验证存在性）
+    name, aliases = fetch_symbol_aliases_from_binance(symbol)
+    if name and aliases:
+        return name, None, aliases
+    
+    # 兜底：使用符号本身
+    logger.warning(f"所有 API 均无法获取 {symbol} 的信息，使用符号本身作为别名")
+    return symbol_upper, None, f"{symbol_upper},{symbol.lower()}"
 
 
 def get_symbol_name_map(engine=None, symbols_filter: List[str] = None) -> Dict[str, List[str]]:
@@ -241,33 +379,34 @@ class DatabaseStorage:
             logger.debug("Could not update NULL timeframes: %s", exc)
     
     def get_or_create_symbol(self, session, symbol: str, name: str = None, category: str = None) -> Symbol:
-        """获取或创建币种记录，如果是新代币且没有别名则从网络获取"""
+        """获取或创建币种记录，如果是新代币且没有别名则从网络获取（带备用方案）"""
         sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
         if not sym:
-            # 新代币，尝试从 CoinGecko 获取信息
-            fetched_name, coingecko_id, aliases = fetch_symbol_aliases_from_coingecko(symbol)
+            # 新代币，尝试从多个来源获取信息（带备用方案）
+            fetched_name, source_id, aliases = fetch_symbol_aliases_with_fallback(symbol)
             
             sym = Symbol(
                 symbol=symbol.upper(),
                 name=name or fetched_name or symbol,
                 category=category,
-                coingecko_id=coingecko_id,
+                coingecko_id=source_id,  # 可能是 CoinGecko ID 或其他来源 ID
                 aliases=aliases
             )
             session.add(sym)
             session.commit()
             logger.info(f"创建新代币: {symbol.upper()}, name={sym.name}, aliases={aliases}")
         elif not sym.aliases:
-            # 已存在但没有别名，尝试补充
-            fetched_name, coingecko_id, aliases = fetch_symbol_aliases_from_coingecko(symbol)
+            # 已存在但没有别名，尝试补充（带备用方案）
+            fetched_name, source_id, aliases = fetch_symbol_aliases_with_fallback(symbol)
             if aliases:
                 sym.aliases = aliases
-                if not sym.coingecko_id and coingecko_id:
-                    sym.coingecko_id = coingecko_id
+                if not sym.coingecko_id and source_id:
+                    sym.coingecko_id = source_id
                 if fetched_name and (not sym.name or sym.name == symbol.upper()):
                     sym.name = fetched_name
                 session.commit()
                 logger.info(f"更新代币别名: {symbol.upper()}, aliases={aliases}")
+        return sym
         return sym
     
     def save_news(self, news_records: List[dict]):
