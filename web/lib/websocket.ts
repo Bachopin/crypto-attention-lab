@@ -59,9 +59,9 @@ const WS_BASE_URL = getWebSocketBaseUrl();
 
 // 配置
 const WS_CONFIG = {
-  maxReconnectAttempts: 10,
-  initialReconnectDelay: 1000,
-  maxReconnectDelay: 30000,
+  maxReconnectAttempts: 20,        // 增加重连次数
+  initialReconnectDelay: 500,      // 缩短初始延迟
+  maxReconnectDelay: 10000,        // 缩短最大延迟（10秒）
   pingInterval: 30000,
   connectionTimeout: 5000,
 };
@@ -205,7 +205,10 @@ class WebSocketManager {
 
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[WebSocket] Max reconnect attempts reached');
+      console.error('[WebSocket] Max reconnect attempts reached, will retry on user interaction');
+      // 重置状态，允许用户交互时重新尝试
+      this.reconnectAttempts = 0;
+      this.reconnectDelay = WS_CONFIG.initialReconnectDelay;
       return;
     }
 
@@ -216,8 +219,8 @@ class WebSocketManager {
       this.connect();
     }, this.reconnectDelay);
 
-    // 指数退避
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
+    // 指数退避，但使用较小的倍数
+    this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, WS_CONFIG.maxReconnectDelay);
   }
 
   private startPing(): void {

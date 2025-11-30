@@ -65,6 +65,24 @@ async def scheduled_price_update():
     await updater.run()
 
 
+async def warmup_binance_websocket():
+    """
+    预热 Binance WebSocket 连接
+    在服务启动时预先连接，减少客户端首次订阅的延迟
+    """
+    await asyncio.sleep(2)  # 等待服务器完全就绪
+    
+    try:
+        ws_manager = get_ws_manager()
+        # 预订阅主流币种
+        major_symbols = ['BTC', 'ETH', 'BNB', 'SOL']
+        for symbol in major_symbols:
+            await ws_manager._ensure_binance_subscription(symbol)
+        logger.info(f"[WebSocket] Pre-warmed Binance subscriptions for {major_symbols}")
+    except Exception as e:
+        logger.warning(f"[WebSocket] Failed to pre-warm Binance WebSocket: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -74,17 +92,20 @@ async def lifespan(app: FastAPI):
     # 启动后台任务
     news_task = asyncio.create_task(scheduled_news_update())
     price_task = asyncio.create_task(scheduled_price_update())
+    warmup_task = asyncio.create_task(warmup_binance_websocket())
     
     logger.info("[Scheduler] Background tasks started (with startup delay to ensure server readiness)")
     logger.info("[Scheduler] Price update starts in 10s, News update starts in 30s")
     logger.info("[Scheduler] Attention features will be calculated automatically after price updates")
     logger.info("[WebSocket] Real-time WebSocket endpoints available at /ws/price and /ws/attention")
+    logger.info("[WebSocket] Binance WebSocket will pre-warm in 2s")
     
     yield
     
     # 关闭时取消任务
     news_task.cancel()
     price_task.cancel()
+    warmup_task.cancel()
     
     # 停止 WebSocket 管理器
     try:
