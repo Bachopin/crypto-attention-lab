@@ -354,29 +354,20 @@ def _fetch_twitter_data(
     """
     实际获取 Twitter 数据的内部函数
     
-    尝试顺序：
-    1. Twitter API（如果配置了 Bearer Token）
-    2. CoinGecko followers 数据 + 智能估算
-    3. 高质量 mock 数据（兜底）
-    """
-    fetched = pd.DataFrame()
+    策略：
+    1. 尝试 Twitter API（如果配置了 Bearer Token）
+    2. 如果 API 不可用，返回空 DataFrame（特征值计算会将其视为 0）
     
+    注意：不再使用 mock 数据，避免误导分析结果
+    """
     # 方法 A：尝试 Twitter API
     fetched = _request_counts(cfg.twitter_query, start, end + pd.Timedelta(days=1), granularity)
     
     if fetched.empty:
-        # 方法 B：尝试基于 CoinGecko followers 的估算
-        logger.info(f"Twitter API not available for {symbol}, trying CoinGecko-based estimation...")
-        
-        followers = _fetch_coingecko_followers(symbol)
-        
-        if followers > 0:
-            logger.info(f"Using CoinGecko followers data for {symbol}")
-            fetched = _generate_volume_from_followers(symbol, followers, start, end)
-        else:
-            # 方法 C：使用高质量 mock 数据
-            logger.info(f"CoinGecko data not available for {symbol}, using intelligent fallback")
-            fetched = _generate_fallback_volume(symbol, start, end)
+        logger.info(f"Twitter API not available for {symbol}, returning empty data (will be treated as 0)")
+        # 不再生成 mock 数据，返回空 DataFrame
+        # 特征值计算模块会正确处理空数据，将 twitter_volume 设为 0
+        return pd.DataFrame()
     else:
         logger.info(f"Successfully fetched Twitter data via API for {symbol}")
     

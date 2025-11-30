@@ -1,8 +1,10 @@
 """
 Service layer for attention features.
 Orchestrates data loading, calculation, and persistence.
+Supports both full and incremental calculation modes.
 """
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import pandas as pd
 
@@ -11,6 +13,7 @@ from src.data.google_trends_fetcher import get_google_trends_series
 from src.data.twitter_attention_fetcher import get_twitter_volume_series
 from src.features.calculators import calculate_composite_attention
 from src.features.event_detectors import detect_attention_spikes, AttentionEvent
+from src.config.settings import ROLLING_WINDOW_CONTEXT_DAYS
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -149,3 +152,165 @@ class AttentionService:
                 logger.error(f"Failed to persist attention features: {exc}")
                 
         return result_df
+
+    @staticmethod
+    def update_attention_features_incremental(
+        symbol: str,
+        freq: str = 'D',
+        save_to_db: bool = True,
+        force_google_trends: bool = False
+    ) -> Optional[pd.DataFrame]:
+        """
+        增量计算注意力特征
+        
+        策略：
+        1. 检查数据库中最新的特征时间戳
+        2. 仅加载该时间戳之后的新数据
+        3. 保留滚动窗口所需的历史上下文（用于 z-score 等计算）
+        4. 仅追加保存新计算的特征（避免全量 upsert）
+        
+        Args:
+            symbol: Symbol name (e.g., 'ZEC')
+            freq: Frequency ('D' or '4H')
+            save_to_db: Whether to persist results
+            force_google_trends: 是否强制更新 Google Trends（受冷却期控制）
+            
+        Returns:
+            DataFrame with newly calculated features, or None if no new data.
+        """
+        symbol = symbol.upper()
+        freq = freq.upper()
+        
+        logger.info(f"[Incremental] Processing attention features for {symbol} (freq={freq})")
+        
+        # 1. 获取数据库中最新的特征时间戳
+        db = get_db() if USE_DATABASE else None
+        latest_feature_dt = None
+        
+        if db:
+            try:
+                latest_feature_dt = db.get_latest_attention_datetime(symbol, freq)
+            except Exception as e:
+                logger.warning(f"Failed to get latest attention datetime: {e}")
+        
+        # 2. 加载价格数据确定完整时间范围
+        price_data = load_price_data(symbol, timeframe='1d')
+        if isinstance(price_data, tuple):
+            price_df, _ = price_data
+        else:
+            price_df = price_data
+            
+        if price_df is None or price_df.empty:
+            logger.error(f"No price data available for {symbol}")
+            return None
+            
+        # 处理时间列
+        if 'timestamp' in price_df.columns:
+            price_df['datetime'] = pd.to_datetime(price_df['timestamp'], unit='ms', utc=True)
+        elif 'date' not in price_df.columns and 'datetime' not in price_df.columns:
+            logger.error(f"Price data for {symbol} has no datetime column")
+            return None
+            
+        date_col = 'datetime' if 'datetime' in price_df.columns else 'date'
+        price_df[date_col] = pd.to_datetime(price_df[date_col], utc=True)
+        
+        price_max_dt = price_df[date_col].max()
+        price_min_dt = price_df[date_col].min()
+        
+        # 3. 确定增量计算范围
+        if latest_feature_dt is None:
+            # 首次计算，使用全量模式
+            logger.info(f"[Incremental] No existing features for {symbol}, running full calculation")
+            return AttentionService.update_attention_features(symbol, freq, save_to_db)
+        
+        latest_feature_dt = pd.to_datetime(latest_feature_dt, utc=True)
+        
+        # 检查是否有新数据
+        if latest_feature_dt >= price_max_dt:
+            logger.info(f"[Incremental] {symbol} is up-to-date (latest: {latest_feature_dt.date()})")
+            # 返回最近的特征数据用于 WebSocket 广播
+            if db:
+                return db.get_attention_features(symbol, start=latest_feature_dt, timeframe=freq)
+            return None
+        
+        # 计算需要的数据范围
+        # 起始时间 = 最新特征时间 - 滚动窗口天数（用于 z-score 上下文）
+        context_start = latest_feature_dt - timedelta(days=ROLLING_WINDOW_CONTEXT_DAYS)
+        context_start = max(context_start, price_min_dt)
+        
+        # 新数据起始时间 = 最新特征时间的下一天
+        new_data_start = latest_feature_dt + timedelta(days=1)
+        
+        logger.info(
+            f"[Incremental] {symbol}: calculating from {new_data_start.date()} to {price_max_dt.date()} "
+            f"(context from {context_start.date()})"
+        )
+        
+        # 4. 加载所需范围的价格数据
+        price_df_subset = price_df[price_df[date_col] >= context_start].copy()
+        
+        if price_df_subset.empty:
+            logger.warning(f"No price data in calculation range for {symbol}")
+            return None
+        
+        # 5. 加载新闻数据（仅新数据范围，因为新闻不需要滚动上下文）
+        news_df = load_news_data(symbol, start=new_data_start, end=price_max_dt)
+        
+        # 6. 加载 Google Trends（根据 force_google_trends 决定）
+        google_trends_df = None
+        if force_google_trends:
+            try:
+                # 需要包含上下文范围
+                gt_start = context_start - pd.Timedelta(days=7)
+                google_trends_df = get_google_trends_series(symbol, gt_start, price_max_dt)
+                logger.info(f"[Incremental] Google Trends updated for {symbol}")
+            except Exception as e:
+                logger.warning(f"Failed to load Google Trends for {symbol}: {e}")
+        else:
+            # 使用缓存的 Google Trends 数据
+            try:
+                gt_start = context_start - pd.Timedelta(days=7)
+                # force_refresh=False 会使用缓存
+                google_trends_df = get_google_trends_series(symbol, gt_start, price_max_dt, force_refresh=False)
+            except Exception as e:
+                logger.warning(f"Failed to load cached Google Trends for {symbol}: {e}")
+        
+        # 7. Twitter Volume（当前为占位实现，返回 0）
+        twitter_volume_df = None
+        try:
+            twitter_volume_df = get_twitter_volume_series(symbol, context_start, price_max_dt)
+        except Exception as e:
+            logger.debug(f"Twitter volume not available for {symbol}: {e}")
+        
+        # 8. 计算特征（使用完整上下文范围）
+        result_df = calculate_composite_attention(
+            symbol=symbol,
+            price_df=price_df_subset,
+            news_df=news_df,
+            google_trends_df=google_trends_df,
+            twitter_volume_df=twitter_volume_df,
+            freq=freq
+        )
+        
+        if result_df is None or result_df.empty:
+            logger.warning(f"Calculation returned empty result for {symbol}")
+            return None
+        
+        # 9. 仅保留新数据部分（去掉上下文窗口部分）
+        result_df['datetime'] = pd.to_datetime(result_df['datetime'], utc=True)
+        new_features_df = result_df[result_df['datetime'] >= new_data_start].copy()
+        
+        if new_features_df.empty:
+            logger.info(f"[Incremental] No new features calculated for {symbol}")
+            return result_df.tail(1)  # 返回最新一条用于广播
+        
+        # 10. 保存新特征
+        if USE_DATABASE and save_to_db and db:
+            try:
+                db.save_attention_features(symbol, new_features_df.to_dict('records'), timeframe=freq)
+                logger.info(f"[Incremental] Saved {len(new_features_df)} new attention rows for {symbol}")
+            except Exception as exc:
+                logger.error(f"Failed to persist incremental attention features: {exc}")
+        
+        return new_features_df
+

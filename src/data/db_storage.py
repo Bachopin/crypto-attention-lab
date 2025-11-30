@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict
 import logging
-from sqlalchemy import and_, or_, inspect, text
+from sqlalchemy import and_, or_, inspect, text, func
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
@@ -699,6 +699,41 @@ class DatabaseStorage:
                 'composite_attention_zscore': f.composite_attention_zscore,
                 'composite_attention_spike_flag': f.composite_attention_spike_flag,
             } for f in results])
+        finally:
+            session.close()
+
+    def get_latest_attention_datetime(self, symbol: str, timeframe: str = 'D') -> Optional[datetime]:
+        """
+        获取指定标的的最新注意力特征时间戳
+        
+        用于增量计算时确定起始时间
+        
+        Parameters
+        ----------
+        symbol : str
+            加密货币符号
+        timeframe : str
+            时间频率，默认 'D'
+            
+        Returns
+        -------
+        Optional[datetime]
+            最新记录的时间戳，如果无记录则返回 None
+        """
+        session = get_session(self.engine)
+        try:
+            sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
+            if not sym:
+                return None
+            
+            result = session.query(func.max(AttentionFeature.datetime)).filter(
+                and_(
+                    AttentionFeature.symbol_id == sym.id,
+                    AttentionFeature.timeframe == timeframe
+                )
+            ).scalar()
+            
+            return result
         finally:
             session.close()
 

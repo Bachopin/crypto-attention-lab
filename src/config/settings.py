@@ -6,6 +6,21 @@ from src.config.attention_channels import SYMBOL_ATTENTION_CONFIG
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
+# ==================================
+# 更新调度配置
+# ==================================
+# 价格更新间隔（秒）- 最小粒度 15min，10分钟更新足够
+PRICE_UPDATE_INTERVAL = int(os.getenv("PRICE_UPDATE_INTERVAL", 600))  # 10分钟
+
+# 特征值更新冷却期（秒）- 计算开销较大，1小时一次
+FEATURE_UPDATE_COOLDOWN = int(os.getenv("FEATURE_UPDATE_COOLDOWN", 3600))  # 1小时
+
+# Google Trends 更新冷却期（秒）- API 限流严格，12小时一次
+GOOGLE_TRENDS_COOLDOWN = int(os.getenv("GOOGLE_TRENDS_COOLDOWN", 43200))  # 12小时
+
+# 增量计算所需的滚动窗口天数（用于 z-score 等计算）
+ROLLING_WINDOW_CONTEXT_DAYS = 45  # 保留45天上下文用于30天滚动窗口
+
 # 数据目录
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"

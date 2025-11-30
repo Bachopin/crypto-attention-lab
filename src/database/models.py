@@ -27,6 +27,8 @@ class Symbol(Base):
     # 自动更新配置
     auto_update_price = Column(Boolean, default=False)  # 是否自动更新价格
     last_price_update = Column(DateTime(timezone=True))  # 最后一次价格更新时间
+    last_attention_update = Column(DateTime(timezone=True))  # 最后一次特征值更新时间
+    last_google_trends_update = Column(DateTime(timezone=True))  # 最后一次 Google Trends 更新时间
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

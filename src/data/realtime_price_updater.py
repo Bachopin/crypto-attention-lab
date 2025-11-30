@@ -1,28 +1,42 @@
 #!/usr/bin/env python3
 """
 实时价格更新服务
-支持配置自动更新的标的列表，定期（1-2分钟）抓取最新价格数据
+
+更新策略：
+- 价格更新：每 10 分钟轮询所有标的（间隔可配置）
+- 多标的错峰：在更新周期内均匀分布各标的的更新时间
+- 特征值更新：价格更新后触发，带 1 小时冷却期
+- Google Trends 更新：特征值更新时触发，带 12 小时冷却期
+
+级联更新链：
+价格更新完成 → 检查特征值冷却期 → 检查 Google Trends 冷却期
 """
 import asyncio
 import logging
+import random
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict
+from typing import List, Dict, Optional
 from src.data.price_fetcher_binance import BinancePriceFetcher
 from src.data.db_storage import get_db, save_price_data
 from src.database.models import Symbol, get_session
+from src.config.settings import (
+    PRICE_UPDATE_INTERVAL,
+    FEATURE_UPDATE_COOLDOWN,
+    GOOGLE_TRENDS_COOLDOWN,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class RealtimePriceUpdater:
-    """实时价格更新器"""
+    """实时价格更新器 - 支持错峰更新和级联触发"""
     
-    def __init__(self, update_interval: int = 120):
+    def __init__(self, update_interval: int = None):
         """
         Args:
-            update_interval: 更新间隔（秒），默认 120 秒（2分钟）
+            update_interval: 更新间隔（秒），默认使用配置文件中的 PRICE_UPDATE_INTERVAL
         """
-        self.update_interval = update_interval
+        self.update_interval = update_interval or PRICE_UPDATE_INTERVAL
         self.fetcher = BinancePriceFetcher()
         self.db = get_db()
         self.is_running = False
@@ -30,34 +44,68 @@ class RealtimePriceUpdater:
     
     def get_auto_update_symbols(self) -> List[Dict]:
         """
-        获取需要自动更新的标的列表
+        获取需要自动更新的标的列表，包含所有更新时间戳
         Returns:
-            [{'symbol': 'BTC', 'last_update': datetime}, ...]
+            [{'symbol': 'BTC', 'last_price_update': datetime, 
+              'last_attention_update': datetime, 'last_google_trends_update': datetime}, ...]
         """
         session = get_session()
         try:
-            # 只需要检查 auto_update_price，不需要额外检查 is_active
             symbols = session.query(Symbol).filter(
                 Symbol.auto_update_price == True
             ).all()
             
             return [{
                 'symbol': s.symbol,
-                'last_update': s.last_price_update
+                'last_update': s.last_price_update,  # 兼容旧代码
+                'last_price_update': s.last_price_update,
+                'last_attention_update': getattr(s, 'last_attention_update', None),
+                'last_google_trends_update': getattr(s, 'last_google_trends_update', None),
             } for s in symbols]
         finally:
             session.close()
     
-    def update_last_price_update(self, symbol: str, timestamp: datetime):
-        """更新标的的最后更新时间"""
+    def update_symbol_timestamps(
+        self, 
+        symbol: str, 
+        price_update: Optional[datetime] = None,
+        attention_update: Optional[datetime] = None,
+        google_trends_update: Optional[datetime] = None
+    ):
+        """更新标的的各类更新时间戳"""
         session = get_session()
         try:
             sym = session.query(Symbol).filter_by(symbol=symbol.upper()).first()
             if sym:
-                sym.last_price_update = timestamp
+                if price_update:
+                    sym.last_price_update = price_update
+                if attention_update:
+                    sym.last_attention_update = attention_update
+                if google_trends_update:
+                    sym.last_google_trends_update = google_trends_update
                 session.commit()
         finally:
             session.close()
+    
+    def update_last_price_update(self, symbol: str, timestamp: datetime):
+        """更新标的的最后更新时间（兼容旧接口）"""
+        self.update_symbol_timestamps(symbol, price_update=timestamp)
+    
+    def should_update_attention(self, last_update: Optional[datetime]) -> bool:
+        """检查是否应该更新特征值（冷却期检查）"""
+        if last_update is None:
+            return True
+        now = datetime.now(timezone.utc)
+        elapsed = (now - last_update).total_seconds()
+        return elapsed >= FEATURE_UPDATE_COOLDOWN
+    
+    def should_update_google_trends(self, last_update: Optional[datetime]) -> bool:
+        """检查是否应该更新 Google Trends（冷却期检查）"""
+        if last_update is None:
+            return True
+        now = datetime.now(timezone.utc)
+        elapsed = (now - last_update).total_seconds()
+        return elapsed >= GOOGLE_TRENDS_COOLDOWN
     
     def check_data_completeness(self, symbol: str, timeframe: str, days: int = 500) -> Dict:
         """
@@ -242,7 +290,11 @@ class RealtimePriceUpdater:
     
     async def update_all_symbols(self, force_check_completeness: bool = False):
         """
-        更新所有配置为自动更新的标的，并在价格更新后立即计算 Attention Features
+        更新所有配置为自动更新的标的
+        
+        更新策略：
+        1. 多标的错峰更新：在更新周期内均匀分布各标的的更新时间
+        2. 级联更新：价格 → 特征值（冷却期过滤）→ Google Trends（冷却期过滤）
         
         Args:
             force_check_completeness: 强制检查所有 timeframe 的数据完整性
@@ -255,28 +307,65 @@ class RealtimePriceUpdater:
             logger.info("[Updater] No symbols configured for auto-update")
             return
         
-        logger.info(f"[Updater] Updating {len(symbols)} symbols...")
+        num_symbols = len(symbols)
+        logger.info(f"[Updater] Updating {num_symbols} symbols (interval: {self.update_interval}s)...")
         
-        # 顺序更新（避免并发过多触发限流）
-        for sym_info in symbols:
+        # 计算每个标的之间的间隔时间（错峰更新）
+        # 预留 20% 时间作为缓冲
+        per_symbol_interval = (self.update_interval * 0.8) / max(num_symbols, 1)
+        
+        for idx, sym_info in enumerate(symbols):
             symbol = sym_info['symbol']
-            logger.info(f"[Updater] Processing {symbol}...")
+            last_attention = sym_info.get('last_attention_update')
+            last_google = sym_info.get('last_google_trends_update')
             
-            # 1. 更新价格数据（会自动检查数据完整性）
+            logger.info(f"[Updater] [{idx+1}/{num_symbols}] Processing {symbol}...")
+            
+            # 1. 更新价格数据
             await self.update_single_symbol(symbol, sym_info['last_update'])
             
-            # 2. 立即计算 Attention Features
-            try:
-                logger.info(f"[Updater] Calculating attention features for {symbol}...")
-                attention_df = await asyncio.to_thread(AttentionService.update_attention_features, symbol, freq='D', save_to_db=True)
-                logger.info(f"[Updater] ✅ Attention features updated for {symbol}")
-                
-                # 3. 通过 WebSocket 广播 Attention 更新（如果有订阅者）
-                if attention_df is not None and not attention_df.empty:
-                    await self._broadcast_attention_update(symbol, attention_df)
+            # 2. 检查是否需要更新特征值（冷却期过滤）
+            if self.should_update_attention(last_attention):
+                try:
+                    # 检查是否需要更新 Google Trends（在特征值计算前决定）
+                    need_google_update = self.should_update_google_trends(last_google)
                     
-            except Exception as e:
-                logger.error(f"[Updater] ❌ Failed to calculate attention for {symbol}: {e}")
+                    logger.info(f"[Updater] Calculating attention features for {symbol} (Google Trends: {'yes' if need_google_update else 'skip'})...")
+                    
+                    # 3. 计算特征值（内部会决定是否调用 Google Trends）
+                    attention_df = await asyncio.to_thread(
+                        AttentionService.update_attention_features_incremental,
+                        symbol,
+                        freq='D',
+                        save_to_db=True,
+                        force_google_trends=need_google_update
+                    )
+                    
+                    # 更新时间戳
+                    now = datetime.now(timezone.utc)
+                    self.update_symbol_timestamps(
+                        symbol,
+                        attention_update=now,
+                        google_trends_update=now if need_google_update else None
+                    )
+                    
+                    logger.info(f"[Updater] ✅ Attention features updated for {symbol}")
+                    
+                    # 4. 广播 WebSocket 更新
+                    if attention_df is not None and not attention_df.empty:
+                        await self._broadcast_attention_update(symbol, attention_df)
+                        
+                except Exception as e:
+                    logger.error(f"[Updater] ❌ Failed to calculate attention for {symbol}: {e}")
+            else:
+                cooldown_remaining = FEATURE_UPDATE_COOLDOWN - (datetime.now(timezone.utc) - last_attention).total_seconds() if last_attention else 0
+                logger.debug(f"[Updater] Skipping attention for {symbol} (cooldown: {cooldown_remaining/60:.0f}min remaining)")
+            
+            # 错峰延迟（最后一个标的不需要等待）
+            if idx < num_symbols - 1 and per_symbol_interval > 1:
+                # 添加少量随机性避免完全同步
+                jitter = random.uniform(0, per_symbol_interval * 0.1)
+                await asyncio.sleep(per_symbol_interval + jitter)
         
         logger.info("[Updater] Update cycle completed")
     
@@ -338,8 +427,8 @@ class RealtimePriceUpdater:
 _updater_instance = None
 
 
-def get_realtime_updater(update_interval: int = 120) -> RealtimePriceUpdater:
-    """获取全局实时更新器实例"""
+def get_realtime_updater(update_interval: int = None) -> RealtimePriceUpdater:
+    """获取全局实时更新器实例（默认使用配置文件中的间隔）"""
     global _updater_instance
     if _updater_instance is None:
         _updater_instance = RealtimePriceUpdater(update_interval)
