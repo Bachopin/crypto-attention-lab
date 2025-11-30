@@ -1,211 +1,32 @@
 // ==================== Type Definitions ====================
 
-// 与后端 API 完全对应的类型定义
+// Re-export core models from the new types directory
+export * from '@/types/models';
 
-export interface Candle {
-  timestamp: number;     // Unix timestamp in milliseconds
-  datetime: string;      // ISO 8601 format
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+import { 
+  Candle, 
+  AttentionPoint, 
+  NewsItem, 
+  AttentionEvent, 
+  SummaryStats, 
+  Timeframe, 
+  TopCoinsResponse,
+  TopCoin,
+  BacktestResult,
+  MultiBacktestResult,
+  EventPerformanceTable,
+  NodeInfluenceItem,
+  AttentionRegimeResponse,
+  AttentionRotationResult,
+  StateScenarioResponse,
+  AttentionCondition,
+  NewsTrendPoint,
+  ScenarioSummary,
+  StateSnapshotSummary,
+  EquityPoint
+} from '@/types/models';
 
-export interface AttentionPoint {
-  timestamp: number;
-  datetime: string;
-  attention_score: number;  // 0-100
-  news_count: number;
-  weighted_attention?: number;
-  bullish_attention?: number;
-  bearish_attention?: number;
-  event_intensity?: number; // 0/1
-  // Composite Attention fields (来自多渠道融合)
-  news_channel_score?: number;
-  google_trend_value?: number;
-  google_trend_zscore?: number;
-  twitter_volume?: number;
-  twitter_volume_zscore?: number;
-  composite_attention_score?: number;
-  composite_attention_zscore?: number;
-  composite_attention_spike_flag?: number;
-}
-
-export interface NewsItem {
-  datetime: string;      // ISO 8601 format
-  source: string;
-  title: string;
-  url: string;
-  relevance?: string;
-  source_weight?: number;
-  sentiment_score?: number;
-  tags?: string;
-  symbols?: string;
-  language?: string;
-}
-
-export interface NodeInfluenceItem {
-  symbol: string;
-  node_id: string;
-  n_events: number;
-  mean_excess_return: number;
-  hit_rate: number;
-  ir: number;
-  lookahead: string;
-  lookback_days: number;
-}
-
-// CoinGecko 市值排行数据
-export interface TopCoin {
-  symbol: string;
-  name: string;
-  market_cap_rank: number | null;
-  market_cap: number | null;
-  current_price: number | null;
-  price_change_24h: number | null;
-  image: string;
-  id: string;  // CoinGecko ID
-}
-
-export interface TopCoinsResponse {
-  coins: TopCoin[];
-  count: number;
-  updated_at: string;
-  cache_hit: boolean;
-  stale?: boolean;
-  error?: string;
-}
-
-/**
- * ==========================================================================
- * Regime-Driven Strategy Preset Types
- * 用于研究注意力 Regime 驱动的策略，与后端 AttentionCondition 对齐
- * ==========================================================================
- */
-
-/** 注意力条件，用于定义开仓日期的筛选逻辑 */
-export type AttentionCondition = {
-  source: 'composite' | 'news_channel';
-  regime: 'low' | 'mid' | 'high' | 'custom';
-  lower_quantile?: number | null;
-  upper_quantile?: number | null;
-  lookback_days: number;
-};
-
-/** 策略预设，包含一个可复用的 AttentionCondition 及元数据 */
-export type StrategyPreset = {
-  id: string;
-  name: string;
-  attention_condition: AttentionCondition;
-  // 可预留扩展字段
-};
-
-// Events & Backtest Types
-export interface AttentionEvent {
-  datetime: string;
-  event_type: 'attention_spike' | 'high_weighted_event' | 'high_bullish' | 'high_bearish' | 'event_intensity';
-  intensity: number;
-  summary: string;
-}
-
-export interface BacktestSummary {
-  total_trades: number;
-  win_rate: number; // percentage
-  avg_return: number;
-  cumulative_return: number;
-  max_drawdown: number;
-  /** 若回测时提供了 attention_condition，将在此字段返回 */
-  attention_condition?: AttentionCondition;
-}
-
-export interface BacktestTrade {
-  entry_date: string;
-  exit_date: string;
-  entry_price: number;
-  exit_price: number;
-  return_pct: number;
-}
-
-export interface EquityPoint { datetime: string; equity: number }
-
-export interface BacktestResult {
-  summary: BacktestSummary;
-  trades: BacktestTrade[];
-  equity_curve: EquityPoint[];
-  meta?: {
-    attention_source?: 'legacy' | 'composite';
-    signal_field?: string;
-    attention_condition?: AttentionCondition;
-  };
-}
-
-export interface MultiBacktestResult {
-  per_symbol_summary: Record<string, BacktestSummary | { error: string }>;
-  per_symbol_equity_curves: Record<string, EquityPoint[]>;
-  per_symbol_meta?: Record<string, { attention_source?: 'legacy' | 'composite'; signal_field?: string }>;
-  meta?: {
-    attention_source?: 'legacy' | 'composite';
-    symbols?: string[];
-  };
-}
-
-// Attention Regime Research Types
-export interface AttentionRegimeLookaheadStats {
-  avg_return: number | null;
-  std_return: number | null;
-  pos_ratio: number | null;
-  max_drawdown: number | null;
-  sample_count: number;
-}
-
-export interface AttentionRegimePerLabelStats {
-  sample_count: number;
-  [lookaheadKey: string]: any; // keys like "lookahead_7d" map to AttentionRegimeLookaheadStats
-}
-
-export interface AttentionRegimeSymbolResult {
-  attention_source: string;
-  attention_column: string;
-  split_method: string;
-  labels: string[];
-  regimes: Record<string, AttentionRegimePerLabelStats>;
-  warning?: string;
-}
-
-export interface AttentionRegimeResponse {
-  meta: {
-    symbols: string[];
-    lookahead_days: number[];
-    start?: string | null;
-    end?: string | null;
-  };
-  results: Record<string, AttentionRegimeSymbolResult>;
-}
-
-export type EventPerformanceTable = Record<string, Record<string, {
-  event_type: string;
-  lookahead_days: number;
-  avg_return: number;
-  sample_size: number;
-}>>
-
-// 兼容旧代码的类型别名
-export type PriceCandle = Candle;
-export type AttentionData = AttentionPoint;
-
-export interface SummaryStats {
-  current_price: number;
-  price_change_24h: number; // percentage
-  price_change_24h_abs: number; // absolute value
-  volume_24h: number;
-  current_attention: number;
-  avg_attention_7d: number;
-  news_count_today: number;
-  volatility_30d: number; // percentage
-}
-
-export type Timeframe = '1D' | '4H' | '1H' | '15M';
+// ==================== API Configuration ====================
 
 export interface FetchPriceParams {
   symbol?: string;
@@ -229,6 +50,10 @@ export interface FetchNewsParams {
   limit?: number;
   before?: string;
   source?: string;
+}
+
+export async function fetchSymbols(): Promise<{ symbols: string[] }> {
+  return fetchAPI<{ symbols: string[] }>('/api/symbols');
 }
 
 // ==================== API Configuration ====================
@@ -324,6 +149,20 @@ function buildQueryString(params: Record<string, any>): string {
   return queryString ? `?${queryString}` : '';
 }
 
+// ==================== Error Handling ====================
+
+export class ApiError extends Error {
+  constructor(
+    public message: string,
+    public statusCode?: number,
+    public endpoint?: string,
+    public details?: any
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, useCache = true): Promise<T> {
   const cacheKey = getCacheKey(endpoint, params);
   
@@ -341,18 +180,25 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, u
     const response = await fetch(url);
     
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      let errorMessage = error.detail || `HTTP ${response.status}`;
-      
-      if (typeof errorMessage !== 'string') {
-        errorMessage = JSON.stringify(errorMessage);
+      let errorDetails;
+      try {
+        errorDetails = await response.json();
+      } catch (e) {
+        errorDetails = { detail: response.statusText };
       }
-      
-      throw new Error(errorMessage);
+
+      const message = errorDetails.detail || `Request failed with status ${response.status}`;
+      throw new ApiError(message, response.status, endpoint, errorDetails);
     }
     
     const data = await response.json();
     
+    // 简单的结构检查：如果期望是数组但拿到 null/undefined，抛出错误
+    // 注意：这里无法在运行时完全验证泛型 T，只能做基础防卫
+    if (data === null || data === undefined) {
+       throw new ApiError('API returned empty response', response.status, endpoint);
+    }
+
     // 缓存成功的响应
     if (useCache) {
       setToCache(cacheKey, data);
@@ -360,8 +206,46 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, u
     
     return data;
   } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    // 网络错误或其他 fetch 异常
     console.error(`API request failed: ${url}`, error);
-    throw error;
+    throw new ApiError(error instanceof Error ? error.message : 'Network error', 0, endpoint);
+  }
+}
+
+async function postAPI<T>(endpoint: string, body: any): Promise<T> {
+  const url = buildApiUrl(endpoint);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      let errorDetails;
+      try {
+        errorDetails = await response.json();
+      } catch (e) {
+        errorDetails = { detail: response.statusText };
+      }
+      const message = errorDetails.detail || `Request failed with status ${response.status}`;
+      throw new ApiError(message, response.status, endpoint, errorDetails);
+    }
+
+    const data = await response.json();
+    if (data === null || data === undefined) {
+       throw new ApiError('API returned empty response', response.status, endpoint);
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+    console.error(`API request failed: ${url}`, error);
+    throw new ApiError(error instanceof Error ? error.message : 'Network error', 0, endpoint);
   }
 }
 
@@ -461,17 +345,6 @@ export async function fetchNewsCount(params: FetchNewsParams = {}): Promise<{ to
   return fetchAPI<{ total: number }>('/api/news/count', apiParams);
 }
 
-// 新闻趋势数据点
-export interface NewsTrendPoint {
-  time: string;           // 时间标识，如 "2025-11-28" 或 "2025-11-28T14:00:00Z"
-  count: number;          // 新闻数量
-  /** @deprecated 请使用 attention_score，此字段仅保留向后兼容 */
-  attention: number;      // [已弃用] 原始加权值（source_weight 总和）
-  attention_score: number; // ⭐ 推荐使用：基于 Z-Score 的标准化分数 (0-100)
-  z_score: number;        // 原始 Z-Score
-  avg_sentiment: number;  // 平均情绪
-}
-
 /**
  * Fetch aggregated news trend data
  * GET /api/news/trend?symbol=ALL&start=...&end=...&interval=1d
@@ -504,7 +377,7 @@ export async function fetchAttentionEvents(params: { symbol?: string; start?: st
 }
 
 export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; stop_loss_pct?: number | null; take_profit_pct?: number | null; max_holding_days?: number | null; position_size?: number; attention_source?: 'legacy' | 'composite'; attention_condition?: AttentionCondition | null; start?: string; end?: string } = {}): Promise<BacktestResult> {
-  const body = JSON.stringify({
+  const body = {
     symbol: params.symbol ?? 'ZECUSDT',
     lookback_days: params.lookback_days ?? 30,
     attention_quantile: params.attention_quantile ?? 0.8,
@@ -518,14 +391,8 @@ export async function runBasicAttentionBacktest(params: { symbol?: string; lookb
     attention_condition: params.attention_condition ?? null,
     start: params.start,
     end: params.end,
-  });
-  const url = buildApiUrl('/api/backtest/basic-attention');
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+  };
+  return postAPI<BacktestResult>('/api/backtest/basic-attention', body);
 }
 
 export async function runMultiSymbolBacktest(params: {
@@ -543,7 +410,7 @@ export async function runMultiSymbolBacktest(params: {
   start?: string;
   end?: string;
 }): Promise<MultiBacktestResult> {
-  const body = JSON.stringify({
+  const body = {
     symbols: params.symbols,
     lookback_days: params.lookback_days ?? 30,
     attention_quantile: params.attention_quantile ?? 0.8,
@@ -557,14 +424,8 @@ export async function runMultiSymbolBacktest(params: {
     attention_condition: params.attention_condition ?? null,
     start: params.start,
     end: params.end,
-  });
-  const url = buildApiUrl('/api/backtest/basic-attention/multi');
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+  };
+  return postAPI<MultiBacktestResult>('/api/backtest/basic-attention/multi', body);
 }
 
 export async function fetchAttentionEventPerformance(params: { symbol?: string; lookahead_days?: string } = {}): Promise<EventPerformanceTable> {
@@ -593,7 +454,7 @@ export async function fetchAttentionRegimeAnalysis(params: {
   start?: string;
   end?: string;
 }): Promise<AttentionRegimeResponse> {
-  const body = JSON.stringify({
+  const body = {
     symbols: params.symbols,
     lookahead_days: params.lookahead_days ?? [7, 30],
     attention_source: params.attention_source ?? 'composite',
@@ -601,14 +462,8 @@ export async function fetchAttentionRegimeAnalysis(params: {
     split_quantiles: params.split_quantiles,
     start: params.start,
     end: params.end,
-  });
-  const url = buildApiUrl('/api/research/attention-regimes');
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+  };
+  return postAPI<AttentionRegimeResponse>('/api/research/attention-regimes', body);
 }
 
 /**
@@ -730,50 +585,6 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
 // ==================== Scenario Engine Types ====================
 
 /**
- * 情景摘要结构
- * 描述一种可能的未来走势情景
- */
-export type ScenarioSummary = {
-  label: string;                      // 情景标签: trend_up, spike_and_revert, sideways, trend_down, crash
-  description: string;                // 人类可读描述
-  sample_count: number;               // 样本数量
-  probability: number;                // 相对概率 (0-1)
-  avg_return_3d?: number | null;      // 3 日平均收益
-  avg_return_7d?: number | null;      // 7 日平均收益
-  avg_return_30d?: number | null;     // 30 日平均收益
-  max_drawdown_7d?: number | null;    // 7 日平均最大回撤
-  max_drawdown_30d?: number | null;   // 30 日平均最大回撤
-  avg_path?: number[] | null;         // 平均价格路径（相对起点）
-  sample_details?: any[] | null;      // 样本详情（可选）
-};
-
-/**
- * 状态快照摘要
- */
-export type StateSnapshotSummary = {
-  symbol: string;
-  as_of: string;
-  timeframe: string;
-  window_days: number;
-  features: Record<string, number>;
-  raw_stats: Record<string, any>;
-};
-
-/**
- * 情景分析响应
- */
-export type StateScenarioResponse = {
-  target: StateSnapshotSummary;
-  scenarios: ScenarioSummary[];
-  meta: {
-    total_similar_samples: number;
-    valid_samples_analyzed: number;
-    lookahead_days: number[];
-    message: string;
-  };
-};
-
-/**
  * 获取指定 symbol 的情景分析
  * GET /api/state/scenarios
  */
@@ -806,37 +617,6 @@ export async function fetchStateScenarios(params: {
   return fetchAPI<StateScenarioResponse>('/api/state/scenarios', apiParams);
 }
 
-/**
- * Attention Rotation Backtest Result
- */
-export interface AttentionRotationResult {
-  params: {
-    symbols: string[];
-    attention_source: string;
-    rebalance_days: number;
-    lookback_days: number;
-    top_k: number;
-    start?: string;
-    end?: string;
-  };
-  equity_curve: EquityPoint[];
-  rebalance_log: {
-    rebalance_date: string;
-    selected_symbols: string[];
-    attention_values: Record<string, number>;
-  }[];
-  summary: {
-    total_return: number;
-    annualized_return: number;
-    max_drawdown: number;
-    volatility: number;
-    sharpe: number;
-    num_rebalances: number;
-    start_date: string;
-    end_date: string;
-  };
-}
-
 export async function runAttentionRotationBacktest(params: {
   symbols: string[];
   attention_source?: 'composite' | 'news_channel';
@@ -846,7 +626,7 @@ export async function runAttentionRotationBacktest(params: {
   start?: string;
   end?: string;
 }): Promise<AttentionRotationResult> {
-  const body = JSON.stringify({
+  const body = {
     symbols: params.symbols,
     attention_source: params.attention_source ?? 'composite',
     rebalance_days: params.rebalance_days ?? 7,
@@ -854,12 +634,6 @@ export async function runAttentionRotationBacktest(params: {
     top_k: params.top_k ?? 3,
     start: params.start,
     end: params.end,
-  });
-  const url = buildApiUrl('/api/backtest/attention-rotation');
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+  };
+  return postAPI<AttentionRotationResult>('/api/backtest/attention-rotation', body);
 }

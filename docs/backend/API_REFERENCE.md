@@ -40,6 +40,15 @@ Retrieve historical price data for a specific symbol.
 
 #### Get Latest Price
 `GET /api/price/latest`
+#### Get Top Coins (by market cap)
+`GET /api/top-coins`
+
+Retrieve top coins metadata from CoinGecko proxy.
+
+**Parameters:**
+- `limit` (integer, optional): Default `100`.
+
+---
 
 Retrieve the latest price for a specific symbol.
 
@@ -62,6 +71,28 @@ Retrieve historical attention metrics for a specific symbol.
 
 #### Get Global Attention
 `GET /api/attention/global`
+#### Get Attention Events
+`GET /api/attention-events`
+
+Retrieve detected attention events for a symbol and period.
+
+**Parameters:**
+- `symbol` (string, optional): Default `ZEC`.
+- `start` (string, optional): ISO datetime.
+- `end` (string, optional): ISO datetime.
+- `lookback_days` (integer, optional): Default `30`.
+- `min_quantile` (number, optional): Default `0.8`.
+
+#### Get Attention Event Performance
+`GET /api/attention-events/performance`
+
+Aggregate performance stats around attention events.
+
+**Parameters:**
+- `symbol` (string, optional): Default `ZEC`.
+- `lookahead_days` (string, optional): CSV, e.g. `"1,3,5,10"`.
+
+---
 
 Retrieve global market attention metrics.
 
@@ -126,6 +157,18 @@ Find historical market states that are similar to the current state of a symbol.
 
 #### Scenario Analysis
 `GET /api/state/scenarios`
+#### Node Influence (Carry Factor)
+`GET /api/node-influence`
+
+List high-influence nodes around attention events.
+
+**Parameters:**
+- `symbol` (string, optional)
+- `min_events` (integer, optional): Default `10`
+- `sort_by` (string, optional): `ir` | `mean_excess_return` | `hit_rate` (Default `ir`)
+- `limit` (integer, optional): Default `100`
+
+---
 
 Perform scenario analysis based on similar historical states to project potential future outcomes.
 
@@ -187,6 +230,93 @@ Backtest a portfolio rotation strategy that selects assets based on attention me
   "initial_capital": 10000
 }
 ```
+
+---
+
+### 5. News & Trends
+
+#### Get News
+`GET /api/news`
+
+**Parameters:**
+- `symbol` (string, optional): `ALL` for global
+- `start`, `end` (ISO datetime, optional)
+- `limit` (integer, optional)
+- `before` (ISO datetime, optional)
+- `source` (string, optional)
+
+#### Get News Count
+`GET /api/news/count`
+
+Return only the total count for the given filters.
+
+#### Get News Trend
+`GET /api/news/trend`
+
+Aggregated trend series for news volume and attention scores.
+
+**Parameters:**
+- `symbol` (string, optional): Default `ALL`
+- `start`, `end` (ISO datetime, optional)
+- `interval` (string, optional): `1h` | `1d` (Default `1d`)
+
+---
+
+### 6. WebSocket Endpoints
+
+Base WS URL: `ws://localhost:8000`
+
+#### Realtime Price Stream
+`/ws/price`
+
+Client → Server:
+```json
+{ "action": "subscribe", "symbols": ["BTC", "ETH"] }
+{ "action": "unsubscribe", "symbols": ["BTC"] }
+{ "action": "ping" }
+```
+
+Server → Client:
+```json
+{ "type": "price_update", "symbol": "BTC", "data": { "timestamp": 0, "open": 0, "high": 0, "low": 0, "close": 0, "volume": 0, "is_closed": false } }
+{ "type": "subscribed", "symbols": ["BTC"] }
+{ "type": "pong" }
+{ "type": "error", "message": "..." }
+```
+
+#### Realtime Attention Stream
+`/ws/attention`
+
+Client → Server:
+```json
+{ "action": "subscribe", "symbols": ["BTC"] }
+{ "action": "ping" }
+```
+
+Server → Client:
+```json
+{ "type": "attention_update", "symbol": "BTC", "data": {"timestamp": 0, "attention_score": 0, "news_count": 0} }
+{ "type": "attention_event", "symbol": "BTC", "event": {"event_type": "attention_spike", "intensity": 2, "summary": "..."} }
+```
+
+#### WebSocket Stats (HTTP)
+`GET /api/ws/stats`
+
+Returns current client counts, Binance connection status and subscriptions.
+
+---
+
+### 7. System & Health
+
+#### Health Check
+`GET /health`, `GET /ping`
+
+Return service status and WebSocket connectivity summary.
+
+#### Root
+`GET /`
+
+Lists common endpoints and service metadata.
 
 ---
 

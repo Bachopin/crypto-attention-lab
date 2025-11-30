@@ -28,9 +28,11 @@ crypto-attention-lab/
     │   ├── RealtimePrice.tsx # Live price ticker
     │   └── NewsList.tsx   # News feed
     ├── lib/
-    │   ├── api.ts        # API layer (mock + real)
-    │   ├── websocket.ts  # WebSocket client & React hooks
+    │   ├── api.ts        # API layer (real, with cache + errors)
+    │   ├── websocket.ts  # WebSocket managers & React hooks
+    │   ├── services/     # View-oriented orchestration (NEW)
     │   └── utils.ts      # Utilities
+    ├── types/            # Centralized types (NEW)
     └── README.md         # Full documentation
 ```
 
@@ -158,22 +160,16 @@ def get_news(symbol: str):
 
 ### Step 2: Update Frontend API Calls
 
-In `web/lib/api.ts`, uncomment real API calls:
-
-```typescript
-export async function fetchPrice(params: FetchPriceParams): Promise<PriceCandle[]> {
-  const response = await fetch(
-    `${API_BASE_URL}/price?symbol=${params.symbol}&timeframe=${params.timeframe}`
-  );
-  return await response.json();
-}
-```
+前端默认使用真实 API，并提供轻量缓存与错误处理：
+- 将 `NEXT_PUBLIC_API_BASE_URL` 设置为后端地址（如 `http://localhost:8000`）。
+- 直接使用 `web/lib/api.ts` 中的函数即可（已封装 URL 组装与异常处理）。
 
 ### Step 3: Configure API URL
 
 Create `web/.env.local`:
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000/api
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ```
 
 ## 📊 Component Architecture
@@ -227,8 +223,17 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api
 
 **相关文件**:
 - `web/lib/presets.ts`: `useStrategyPresets()` hook 和 `formatConditionSummary()` 工具函数
-- `web/lib/api.ts`: `AttentionCondition` 和 `StrategyPreset` 类型定义
+- `web/types/models.ts`: `AttentionCondition` 与回测相关类型定义（NEW，集中管理）
 - `web/components/BacktestPanel.tsx`: UI 实现
+
+### Error & Loading Handling (NEW)
+- `web/app/error.tsx`: 全局错误页（App Router error boundary）。
+- `web/components/ui/error-boundary.tsx`: 组件级错误边界。
+- `web/app/loading.tsx`: 全局加载骨架。
+
+### Realtime Hooks (WebSocket) (NEW)
+- `useRealtimePrice`, `useRealtimePrices`, `useRealtimeAttention`, `useWebSocketStatus` 均在 `web/lib/websocket.ts` 中提供。
+- 默认使用 `ws://localhost:8000`，可通过 `NEXT_PUBLIC_WS_URL` 覆盖。
 
 ## 🎨 Theming
 

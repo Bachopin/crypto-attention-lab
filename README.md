@@ -74,7 +74,8 @@ crypto-attention-lab/
 ├── web/                   # ⚛️ Next.js 前端应用
 │   ├── app/               # 页面路由
 │   ├── components/        # UI 组件
-│   └── lib/               # API 客户端
+│   ├── lib/               # API 客户端 + WebSocket + Services
+│   └── types/             # TypeScript 类型中心
 ├── scripts/               # 🛠️ 运维与数据脚本
 └── data/                  # 💾 本地数据存储 (SQLite/CSV)
 ```

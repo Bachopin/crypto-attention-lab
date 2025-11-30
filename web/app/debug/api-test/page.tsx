@@ -450,7 +450,7 @@ function RealtimeUpdateTestSection() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            💡 如果显示 "LIVE" 标记并有价格闪烁，说明 WebSocket 连接正常
+            💡 如果显示 &quot;LIVE&quot; 标记并有价格闪烁，说明 WebSocket 连接正常
           </p>
         </div>
 

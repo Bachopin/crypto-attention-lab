@@ -49,7 +49,13 @@ export function useStrategyPresets() {
       const newPreset: StrategyPreset = {
         id: generateId(),
         name: name.trim() || 'Untitled',
+        description: 'User created preset',
         attention_condition: condition,
+        params: {
+          lookback_days: condition.lookback_days || 30,
+          attention_quantile: condition.lower_quantile || 0.8,
+          holding_days: 3,
+        }
       };
       setPresets(prev => {
         const updated = [...prev, newPreset];
@@ -103,7 +109,7 @@ export function useStrategyPresets() {
 export function formatConditionSummary(cond: AttentionCondition | null | undefined): string {
   if (!cond) return '—';
   const source = cond.source === 'composite' ? 'Composite' : 'News Channel';
-  let regimeLabel: string = cond.regime;
+  let regimeLabel: string = cond.regime || 'unknown';
   if (cond.regime === 'custom') {
     const l = cond.lower_quantile ?? 0;
     const u = cond.upper_quantile ?? 1;

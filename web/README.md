@@ -70,14 +70,57 @@ web/
 │   ├── StatCards.tsx     # Summary & metric cards
 │   └── NewsList.tsx      # News feed component
 ├── lib/                   # Utilities & API
-│   ├── api.ts            # API functions & mock data
-│   └── utils.ts          # Helper functions
+│   ├── api.ts            # API functions & request cache
+│   ├── websocket.ts      # WebSocket managers & hooks
+│   └── services/         # Feature-oriented data orchestration (NEW)
+├── types/                # Centralized TypeScript models (NEW)
 ├── public/               # Static assets
 ├── package.json          # Dependencies
 ├── tsconfig.json         # TypeScript config
 ├── tailwind.config.ts    # Tailwind configuration
 └── next.config.ts        # Next.js configuration
 ```
+
+## 🏗️ Frontend Architecture
+
+The project follows a lightweight layered architecture to ensure maintainability and separation of concerns.
+
+### 1. API Layer (`web/lib/api.ts`)
+- **Responsibility**: Handles raw HTTP requests to the backend.
+- **Convention**: 
+  - Functions should map 1:1 to backend endpoints.
+  - Returns typed responses (defined in `web/types/models.ts`).
+  - Handles basic HTTP errors (status codes) and lightweight request cache (30s TTL).
+
+### 2. Service Layer (`web/lib/services/`)
+- **Responsibility**: Orchestrates data fetching and transformation for specific views or features.
+- **Convention**:
+  - Encapsulates complex fetching logic (e.g., parallel requests, progressive loading).
+  - Transforms raw API data into View Models if necessary.
+  - Example: `dashboard-service.ts` handles the loading strategy for the main dashboard.
+
+### 3. Type Layer (`web/types/`)
+- **Responsibility**: Centralized TypeScript definitions.
+- **Structure**:
+  - `models.ts`: Core domain entities (Candle, NewsItem, etc.) shared across the app.
+  - `dashboard.ts`: Types specific to the dashboard view.
+
+### 4. View Layer (`web/app/` & `web/components/`)
+- **Responsibility**: UI rendering and user interaction.
+- **Convention**:
+  - Components should be "dumb" regarding data fetching details.
+  - Use Services to get data.
+  - Handle UI states: Loading, Error, Empty, Success.
+  - Heavy components (charts) must be dynamically imported.
+
+### 5. Realtime Layer (`web/lib/websocket.ts`) (NEW)
+- **Responsibility**: WebSocket clients for price/attention, auto-reconnect, REST fallback.
+- **Hooks**:
+  - `useRealtimePrice(symbol)`: single-symbol realtime price (fallback polling on disconnect).
+  - `useRealtimePrices(symbols)`: multi-symbol realtime prices.
+  - `useRealtimeAttention(symbol)`: realtime attention and events.
+  - `useWebSocketStatus()`: connection status indicator.
+- **Config**: override default `ws://localhost:8000` via `NEXT_PUBLIC_WS_URL`.
 
 ## 🔌 Backend Integration
 
@@ -136,17 +179,9 @@ The project is pre-configured to connect with a Python backend API (default: `ht
 
 ### Switching from Mock to Real API
 
-In `lib/api.ts`, uncomment the actual fetch calls and remove mock data returns:
-
-```typescript
-export async function fetchPrice(params: FetchPriceParams): Promise<PriceCandle[]> {
-  const response = await fetch(
-    `${API_BASE_URL}/price?symbol=${params.symbol}&timeframe=${params.timeframe}`
-  );
-  const data = await response.json();
-  return data;
-}
-```
+The project now uses real API calls by default with error handling and a small request cache:
+- Configure `NEXT_PUBLIC_API_BASE_URL` to point to your backend (e.g., `http://localhost:8000`).
+- Use functions in `web/lib/api.ts`; they will prepend `/api/...` automatically.
 
 ## 🎨 Customization
 
@@ -164,10 +199,11 @@ colors: {
 
 ### API Base URL
 
-Set environment variable in `.env.local`:
+Set environment variables in `.env.local` (consistent with code in `web/lib/api.ts`):
 
 ```bash
-NEXT_PUBLIC_API_URL=http://your-backend-url:8000/api
+NEXT_PUBLIC_API_BASE_URL=http://your-backend-url:8000
+NEXT_PUBLIC_WS_URL=ws://your-backend-url:8000
 ```
 
 ## 📜 Available Scripts
@@ -197,11 +233,17 @@ rm -rf node_modules package-lock.json
 npm install
 ```
 
+### WebSocket Connection Issues
+
+- Ensure backend exposes `/ws/price` and `/ws/attention`.
+- On cloud/proxy environments, set `NEXT_PUBLIC_WS_URL`.
+- Check browser console and backend `/api/ws/stats` for connection status.
+
 ## 🚧 Next Steps
 
 1. **Implement Python Backend API** - Create FastAPI endpoints matching the expected schema
 2. **Add Authentication** - Implement user login/session management
-3. **Real-time Updates** - Add WebSocket support for live price updates
+3. **Real-time Updates** - WebSocket integrated; extend attention events
 4. **Additional Indicators** - Enhance charts with technical indicators
 5. **Export功能** - Add data export capabilities (CSV, PDF reports)
 

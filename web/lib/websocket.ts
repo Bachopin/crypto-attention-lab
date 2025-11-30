@@ -37,9 +37,17 @@ function getWebSocketBaseUrl(): string {
       return `ws://${hostname}:8000`;
     }
     
-    // Codespaces 环境：尝试使用相同主机但 8000 端口
-    // 注意：Codespaces 的端口转发可能需要特殊处理
-    // 如果 WebSocket 连接失败，会自动回退到 REST API 轮询
+    // Codespaces / Cloud IDE 环境适配
+    // 典型格式: name-3000.app.github.dev -> name-8000.app.github.dev
+    if (hostname.includes('github.dev') || hostname.includes('gitpod.io')) {
+      // 尝试替换 URL 中的端口标识
+      if (hostname.includes('-3000')) {
+        return `${protocol}//${hostname.replace('-3000', '-8000')}`;
+      }
+    }
+    
+    // 其他环境：尝试使用相同主机但 8000 端口
+    // 注意：如果是在 Codespaces 但没有 -3000 后缀，这可能会失败
     return `${protocol}//${hostname}:8000`;
   }
   
@@ -174,8 +182,9 @@ class WebSocketManager {
         this.attemptReconnect();
       };
 
-      this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
+      this.ws.onerror = (event) => {
+        // WebSocket error events usually don't contain detailed error messages for security reasons
+        console.warn(`[WebSocket] Connection error to ${this.url}. Retrying...`);
         this.setStatus('error');
       };
     } catch (e) {

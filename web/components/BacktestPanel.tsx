@@ -140,8 +140,8 @@ export default function BacktestPanel() {
     return {
       source: attCond.source,
       regime: attCond.regime,
-      lower_quantile: attCond.regime === 'custom' ? attCond.lower_quantile : null,
-      upper_quantile: attCond.regime === 'custom' ? attCond.upper_quantile : null,
+      lower_quantile: attCond.regime === 'custom' ? attCond.lower_quantile : undefined,
+      upper_quantile: attCond.regime === 'custom' ? attCond.upper_quantile : undefined,
       lookback_days: attCond.lookback_days,
     };
   }, [attCond]);
@@ -149,13 +149,14 @@ export default function BacktestPanel() {
   /** Apply a regime preset to the UI state */
   const applyRegimePreset = useCallback((preset: StrategyPreset) => {
     const c = preset.attention_condition;
+    if (!c) return;
     setAttCond({
       enabled: true,
-      source: c.source,
-      regime: c.regime,
+      source: (c.source as AttentionConditionSource) || 'composite',
+      regime: (c.regime as AttentionRegime) || 'high',
       lower_quantile: c.lower_quantile ?? 0.8,
       upper_quantile: c.upper_quantile ?? 1,
-      lookback_days: c.lookback_days,
+      lookback_days: c.lookback_days || 30,
     });
     setSelectedRegimePresetId(preset.id);
   }, []);

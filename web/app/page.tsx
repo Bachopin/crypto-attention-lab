@@ -2,12 +2,13 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Activity, LayoutGrid, TrendingUp, Newspaper, Settings, Network } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import DashboardTab from '@/components/tabs/DashboardTab'
-import { buildApiUrl } from '@/lib/api'
-import { Activity, TrendingUp, Newspaper, Settings, Network, LayoutGrid } from 'lucide-react'
-import Link from 'next/link'
+import { fetchSymbols } from '@/lib/api'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { SettingsProvider } from '@/components/SettingsProvider'
 import { TabDataProvider } from '@/components/TabDataProvider'
 
@@ -51,15 +52,16 @@ function Home() {
     }
   }, [searchParams])
 
-  const refreshSymbols = () => {
-    fetch(buildApiUrl('/api/symbols'))
-      .then(res => res.json())
-      .then(data => {
-        if (data.symbols && data.symbols.length > 0) {
-          setAvailableSymbols(data.symbols)
-        }
-      })
-      .catch(err => console.error('Failed to fetch symbols:', err))
+  const refreshSymbols = async () => {
+    try {
+      const data = await fetchSymbols()
+      if (data.symbols && data.symbols.length > 0) {
+        setAvailableSymbols(data.symbols)
+      }
+    } catch (err) {
+      console.error('Failed to fetch symbols:', err)
+      // Optional: Show toast notification here
+    }
   }
 
   // Fetch available symbols on mount
@@ -118,35 +120,45 @@ function Home() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           
           <TabsContent value="overview" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'overview' ? 'block' : 'none' }}>
-            <Suspense fallback={<TabLoading />}>
-              <MarketOverviewTab />
-            </Suspense>
+            <ErrorBoundary name="overview">
+              <Suspense fallback={<TabLoading />}>
+                <MarketOverviewTab />
+              </Suspense>
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="dashboard" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
-             <DashboardTab 
-                symbol={selectedSymbol} 
-                availableSymbols={availableSymbols}
-                onSymbolChange={setSelectedSymbol}
-             />
+             <ErrorBoundary name="dashboard">
+               <DashboardTab 
+                  symbol={selectedSymbol} 
+                  availableSymbols={availableSymbols}
+                  onSymbolChange={setSelectedSymbol}
+               />
+             </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="scenario" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'scenario' ? 'block' : 'none' }}>
-            <Suspense fallback={<TabLoading />}>
-              <ScenarioTab defaultSymbol={selectedSymbol} />
-            </Suspense>
+            <ErrorBoundary name="scenario">
+              <Suspense fallback={<TabLoading />}>
+                <ScenarioTab defaultSymbol={selectedSymbol} />
+              </Suspense>
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="news" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'news' ? 'block' : 'none' }}>
-            <Suspense fallback={<TabLoading />}>
-              <NewsTab news={[]} />
-            </Suspense>
+            <ErrorBoundary name="news">
+              <Suspense fallback={<TabLoading />}>
+                <NewsTab news={[]} />
+              </Suspense>
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="settings" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
-            <Suspense fallback={<TabLoading />}>
-              <SettingsTab onUpdate={refreshSymbols} />
-            </Suspense>
+            <ErrorBoundary name="settings">
+              <Suspense fallback={<TabLoading />}>
+                <SettingsTab onUpdate={refreshSymbols} />
+              </Suspense>
+            </ErrorBoundary>
           </TabsContent>
         </Tabs>
       </main>

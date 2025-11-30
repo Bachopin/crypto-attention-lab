@@ -9,6 +9,8 @@ The system is designed with a layered architecture to ensure separation of conce
 ```mermaid
 graph TD
     Client[Web Frontend / External Clients] --> API_Gateway[FastAPI Entry Point (main.py)]
+    Client <-->|WebSocket| WS_Price[/ws/price/]
+    Client <-->|WebSocket| WS_Attn[/ws/attention/]
 
     subgraph "API Layer (Routers)"
         API_Gateway --> R_Market[Market Data Router]
@@ -23,6 +25,7 @@ graph TD
         R_Attn --> S_Attn[AttentionService]
         R_Backtest --> S_Backtest[Backtest Engine]
         R_System --> S_Update[RealtimePriceUpdater]
+        WS_Price --> S_BinanceWS[Binance WebSocket Manager]
     end
 
     subgraph "Domain Logic (Pure Python)"
@@ -51,6 +54,7 @@ The entry point for all external requests. It handles request validation, routin
     - **`backtest.py`**: Endpoints for running strategy backtests.
     - **`research.py`**: Endpoints for advanced analysis (regimes, scenarios, state snapshots).
     - **`system.py`**: Endpoints for system health, auto-update management, and manual triggers.
+    - **WebSocket Endpoints**: `/ws/price`, `/ws/attention` handled via `websocket_routes.py` with a global `ConnectionManager` for subscriptions and broadcasts.
 
 ### 2. Service Layer (`src/services/`)
 Orchestrates business logic and data retrieval. It acts as a bridge between the API and the Data/Logic layers.
@@ -58,6 +62,7 @@ Orchestrates business logic and data retrieval. It acts as a bridge between the 
 - **`MarketDataService`**: Centralized service for retrieving and aligning price and news data.
 - **`AttentionService`**: Manages the calculation and retrieval of attention features.
 - **`RealtimePriceUpdater`**: Handles the background synchronization of price data from external exchanges.
+- **`Binance WebSocket Manager`** (`src/data/binance_websocket.py`): Manages realtime kline subscriptions and forwards 1m updates to WebSocket clients.
 
 ### 3. Domain Logic (`src/features/`, `src/events/`, `src/backtest/`)
 Contains pure business logic, algorithms, and calculations. These modules are generally independent of the database and web framework.
@@ -90,3 +95,9 @@ Handles data persistence and external API interactions.
 3.  **Updater** fetches new data from **Binance**.
 4.  **Updater** saves data to the **Database**.
 5.  **Updater** triggers **`AttentionService`** to recalculate features for the new data points.
+
+### C. Realtime Streaming
+1. Client connects to `/ws/price` and subscribes to symbols.
+2. `ConnectionManager` ensures Binance WS subscription and registers callbacks.
+3. On each kline event, the manager normalizes data and broadcasts `{type: "price_update", symbol, data}` to subscribers.
+4. Clients degrade gracefully: frontend hooks fallback to REST polling if WS is unavailable.

@@ -1,12 +1,9 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { StatCard, SummaryCard } from '@/components/StatCards'
-import PriceChart, { PriceChartRef } from '@/components/PriceChart'
-import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
-import PriceOverview from '@/components/PriceOverview'
-import NewsList from '@/components/NewsList'
 import { BarChart3, TrendingUp } from 'lucide-react'
 import {
   fetchPrice,
@@ -21,9 +18,29 @@ import {
   Timeframe,
   SummaryStats
 } from '@/lib/api'
+import { dashboardService } from '@/lib/services/dashboard-service'
 import type { Time } from 'lightweight-charts'
+import type { PriceChartRef } from '@/components/PriceChart'
+import type { AttentionChartRef } from '@/components/AttentionChart'
 
-// Lazy load heavy components
+// Dynamic load heavy chart components
+const PriceChart = dynamic(() => import('@/components/PriceChart'), {
+  loading: () => <div className="h-[500px] w-full bg-muted/10 animate-pulse rounded-lg" />,
+  ssr: false
+})
+const AttentionChart = dynamic(() => import('@/components/AttentionChart'), {
+  loading: () => <div className="h-[250px] w-full bg-muted/10 animate-pulse rounded-lg" />,
+  ssr: false
+})
+const PriceOverview = dynamic(() => import('@/components/PriceOverview'), {
+  loading: () => <div className="h-[192px] w-full bg-muted/10 animate-pulse rounded-lg" />,
+  ssr: false
+})
+const NewsList = dynamic(() => import('@/components/NewsList'), {
+  loading: () => <div className="h-[400px] w-full bg-muted/10 animate-pulse rounded-lg" />
+})
+
+// Lazy load heavy analysis panels
 const AttentionEvents = lazy(() => import('@/components/AttentionEvents'))
 const BacktestPanel = lazy(() => import('@/components/BacktestPanel'))
 const AttentionRegimePanel = lazy(() => import('@/components/AttentionRegimePanel'))
@@ -45,6 +62,7 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   const [overviewData, setOverviewData] = useState<PriceCandle[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   // Chart Controls State
   const [volumeRatio, setVolumeRatio] = useState(0.2);
@@ -58,27 +76,32 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   const loadData = useCallback(async (isUpdate = false) => {
     if (isUpdate) setUpdating(true);
     else setLoading(true);
+    setError(null);
 
     try {
-      // Fetch in parallel but handle failures gracefully
-      const [pData, aData, nData, eData, sData, oData] = await Promise.all([
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe }).catch(e => { console.error(e); return []; }),
-        fetchAttention({ symbol, granularity: '1d' }).catch(e => { console.error(e); return []; }),
-        fetchNews({ symbol }).catch(e => { console.error(e); return []; }),
-        fetchAttentionEvents({ symbol }).catch(e => { console.error(e); return []; }),
-        fetchSummaryStats(symbol).catch(e => { console.error(e); return null; }),
-        // Fetch full history 4H data for overview
-        fetchPrice({ symbol: `${symbol}USDT`, timeframe: '4H' }).catch(e => { console.error(e); return []; })
-      ]);
+      // 1. Critical Data
+      const { summary, price } = await dashboardService.fetchCriticalData(symbol, timeframe);
+      
+      setSummaryStats(summary);
+      setPriceData(price);
+      
+      if (!isUpdate) setLoading(false);
 
-      setPriceData(pData);
-      setAttentionData(aData);
-      setNews(nData);
-      setEvents(eData);
-      setSummaryStats(sData);
-      setOverviewData(oData);
+      // 2. Secondary Data
+      const startDate = price[0]?.datetime;
+      const { attention, news, events } = await dashboardService.fetchSecondaryData(symbol, startDate);
+
+      setAttentionData(attention);
+      setNews(news);
+      setEvents(events);
+
+      // 3. Background Data
+      const overview = await dashboardService.fetchBackgroundData(symbol);
+      setOverviewData(overview);
+
     } catch (error) {
       console.error("Failed to load dashboard data", error);
+      setError(error instanceof Error ? error.message : 'Failed to load data');
     } finally {
       setLoading(false);
       setUpdating(false);
@@ -112,6 +135,16 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
             <p className="text-muted-foreground">Loading {symbol} data...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="text-destructive text-lg font-semibold">Error Loading Data</div>
+        <p className="text-muted-foreground">{error}</p>
+        <Button onClick={() => loadData()} variant="outline">Retry</Button>
       </div>
     );
   }
