@@ -416,19 +416,76 @@ class RealtimePriceUpdater:
             # 广播失败不应影响主流程
             logger.warning(f"[Updater] Failed to broadcast attention update for {symbol}: {e}")
     
-    async def run(self):
-        """运行定时更新循环"""
+    async def run(self, skip_initial_check: bool = True):
+        """
+        运行定时更新循环
+        
+        Args:
+            skip_initial_check: 是否跳过首次启动时的完整性检查（默认 True，加快启动）
+        """
         self.is_running = True
         logger.info(f"[Updater] Started (interval: {self.update_interval}s)")
         
+        first_run = True
         while self.is_running:
             try:
-                await self.update_all_symbols()
+                # 首次运行时跳过完整性检查，直接增量更新（加快启动速度）
+                # 后续周期会按照 should_check_completeness 的逻辑决定是否检查
+                if first_run and skip_initial_check:
+                    logger.info("[Updater] First run: skipping completeness check, using incremental update")
+                    await self.update_all_symbols_incremental_only()
+                    first_run = False
+                else:
+                    await self.update_all_symbols()
             except Exception as e:
                 logger.error(f"[Updater] Update cycle error: {e}")
             
             # 等待下一个周期
             await asyncio.sleep(self.update_interval)
+    
+    async def update_all_symbols_incremental_only(self):
+        """
+        仅增量更新所有标的（跳过完整性检查，用于快速启动）
+        """
+        from src.services.attention_service import AttentionService
+        
+        symbols = self.get_auto_update_symbols()
+        
+        if not symbols:
+            logger.info("[Updater] No symbols configured for auto-update")
+            return
+        
+        num_symbols = len(symbols)
+        logger.info(f"[Updater] Incremental update for {num_symbols} symbols...")
+        
+        for idx, sym_info in enumerate(symbols):
+            symbol = sym_info['symbol']
+            last_update = sym_info.get('last_update')
+            
+            try:
+                # 仅增量更新价格（最多 3 天）
+                symbol_pair = f"{symbol}USDT"
+                range_info = self.calculate_fetch_range(last_update)
+                days = min(range_info['days'], 3)
+                
+                for timeframe in self.timeframes:
+                    klines = self.fetcher.fetch_historical_klines_batch(
+                        symbol_pair,
+                        timeframe,
+                        days=days
+                    )
+                    if klines:
+                        save_price_data(symbol, timeframe, klines)
+                        logger.info(f"[Updater]   {symbol} {timeframe}: {len(klines)} records (incremental)")
+                
+                # 更新时间戳
+                self.update_last_price_update(symbol, datetime.now(timezone.utc))
+                logger.info(f"[Updater] ✅ {symbol} incremental update completed")
+                
+            except Exception as e:
+                logger.error(f"[Updater] Failed to update {symbol}: {e}")
+        
+        logger.info("[Updater] Incremental update cycle completed")
     
     def stop(self):
         """停止更新"""
