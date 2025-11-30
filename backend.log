@@ -1,0 +1,160 @@
+nohup: ignoring input
+INFO:     Started server process [76479]
+INFO:     Waiting for application startup.
+2025-11-30 06:32:35,123 - src.api.main - INFO - [Scheduler] Background tasks started: news_update (hourly), price_update (2min)
+2025-11-30 06:32:35,123 - src.api.main - INFO - [Scheduler] Attention features will be calculated automatically after price updates
+2025-11-30 06:32:35,123 - src.api.main - INFO - [WebSocket] Real-time WebSocket endpoints available at /ws/price and /ws/attention
+2025-11-30 06:32:35,139 - src.api.main - INFO - [Scheduler] Starting news update...
+2025-11-30 06:32:35,139 - scripts.fetch_news_data - INFO - ============================================================
+2025-11-30 06:32:35,144 - scripts.fetch_news_data - INFO - Starting scheduled news aggregation (last 1 days)...
+2025-11-30 06:32:35,147 - scripts.fetch_news_data - INFO - ============================================================
+2025-11-30 06:32:35,147 - scripts.fetch_news_data - INFO - [CryptoCompare] Fetching all crypto news (last 1 days)...
+2025-11-30 06:32:35,147 - scripts.fetch_news_data - INFO - [CryptoCompare] Cutoff date: 2025-11-29T06:32:35.147786+00:00
+2025-11-30 06:32:35,178 - src.data.realtime_price_updater - INFO - [Updater] Started (interval: 300s)
+2025-11-30 06:32:35,188 - src.data.realtime_price_updater - INFO - [Updater] Updating 5 symbols...
+2025-11-30 06:32:35,189 - src.data.realtime_price_updater - INFO - [Updater] Processing ZEC...
+2025-11-30 06:32:35,372 - src.data.price_fetcher_binance - INFO - [Binance] ZECUSDT available on Spot
+2025-11-30 06:32:35,571 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for ZECUSDT (Spot)
+2025-11-30 06:32:35,571 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for ZECUSDT
+2025-11-30 06:32:35,586 - src.data.realtime_price_updater - INFO - [Updater]   ZEC 1d: 1 records saved
+2025-11-30 06:32:35,786 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for ZECUSDT (Spot)
+2025-11-30 06:32:35,787 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for ZECUSDT
+2025-11-30 06:32:35,804 - src.data.realtime_price_updater - INFO - [Updater]   ZEC 4h: 6 records saved
+2025-11-30 06:32:36,006 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for ZECUSDT (Spot)
+2025-11-30 06:32:36,007 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for ZECUSDT
+2025-11-30 06:32:36,041 - src.data.realtime_price_updater - INFO - [Updater]   ZEC 1h: 24 records saved
+2025-11-30 06:32:36,244 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for ZECUSDT (Spot)
+2025-11-30 06:32:36,244 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for ZECUSDT
+2025-11-30 06:32:36,297 - src.data.realtime_price_updater - INFO - [Updater]   ZEC 15m: 96 records saved
+2025-11-30 06:32:36,304 - src.data.realtime_price_updater - INFO - [Updater] ✅ ZEC price update completed
+2025-11-30 06:32:36,304 - src.data.realtime_price_updater - INFO - [Updater] Calculating attention features for ZEC...
+2025-11-30 06:32:36,305 - src.services.attention_service - INFO - Processing attention features for ZEC (freq=D)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2025-11-30 06:32:36,503 - src.services.attention_service - INFO - Saved 501 attention rows for ZEC (freq=D)
+2025-11-30 06:32:36,503 - src.data.realtime_price_updater - INFO - [Updater] ✅ Attention features updated for ZEC
+2025-11-30 06:32:36,503 - src.data.realtime_price_updater - INFO - [Updater] Processing BTC...
+2025-11-30 06:32:36,599 - src.data.price_fetcher_binance - INFO - [Binance] BTCUSDT available on Spot
+2025-11-30 06:32:36,802 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for BTCUSDT (Spot)
+2025-11-30 06:32:36,802 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for BTCUSDT
+2025-11-30 06:32:36,816 - src.data.realtime_price_updater - INFO - [Updater]   BTC 1d: 1 records saved
+2025-11-30 06:32:37,016 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for BTCUSDT (Spot)
+2025-11-30 06:32:37,016 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for BTCUSDT
+2025-11-30 06:32:37,032 - src.data.realtime_price_updater - INFO - [Updater]   BTC 4h: 6 records saved
+2025-11-30 06:32:37,232 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for BTCUSDT (Spot)
+2025-11-30 06:32:37,232 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for BTCUSDT
+2025-11-30 06:32:37,266 - src.data.realtime_price_updater - INFO - [Updater]   BTC 1h: 24 records saved
+2025-11-30 06:32:37,475 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for BTCUSDT (Spot)
+2025-11-30 06:32:37,475 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for BTCUSDT
+2025-11-30 06:32:37,569 - src.data.realtime_price_updater - INFO - [Updater]   BTC 15m: 96 records saved
+2025-11-30 06:32:37,571 - src.data.realtime_price_updater - INFO - [Updater] ✅ BTC price update completed
+2025-11-30 06:32:37,571 - src.data.realtime_price_updater - INFO - [Updater] Calculating attention features for BTC...
+2025-11-30 06:32:37,571 - src.services.attention_service - INFO - Processing attention features for BTC (freq=D)
+2025-11-30 06:32:37,744 - src.services.attention_service - INFO - Saved 501 attention rows for BTC (freq=D)
+2025-11-30 06:32:37,745 - src.data.realtime_price_updater - INFO - [Updater] ✅ Attention features updated for BTC
+2025-11-30 06:32:37,745 - src.data.realtime_price_updater - INFO - [Updater] Processing ETH...
+2025-11-30 06:32:37,838 - src.data.price_fetcher_binance - INFO - [Binance] ETHUSDT available on Spot
+2025-11-30 06:32:38,041 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for ETHUSDT (Spot)
+2025-11-30 06:32:38,041 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for ETHUSDT
+2025-11-30 06:32:38,052 - src.data.realtime_price_updater - INFO - [Updater]   ETH 1d: 1 records saved
+2025-11-30 06:32:38,254 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for ETHUSDT (Spot)
+2025-11-30 06:32:38,254 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for ETHUSDT
+2025-11-30 06:32:38,272 - src.data.realtime_price_updater - INFO - [Updater]   ETH 4h: 6 records saved
+2025-11-30 06:32:38,472 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for ETHUSDT (Spot)
+2025-11-30 06:32:38,472 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for ETHUSDT
+2025-11-30 06:32:38,507 - src.data.realtime_price_updater - INFO - [Updater]   ETH 1h: 24 records saved
+2025-11-30 06:32:38,712 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for ETHUSDT (Spot)
+2025-11-30 06:32:38,713 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for ETHUSDT
+2025-11-30 06:32:38,793 - src.data.realtime_price_updater - INFO - [Updater]   ETH 15m: 96 records saved
+2025-11-30 06:32:38,868 - src.data.realtime_price_updater - INFO - [Updater] ✅ ETH price update completed
+2025-11-30 06:32:38,869 - src.data.realtime_price_updater - INFO - [Updater] Calculating attention features for ETH...
+2025-11-30 06:32:38,870 - src.services.attention_service - INFO - Processing attention features for ETH (freq=D)
+2025-11-30 06:32:39,220 - src.services.attention_service - INFO - Saved 501 attention rows for ETH (freq=D)
+2025-11-30 06:32:39,221 - src.data.realtime_price_updater - INFO - [Updater] ✅ Attention features updated for ETH
+2025-11-30 06:32:39,221 - src.data.realtime_price_updater - INFO - [Updater] Processing SOL...
+2025-11-30 06:32:39,312 - src.data.price_fetcher_binance - INFO - [Binance] SOLUSDT available on Spot
+2025-11-30 06:32:39,510 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for SOLUSDT (Spot)
+2025-11-30 06:32:39,510 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for SOLUSDT
+2025-11-30 06:32:39,518 - src.data.realtime_price_updater - INFO - [Updater]   SOL 1d: 1 records saved
+2025-11-30 06:32:39,719 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for SOLUSDT (Spot)
+2025-11-30 06:32:39,719 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for SOLUSDT
+2025-11-30 06:32:39,738 - src.data.realtime_price_updater - INFO - [Updater]   SOL 4h: 6 records saved
+2025-11-30 06:32:39,935 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for SOLUSDT (Spot)
+2025-11-30 06:32:39,935 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for SOLUSDT
+2025-11-30 06:32:39,948 - src.data.realtime_price_updater - INFO - [Updater]   SOL 1h: 24 records saved
+2025-11-30 06:32:40,156 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for SOLUSDT (Spot)
+2025-11-30 06:32:40,157 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for SOLUSDT
+2025-11-30 06:32:40,204 - src.data.realtime_price_updater - INFO - [Updater]   SOL 15m: 96 records saved
+2025-11-30 06:32:40,207 - src.data.realtime_price_updater - INFO - [Updater] ✅ SOL price update completed
+2025-11-30 06:32:40,207 - src.data.realtime_price_updater - INFO - [Updater] Calculating attention features for SOL...
+2025-11-30 06:32:40,208 - src.services.attention_service - INFO - Processing attention features for SOL (freq=D)
+2025-11-30 06:32:40,448 - src.services.attention_service - INFO - Saved 501 attention rows for SOL (freq=D)
+2025-11-30 06:32:40,448 - src.data.realtime_price_updater - INFO - [Updater] ✅ Attention features updated for SOL
+2025-11-30 06:32:40,448 - src.data.realtime_price_updater - INFO - [Updater] Processing BNB...
+2025-11-30 06:32:40,541 - src.data.price_fetcher_binance - INFO - [Binance] BNBUSDT available on Spot
+2025-11-30 06:32:40,743 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for BNBUSDT (Spot)
+2025-11-30 06:32:40,743 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 1 1d klines for BNBUSDT
+2025-11-30 06:32:40,754 - src.data.realtime_price_updater - INFO - [Updater]   BNB 1d: 1 records saved
+2025-11-30 06:32:40,958 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for BNBUSDT (Spot)
+2025-11-30 06:32:40,958 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 6 4h klines for BNBUSDT
+2025-11-30 06:32:40,973 - src.data.realtime_price_updater - INFO - [Updater]   BNB 4h: 6 records saved
+2025-11-30 06:32:41,172 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for BNBUSDT (Spot)
+2025-11-30 06:32:41,173 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 24 1h klines for BNBUSDT
+2025-11-30 06:32:41,196 - src.data.realtime_price_updater - INFO - [Updater]   BNB 1h: 24 records saved
+2025-11-30 06:32:41,404 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for BNBUSDT (Spot)
+2025-11-30 06:32:41,404 - src.data.price_fetcher_binance - INFO - [Binance] Fetched 96 15m klines for BNBUSDT
+2025-11-30 06:32:41,476 - src.data.realtime_price_updater - INFO - [Updater]   BNB 15m: 96 records saved
+2025-11-30 06:32:41,478 - src.data.realtime_price_updater - INFO - [Updater] ✅ BNB price update completed
+2025-11-30 06:32:41,478 - src.data.realtime_price_updater - INFO - [Updater] Calculating attention features for BNB...
+2025-11-30 06:32:41,478 - src.services.attention_service - INFO - Processing attention features for BNB (freq=D)
+2025-11-30 06:32:41,644 - src.services.attention_service - INFO - Saved 501 attention rows for BNB (freq=D)
+2025-11-30 06:32:41,645 - src.data.realtime_price_updater - INFO - [Updater] ✅ Attention features updated for BNB
+2025-11-30 06:32:41,645 - src.data.realtime_price_updater - INFO - [Updater] Update cycle completed
+2025-11-30 06:32:46,151 - scripts.fetch_news_data - INFO - [CryptoCompare] Reached cutoff date at page 8
+2025-11-30 06:32:46,151 - scripts.fetch_news_data - INFO - [CryptoCompare] Total fetched 371 articles
+2025-11-30 06:32:46,153 - scripts.fetch_news_data - INFO - [CryptoPanic] Fetching news for last 1 days...
+2025-11-30 06:32:46,985 - scripts.fetch_news_data - ERROR - [CryptoPanic] Failed: 429 Client Error: Too Many Requests for url: https://cryptopanic.com/api/developer/v2/posts/?auth_token=07bcbfdf1b6a3d1a78f383fc148b45298d0212f3&public=true&kind=news
+2025-11-30 06:32:46,988 - scripts.fetch_news_data - INFO - [NewsAPI] Fetching news (last 1 days) in chunks...
+2025-11-30 06:32:47,356 - scripts.fetch_news_data - INFO - [NewsAPI] 2025-11-29 to 2025-11-30: 0 articles
+2025-11-30 06:32:47,357 - scripts.fetch_news_data - INFO - [NewsAPI] Total fetched 0 articles
+2025-11-30 06:32:47,360 - scripts.fetch_news_data - INFO - [RSS] Fetching RSS feeds...
+2025-11-30 06:32:47,361 - scripts.fetch_news_data - INFO - [RSS] Fetching https://www.coindesk.com/arc/outboundfeeds/rss/...
+2025-11-30 06:32:47,855 - scripts.fetch_news_data - INFO - [RSS] Fetching https://cryptoslate.com/feed/...
+2025-11-30 06:32:48,017 - scripts.fetch_news_data - INFO - [RSS] Fetching https://cointelegraph.com/rss...
+2025-11-30 06:32:48,215 - scripts.fetch_news_data - INFO - [RSS] Fetching https://decrypt.co/feed...
+2025-11-30 06:32:48,775 - scripts.fetch_news_data - INFO - [RSS] Fetching https://bitcoinmagazine.com/.rss/full/...
+2025-11-30 06:32:50,320 - scripts.fetch_news_data - INFO - [RSS] Fetching https://news.bitcoin.com/feed...
+2025-11-30 06:32:50,805 - scripts.fetch_news_data - INFO - [RSS] Fetching https://thedefiant.io/api/feed...
+2025-11-30 06:32:51,394 - scripts.fetch_news_data - INFO - [RSS] Fetching https://blockworks.co/feed...
+2025-11-30 06:32:52,198 - scripts.fetch_news_data - INFO - [RSS] Fetching https://u.today/rss.php...
+2025-11-30 06:32:52,388 - scripts.fetch_news_data - INFO - [RSS] Fetching https://www.newsbtc.com/feed/...
+2025-11-30 06:32:52,581 - scripts.fetch_news_data - INFO - [RSS] Fetching https://beincrypto.com/feed/...
+2025-11-30 06:32:52,823 - scripts.fetch_news_data - INFO - [RSS] Fetching https://dailyhodl.com/feed/...
+2025-11-30 06:32:52,958 - scripts.fetch_news_data - INFO - [RSS] Fetching https://coingape.com/feed/...
+2025-11-30 06:32:53,391 - scripts.fetch_news_data - INFO - [RSS] Total fetched 297 relevant articles
+2025-11-30 06:32:53,444 - src.data.db_storage - INFO - Saved 1 new news items to separate news DB
+2025-11-30 06:32:53,444 - scripts.fetch_news_data - INFO - ✅ Saved 615 news items to database
+2025-11-30 06:32:53,446 - scripts.fetch_news_data - INFO - Date range: 2025-10-28 to 2025-11-30
+2025-11-30 06:32:53,447 - scripts.fetch_news_data - INFO - Sources: {'coinotag': 95, 'Blockworks: News and insights about digital assets.': 50, 'The Defiant': 50, 'Decrypt': 49, 'cryptopolitan': 45, 'U.Today - IT, AI and Fintech Daily News for You Today': 39, 'timestabloid': 22, 'utoday': 20, 'bitcoinworld': 19, 'Cointelegraph.com News': 19, 'CoinDesk: Bitcoin, Ethereum, Crypto News and Price Data': 16, 'ambcrypto': 15, 'bitcoin.com': 14, 'cointurken': 13, 'coinquora': 13, 'BeInCrypto': 12, 'coinpaper': 12, 'bitcoinsistemi': 12, 'cointelegraph': 11, 'Bitcoin Magazine': 10, 'bitcoinist': 10, 'newsbtc': 10, 'cryptopotato': 10, 'coindesk': 9, 'cryptonews': 6, 'bitzo': 5, 'thecryptobasic': 5, 'cryptodaily': 5, 'invezz': 4, 'finbold': 4, 'seekingalpha': 3, 'forbes': 2, 'coinpaprika': 2, 'zycrypto': 2, 'decrypt': 1, 'financialtimes_crypto_': 1}
+2025-11-30 06:32:53,447 - scripts.fetch_news_data - INFO - Scheduled update completed: 615 items processed
+2025-11-30 06:32:53,447 - src.api.main - INFO - [Scheduler] News update completed. Sleeping for 30 minutes.
+INFO:     127.0.0.1:52166 - "GET /health HTTP/1.1" 200 OK
+2025-11-30 06:34:12,394 - src.api.routers.market_data - INFO - Returned 501 price records for ZECUSDT 1d
+INFO:     127.0.0.1:54998 - "GET /api/price?symbol=ZECUSDT&timeframe=1d&limit=5 HTTP/1.1" 200 OK
+2025-11-30 06:34:12,461 - src.api.routers.attention - INFO - Returned 501 attention records for ZEC
+INFO:     127.0.0.1:55012 - "GET /api/attention?symbol=ZEC&granularity=1d&limit=5 HTTP/1.1" 200 OK
+2025-11-30 06:34:12,512 - src.api.routers.market_data - INFO - Returned 5 news items for ZEC
+INFO:     127.0.0.1:55018 - "GET /api/news?symbol=ZEC&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49518 - "WebSocket /ws/price" [accepted]
+2025-11-30 06:35:06,840 - src.api.websocket_routes - INFO - [WS] Client connected. Total clients: 1
+INFO:     connection open
+2025-11-30 06:35:06,851 - src.api.websocket_routes - INFO - [WS] Client subscribed to BTC. Subscribers: 1
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Binance subscription added for BTCUSDT
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Client subscribed to ETH. Subscribers: 1
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Binance subscription added for ETHUSDT
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Client subscribed to SOL. Subscribers: 1
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Binance subscription added for SOLUSDT
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Client subscribed to BNB. Subscribers: 1
+2025-11-30 06:35:06,855 - src.api.websocket_routes - INFO - [WS] Binance subscription added for BNBUSDT
+2025-11-30 06:35:06,856 - src.data.binance_websocket - INFO - [BinanceWS] Connecting to wss://stream.binance.com:9443/ws...
+2025-11-30 06:35:07,266 - src.data.binance_websocket - INFO - [BinanceWS] Connected successfully

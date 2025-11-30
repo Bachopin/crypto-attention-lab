@@ -23,27 +23,33 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+# 预计算事件使用的默认参数
+DEFAULT_LOOKBACK_DAYS = 30
+DEFAULT_MIN_QUANTILE = 0.8
+
 class AttentionService:
     @staticmethod
     def get_attention_events(
         symbol: str,
         start: Optional[pd.Timestamp] = None,
         end: Optional[pd.Timestamp] = None,
-        lookback_days: int = 30,
-        min_quantile: float = 0.8,
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        min_quantile: float = DEFAULT_MIN_QUANTILE,
     ) -> List[AttentionEvent]:
         """
         Get attention events for a symbol.
         
-        优先从数据库读取预计算的事件（detected_events 字段），
-        如果没有预计算事件，则实时计算。
+        策略：
+        - 如果参数等于默认值 (lookback_days=30, min_quantile=0.8)，优先读取预计算缓存
+        - 如果参数不等于默认值，实时计算
+        - 如果没有预计算数据，回退到实时计算
         
         Args:
             symbol: Symbol name.
             start: Start datetime.
             end: End datetime.
-            lookback_days: Lookback window for quantile.
-            min_quantile: Quantile threshold.
+            lookback_days: Lookback window for quantile (default: 30).
+            min_quantile: Quantile threshold (default: 0.8).
             
         Returns:
             List of AttentionEvent objects.
@@ -57,8 +63,10 @@ class AttentionService:
         if 'datetime' in df.columns:
             df = df.dropna(subset=['datetime'])
         
-        # 2. 检查是否有预计算的事件
-        if 'detected_events' in df.columns:
+        # 2. 判断是否可以使用预计算缓存（仅当参数等于默认值时）
+        use_cache = (lookback_days == DEFAULT_LOOKBACK_DAYS and min_quantile == DEFAULT_MIN_QUANTILE)
+        
+        if use_cache and 'detected_events' in df.columns:
             # 尝试从预计算字段读取
             precomputed_events: List[AttentionEvent] = []
             has_precomputed = False
@@ -74,8 +82,11 @@ class AttentionService:
                 logger.debug(f"Using precomputed events for {symbol}: {len(precomputed_events)} events")
                 return precomputed_events
         
-        # 3. 没有预计算事件，实时计算（兼容旧数据）
-        logger.debug(f"No precomputed events for {symbol}, calculating in real-time")
+        # 3. 实时计算（参数非默认值 或 没有预计算数据）
+        if not use_cache:
+            logger.debug(f"Real-time calculation for {symbol} (non-default params: lookback={lookback_days}, quantile={min_quantile})")
+        else:
+            logger.debug(f"No precomputed events for {symbol}, calculating in real-time")
         return detect_attention_spikes(df, lookback_days, min_quantile)
 
     @staticmethod

@@ -34,9 +34,11 @@ Currently, the API does not require authentication for local development.
 Retrieve historical price data for a specific symbol.
 
 **Parameters:**
-- `symbol` (string, required): The trading pair symbol (e.g., "BTC", "ETH").
-- `timeframe` (string, optional): Time granularity. Default: `1d`.
-- `limit` (integer, optional): Number of data points to return. Default: `100`.
+- `symbol` (string, required): The trading pair symbol (e.g., "ZECUSDT", "BTCUSDT").
+- `timeframe` (string, optional): Time granularity (`1d`, `4h`, `1h`, `15m`). Default: `1d`.
+- `start` (string, optional): Start time in ISO8601 format.
+- `end` (string, optional): End time in ISO8601 format.
+- `limit` (integer, optional): Return the most recent N candles. If not specified, returns all data in the time range.
 
 #### Get Latest Price
 `GET /api/price/latest`

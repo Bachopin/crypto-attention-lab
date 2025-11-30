@@ -91,11 +91,21 @@ class RealtimePriceUpdater:
         """更新标的的最后更新时间（兼容旧接口）"""
         self.update_symbol_timestamps(symbol, price_update=timestamp)
     
+    def _ensure_aware_datetime(self, dt: Optional[datetime]) -> Optional[datetime]:
+        """确保 datetime 是 timezone-aware 的"""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            # 假设 naive datetime 是 UTC
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    
     def should_update_attention(self, last_update: Optional[datetime]) -> bool:
         """检查是否应该更新特征值（冷却期检查）"""
         if last_update is None:
             return True
         now = datetime.now(timezone.utc)
+        last_update = self._ensure_aware_datetime(last_update)
         elapsed = (now - last_update).total_seconds()
         return elapsed >= FEATURE_UPDATE_COOLDOWN
     
@@ -104,6 +114,7 @@ class RealtimePriceUpdater:
         if last_update is None:
             return True
         now = datetime.now(timezone.utc)
+        last_update = self._ensure_aware_datetime(last_update)
         elapsed = (now - last_update).total_seconds()
         return elapsed >= GOOGLE_TRENDS_COOLDOWN
     
