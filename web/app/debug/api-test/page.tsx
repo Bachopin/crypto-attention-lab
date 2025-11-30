@@ -33,13 +33,14 @@ interface ApiTestResult {
 }
 
 // 按类别组织的 API 列表
+// 注意：这些路径通过 Next.js rewrites 代理到后端 (next.config.ts)
 const REQUESTS: ApiRequestConfig[] = [
   // 基础数据
   { key: 'health', label: '/health', path: '/health', description: '健康检查', category: '基础' },
   { key: 'ping', label: '/ping', path: '/ping', description: 'Ping 测试', category: '基础' },
-  { key: 'root', label: '/', path: '/', description: 'API 根路径', category: '基础' },
   { key: 'symbols', label: '/api/symbols', path: '/api/symbols', description: '获取可用代币列表', category: '基础' },
   { key: 'top-coins', label: '/api/top-coins', path: '/api/top-coins?limit=10', description: 'CoinGecko 市值前10', category: '基础' },
+  { key: 'auto-update-status', label: '/api/auto-update/status', path: '/api/auto-update/status', description: '自动更新状态', category: '基础' },
   
   // 价格数据
   { key: 'price-1d', label: '/api/price (1D)', path: '/api/price?symbol=ZECUSDT&timeframe=1d', description: 'ZEC 日线 K线', category: '价格' },
@@ -63,8 +64,7 @@ const REQUESTS: ApiRequestConfig[] = [
   { key: 'similar-cases', label: '/api/state/similar-cases', path: '/api/state/similar-cases?symbol=ZEC&timeframe=1d', description: '相似历史状态', category: '研究' },
   { key: 'scenarios', label: '/api/state/scenarios', path: '/api/state/scenarios?symbol=ZEC&timeframe=1d', description: '情景分析', category: '研究' },
   
-  // 自动更新管理
-  { key: 'auto-update-status', label: '/api/auto-update/status', path: '/api/auto-update/status', description: '自动更新状态', category: '管理' },
+  // 管理
   { key: 'ws-stats', label: '/api/ws/stats', path: '/api/ws/stats', description: 'WebSocket 连接统计', category: '管理' },
 ]
 
