@@ -81,6 +81,29 @@ export default function AutoUpdateManager({
     }
   };
 
+  // 移除标的
+  const removeSymbol = async (symbol: string) => {
+    if (!confirm(`确定要移除 ${symbol} 吗？历史数据将保留，但不再显示在列表中。`)) return;
+    
+    setActionLoading(`remove-${symbol}`);
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/auto-update/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: [symbol] })
+      });
+      
+      if (res.ok) {
+        await loadStatus();
+        onUpdate?.();
+      }
+    } catch (err) {
+      console.error('Failed to remove symbol:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // 手动触发更新
   const triggerUpdate = async (symbol: string) => {
     setActionLoading(`trigger-${symbol}`);
@@ -263,13 +286,24 @@ export default function AutoUpdateManager({
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      onClick={() => enableAutoUpdate(sym.symbol)}
-                      disabled={actionLoading === sym.symbol}
-                    >
-                      {actionLoading === sym.symbol ? '启动中...' : '启动'}
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => enableAutoUpdate(sym.symbol)}
+                        disabled={actionLoading === sym.symbol}
+                      >
+                        {actionLoading === sym.symbol ? '启动中...' : '启动'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => removeSymbol(sym.symbol)}
+                        disabled={actionLoading === `remove-${sym.symbol}`}
+                        className="text-gray-500 hover:text-red-600"
+                      >
+                        {actionLoading === `remove-${sym.symbol}` ? '移除中...' : '移除'}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

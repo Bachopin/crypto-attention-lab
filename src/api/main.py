@@ -2503,3 +2503,47 @@ def get_state_scenarios_custom(
     except Exception as e:
         logger.error(f"Error in get_state_scenarios_custom: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/auto-update/remove")
+def remove_auto_update(
+    payload: dict = Body(...)
+):
+    """
+    移除标的的自动更新跟踪（不删除历史数据，仅从列表中隐藏）
+    
+    Request:
+        {
+            "symbols": ["BTC"]
+        }
+    """
+    try:
+        symbols = payload.get("symbols", [])
+        if not symbols:
+            raise HTTPException(status_code=400, detail="No symbols provided")
+        
+        session = get_session()
+        removed = []
+        
+        for symbol_name in symbols:
+            symbol_name = symbol_name.upper()
+            sym = session.query(Symbol).filter_by(symbol=symbol_name).first()
+            
+            if sym:
+                sym.auto_update_price = False
+                sym.is_active = False
+                # 将 last_price_update 设为 None，使其不再出现在 status 列表中
+                sym.last_price_update = None
+                removed.append(symbol_name)
+        
+        session.commit()
+        session.close()
+        
+        logger.info(f"Removed auto-update tracking for: {removed}")
+        return {
+            "status": "success",
+            "removed": removed
+        }
+        
+    except Exception as e:
+        logger.error(f"Error removing auto-update: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
