@@ -33,6 +33,9 @@ import {
 } from '@/lib/api'
 import { TrendingUp, TrendingDown, Activity, BarChart3 } from 'lucide-react'
 import { Range, Time } from 'lightweight-charts'
+import { RealtimePriceTicker } from '@/components/RealtimePrice'
+
+import ScenarioPanel from '@/components/ScenarioPanel'
 
 // 币种图标映射（使用 emoji 作为简易方案，生产环境可替换为真实 logo）
 const SYMBOL_ICONS: Record<string, string> = {
@@ -262,7 +265,13 @@ function MajorAssetModuleComponent({
             </div>
             
             <div className="flex items-center gap-3 ml-4">
-              <span className="text-2xl font-bold">${formatNumber(data.currentPrice)}</span>
+              <RealtimePriceTicker 
+                symbol={symbol} 
+                size="md" 
+                showChange={false} 
+                initialPrice={data.currentPrice}
+                className="font-bold"
+              />
               <span className={`flex items-center text-sm font-medium ${isPositive ? 'text-chart-green' : 'text-chart-red'}`}>
                 {isPositive ? <TrendingUp className="w-4 h-4 mr-1" /> : <TrendingDown className="w-4 h-4 mr-1" />}
                 {formatPercentage(data.priceChange24h)}
@@ -325,7 +334,7 @@ function MajorAssetModuleComponent({
               <PriceChart
                 ref={priceChartRef}
                 priceData={data.priceData}
-                height={200}
+                height={300}
                 onVisibleRangeChange={handlePriceRangeChange}
                 events={data.events}
                 volumeRatio={volumeRatio}
@@ -351,11 +360,22 @@ function MajorAssetModuleComponent({
               />
             </div>
 
-            {/* 底部：Attention Regime Analysis 智能分析报告 */}
-            <SingleSymbolRegimeAnalysis 
-              symbol={symbol} 
-              regimeData={data.regimeData} 
-            />
+            {/* 底部：Regime Analysis + Scenario Analysis */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* 左侧：Attention Regime Analysis */}
+              <SingleSymbolRegimeAnalysis 
+                symbol={symbol} 
+                regimeData={data.regimeData} 
+              />
+              
+              {/* 右侧：Scenario Analysis */}
+              <ScenarioPanel 
+                symbol={symbol} 
+                timeframe={timeframe}
+                windowDays={30}
+                topK={100}
+              />
+            </div>
           </>
         )}
       </CardContent>

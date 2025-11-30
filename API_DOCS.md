@@ -1331,3 +1331,10 @@ API 会自动检查数据是否存在:
 - `quantile_range` 为数值区间（注意力原始值），`stats` key 为字符串化的 `lookahead_days`。
 - 每个 `stats` 节点包含 `avg_return`（对数收益均值）、`std_return`（样本标准差）、`pos_ratio`（正收益占比）与 `sample_count`。
 - 输入无效时（如空 symbol、非法分位）API 返回 `400`，其它异常返回 `500`。
+
+### 11. API 改进日志
+
+#### 参数大小写不敏感支持
+- **更新**：所有主要端点（如 `/api/price`, `/api/attention`, `/api/news/trend` 等）的查询参数现在支持大小写不敏感。
+- **示例**：`granularity=1D` 和 `granularity=1d` 均被视为有效。`symbol=btc` 和 `symbol=BTC` 均有效。
+- **受影响参数**：`granularity`, `interval`, `sort_by`, `vs_currency` 等。

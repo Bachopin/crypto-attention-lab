@@ -247,3 +247,10 @@ grep "Scheduler\|Updater" logs/api.log | tail -20
 
 **更新时间**: 2025-11-29  
 **状态**: ✅ 系统运行正常
+
+### 脚本更新说明 (2025-11-30)
+
+#### 安全停止服务
+- **更新**：`stop_api.sh`, `stop_services.sh`, `stop_all.sh` 脚本已更新。
+- **改进**：停止服务时现在会明确排除 VS Code Server 进程 (`.vscode-server`)，防止在 Dev Container 环境中意外断开连接。
+- **机制**：使用 `ps aux | grep ... | grep -v .vscode-server | awk ... | xargs kill` 替代原有的 `pkill -f`。

@@ -251,6 +251,9 @@ def get_price_data(
     ]
     """
     try:
+        # Normalize timeframe
+        timeframe = timeframe.lower()
+
         # 验证 timeframe
         valid_timeframes = ["1d", "4h", "1h", "15m"]
         if timeframe not in valid_timeframes:
@@ -340,6 +343,9 @@ def get_attention_data(
     ]
     """
     try:
+        # Normalize granularity
+        granularity = granularity.lower()
+
         # 解析时间参数
         start_dt = None
         end_dt = None
@@ -606,6 +612,9 @@ def get_news_trend(
     ]
     """
     try:
+        # Normalize interval
+        interval = interval.lower()
+
         start_dt = None
         end_dt = None
         
@@ -788,6 +797,9 @@ def get_top_coins(
     global _top_coins_cache
     
     try:
+        # Normalize vs_currency
+        vs_currency = vs_currency.lower()
+
         now = time.time()
         
         # 检查缓存是否有效
@@ -1083,6 +1095,9 @@ def get_node_influence(
     """
 
     try:
+        # Normalize sort_by
+        sort_by = sort_by.lower()
+
         df = load_node_carry_factors(symbol)
         if df.empty:
             return []
@@ -1793,6 +1808,9 @@ def get_state_snapshot(
     from src.research.state_snapshot import compute_state_snapshot
     
     try:
+        # Normalize timeframe
+        timeframe = timeframe.lower()
+
         # 验证 timeframe
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
@@ -1868,7 +1886,7 @@ def get_state_snapshots_batch(
         if not symbols or not isinstance(symbols, list):
             raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
         
-        timeframe = payload.get("timeframe", "1d")
+        timeframe = payload.get("timeframe", "1d").lower()
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
                 status_code=400,
@@ -1985,6 +2003,9 @@ def get_similar_cases(
     from src.research.similar_states import find_similar_states
     
     try:
+        # Normalize timeframe
+        timeframe = timeframe.lower()
+
         # 验证 timeframe
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
@@ -2100,7 +2121,7 @@ def get_similar_cases_custom(
         if not symbol:
             raise HTTPException(status_code=400, detail="symbol is required")
         
-        timeframe = payload.get("timeframe", "1d")
+        timeframe = payload.get("timeframe", "1d").lower()
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
                 status_code=400,
@@ -2254,6 +2275,9 @@ def get_state_scenarios(
     from src.research.scenarios import analyze_scenarios
     
     try:
+        # Normalize timeframe
+        timeframe = timeframe.lower()
+
         # 验证 timeframe
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
@@ -2387,7 +2411,7 @@ def get_state_scenarios_custom(
         if not symbol:
             raise HTTPException(status_code=400, detail="symbol is required")
         
-        timeframe = payload.get("timeframe", "1d")
+        timeframe = payload.get("timeframe", "1d").lower()
         if timeframe not in ("1d", "4h"):
             raise HTTPException(
                 status_code=400,

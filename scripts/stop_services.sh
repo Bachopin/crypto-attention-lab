@@ -10,20 +10,34 @@ echo ""
 
 # 停止后端
 echo "📡 停止后端 API..."
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null && echo "✅ 后端已停止" || echo "ℹ️  后端未运行"
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+ps aux | grep "uvicorn.*src.api.main" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+ps aux | grep "python.*src.api" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
 
 # 停止前端
 echo "🌐 停止前端服务..."
-pkill -9 -f "next dev" 2>/dev/null && echo "✅ 前端已停止" || echo "ℹ️  前端未运行"
-pkill -9 -f "next-server" 2>/dev/null || true
-pkill -9 -f "node.*next" 2>/dev/null || true
-pkill -9 -f "node.*turbopack" 2>/dev/null || true
+ps aux | grep "next dev" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+ps aux | grep "next-server" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+ps aux | grep "node" | grep "next" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
 
 # 清理端口
 echo "🔌 清理端口..."
-lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
-lsof -ti:3000 2>/dev/null | xargs kill -9 2>/dev/null || true
+if lsof -ti:8000 >/dev/null 2>&1; then
+    PIDS=$(lsof -ti:8000)
+    for pid in $PIDS; do
+        if ! ps -p $pid -o args= | grep -q ".vscode-server"; then
+            kill -9 $pid 2>/dev/null
+        fi
+    done
+fi
+
+if lsof -ti:3000 >/dev/null 2>&1; then
+    PIDS=$(lsof -ti:3000)
+    for pid in $PIDS; do
+        if ! ps -p $pid -o args= | grep -q ".vscode-server"; then
+            kill -9 $pid 2>/dev/null
+        fi
+    done
+fi
 
 sleep 1
 

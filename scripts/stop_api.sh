@@ -12,12 +12,23 @@ echo -e "${RED}停止 API 服务器...${NC}"
 echo ""
 
 # 停止 uvicorn 进程
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null && echo -e "${GREEN}✓ uvicorn 已停止${NC}" || echo "• uvicorn 未运行"
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+# 使用更精确的匹配，并排除 VS Code Server 相关进程
+echo "正在停止 uvicorn..."
+ps aux | grep "uvicorn.*src.api.main" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+
+echo "正在停止 python api..."
+ps aux | grep "python.*src.api" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
 
 # 清理端口 8000
 if lsof -ti:8000 >/dev/null 2>&1; then
-    lsof -ti:8000 | xargs kill -9 2>/dev/null
+    # 排除 VS Code 进程占用（虽然通常 VS Code 不会直接占用 8000，但以防万一）
+    PIDS=$(lsof -ti:8000)
+    for pid in $PIDS; do
+        # 检查该 PID 是否属于 VS Code
+        if ! ps -p $pid -o args= | grep -q ".vscode-server"; then
+            kill -9 $pid 2>/dev/null
+        fi
+    done
     echo -e "${GREEN}✓ 端口 8000 已释放${NC}"
 else
     echo "• 端口 8000 未占用"

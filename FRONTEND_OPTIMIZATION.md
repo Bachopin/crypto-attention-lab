@@ -334,3 +334,20 @@ def calculate_fetch_range(self, last_update: datetime = None):
 - **问题**：页面加载初期或 WebSocket 连接建立前，价格显示为 "--" 或闪烁。
 - **优化**：`RealtimePriceTicker` 组件新增 `initialPrice` 属性。在 WebSocket 数据到达前，优先展示 API 获取的静态价格作为兜底。
 - **效果**：页面加载即显示价格，WebSocket 连接后无缝切换至实时更新动画，消除空白等待期。
+
+### 6. 市场概览与场景分析增强
+
+#### 1. MajorAssetModule 视觉升级
+- **优化**：将主要资产（Major Assets）的价格/成交量图表高度增加至 1.5 倍（300px），提升可读性。
+- **新增**：集成 `RealtimePriceTicker` 组件，为每个主要资产卡片提供实时价格跳动效果。
+
+#### 2. 场景分析面板 (Scenario Analysis)
+- **新增**：在 MajorAssetModule 底部新增 `ScenarioPanel` 组件。
+- **布局**：采用两列布局，左侧保留原有的 `RegimeAnalysis`（市场状态分析），右侧新增 `ScenarioPanel`。
+- **功能**：
+  - 基于当前市场状态（价格趋势、波动率、注意力特征）自动匹配历史相似时刻。
+  - 可视化展示未来 5 天的潜在走势分布（上涨/震荡/下跌概率）。
+  - 列出具体的历史相似日期及其后续收益表现，辅助交易决策。
+
+#### 3. 布局调整
+- **优化**：重新设计了 MajorAssetModule 的底部区域，使其能够容纳更丰富的信息密度，同时保持界面整洁。

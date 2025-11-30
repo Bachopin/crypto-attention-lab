@@ -17,20 +17,27 @@ echo ""
 
 # 1. 停止后端进程
 echo -e "${YELLOW}[1/4] 停止后端进程...${NC}"
-pkill -9 -f "uvicorn.*src.api.main" 2>/dev/null && echo -e "${GREEN}✓ uvicorn 已停止${NC}" || echo "• uvicorn 未运行"
-pkill -9 -f "python.*src.api" 2>/dev/null || true
+ps aux | grep "uvicorn.*src.api.main" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+ps aux | grep "python.*src.api" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
 
 # 2. 停止前端进程
 echo -e "${YELLOW}[2/4] 停止前端进程...${NC}"
-pkill -9 -f "next dev" 2>/dev/null && echo -e "${GREEN}✓ next dev 已停止${NC}" || echo "• next dev 未运行"
-pkill -9 -f "next-server" 2>/dev/null || true
-pkill -9 -f "node.*next" 2>/dev/null || true
-pkill -9 -f "node.*turbopack" 2>/dev/null || true
+# 排除 VS Code Server 进程，防止误杀
+ps aux | grep "next dev" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+ps aux | grep "next-server" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
+# node.*next 这种匹配太宽泛，容易误杀 VS Code 插件，改用更精确的匹配或仅依赖端口清理
+# 如果必须杀 node 进程，务必排除 .vscode-server
+ps aux | grep "node" | grep "next" | grep -v "grep" | grep -v ".vscode-server" | awk '{print $2}' | xargs -r kill -9
 
 # 3. 清理端口 8000
 echo -e "${YELLOW}[3/4] 清理端口 8000...${NC}"
 if lsof -ti:8000 >/dev/null 2>&1; then
-    lsof -ti:8000 | xargs kill -9 2>/dev/null
+    PIDS=$(lsof -ti:8000)
+    for pid in $PIDS; do
+        if ! ps -p $pid -o args= | grep -q ".vscode-server"; then
+            kill -9 $pid 2>/dev/null
+        fi
+    done
     echo -e "${GREEN}✓ 端口 8000 已释放${NC}"
 else
     echo "• 端口 8000 未占用"
@@ -39,7 +46,12 @@ fi
 # 4. 清理端口 3000
 echo -e "${YELLOW}[4/4] 清理端口 3000...${NC}"
 if lsof -ti:3000 >/dev/null 2>&1; then
-    lsof -ti:3000 | xargs kill -9 2>/dev/null
+    PIDS=$(lsof -ti:3000)
+    for pid in $PIDS; do
+        if ! ps -p $pid -o args= | grep -q ".vscode-server"; then
+            kill -9 $pid 2>/dev/null
+        fi
+    done
     echo -e "${GREEN}✓ 端口 3000 已释放${NC}"
 else
     echo "• 端口 3000 未占用"
