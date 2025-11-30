@@ -40,7 +40,7 @@ function Home() {
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [activeTab, setActiveTab] = useState('overview')
 
-  const fetchSymbols = () => {
+  const refreshSymbols = () => {
     fetch(buildApiUrl('/api/symbols'))
       .then(res => res.json())
       .then(data => {
@@ -53,7 +53,7 @@ function Home() {
 
   // Fetch available symbols on mount
   useEffect(() => {
-    fetchSymbols()
+    refreshSymbols()
   }, [])
 
   return (
@@ -134,7 +134,7 @@ function Home() {
 
           <TabsContent value="settings" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
             <Suspense fallback={<TabLoading />}>
-              <SettingsTab onUpdate={fetchSymbols} />
+              <SettingsTab onUpdate={refreshSymbols} />
             </Suspense>
           </TabsContent>
         </Tabs>

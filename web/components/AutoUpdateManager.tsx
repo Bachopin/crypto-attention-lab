@@ -269,6 +269,7 @@ export default function AutoUpdateManager({
                   {sym.auto_update ? (
                     <>
                       <Button
+                        type="button"
                         size="sm"
                         variant="outline"
                         onClick={() => triggerUpdate(sym.symbol)}
@@ -277,6 +278,7 @@ export default function AutoUpdateManager({
                         {actionLoading === `trigger-${sym.symbol}` ? '更新中...' : '立即更新'}
                       </Button>
                       <Button
+                        type="button"
                         size="sm"
                         variant="outline"
                         onClick={() => disableAutoUpdate(sym.symbol)}
@@ -289,6 +291,7 @@ export default function AutoUpdateManager({
                   ) : (
                     <>
                       <Button
+                        type="button"
                         size="sm"
                         onClick={() => enableAutoUpdate(sym.symbol)}
                         disabled={actionLoading === sym.symbol}
