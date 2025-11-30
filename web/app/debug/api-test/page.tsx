@@ -84,7 +84,7 @@ const UPDATE_INTERVALS = [
 ]
 
 const MAX_BODY_LENGTH = 1500
-const REQUEST_TIMEOUT_MS = 10000
+const REQUEST_TIMEOUT_MS = 30000  // 30秒超时（注意力事件按需更新可能需要较长时间）
 
 function formatBody(rawBody: string): string {
   if (!rawBody) return '[empty response]'
