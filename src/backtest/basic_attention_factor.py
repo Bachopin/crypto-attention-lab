@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional
 import pandas as pd
 from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
-from src.data.db_storage import load_price_data, load_attention_data
+from src.services.market_data_service import MarketDataService
 from src.backtest.strategy_templates import (
     AttentionCondition,
     build_attention_signal_series,
@@ -41,30 +41,19 @@ def run_backtest_basic_attention(
     if source_key not in {"legacy", "composite"}:
         source_key = "legacy"
 
-    p_df, _ = load_price_data(symbol, '1d', start, end)
-    a_df = load_attention_data(symbol.replace('USDT', ''), start, end)
+    # 使用 MarketDataService 获取对齐的数据
+    df = MarketDataService.get_aligned_data(symbol, start=start, end=end, timeframe='1d')
     
-    if p_df.empty or a_df.empty:
+    if df.empty:
         return {"error": "missing data", "meta": {"attention_source": source_key}}
     
-    attention_columns = [
-        'datetime',
-        'attention_score',
-        'weighted_attention',
-        'bullish_attention',
-        'bearish_attention',
-        'composite_attention_score',
-        'composite_attention_zscore',
-    ]
-    available_attention_cols = [col for col in attention_columns if col in a_df.columns]
-
-    df = pd.merge(
-        p_df[['datetime', 'close']],
-        a_df[available_attention_cols],
-        on='datetime',
-        how='inner'
-    )
-    df = df.dropna()
+    # 确保 datetime 列存在 (MarketDataService 返回的 df 包含 datetime 列)
+    if 'datetime' not in df.columns:
+        # 如果 datetime 是索引，重置索引
+        df = df.reset_index()
+    
+    # 过滤掉没有价格数据的行 (MarketDataService 是 left join on price，所以应该都有价格，但可能有 NaN)
+    df = df.dropna(subset=['close'])
 
     signal_column = 'weighted_attention' if source_key == 'legacy' else 'composite_attention_score'
 
@@ -88,7 +77,7 @@ def run_backtest_basic_attention(
                 condition=attention_condition,
                 start=start,
                 end=end,
-                attention_df=a_df
+                attention_df=df
             )
         except ValueError as exc:
             logger.warning("Attention condition build failed: %s", exc)

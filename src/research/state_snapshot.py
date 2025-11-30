@@ -23,7 +23,14 @@ from typing import Dict, Any, Optional, List
 import numpy as np
 import pandas as pd
 
-from src.data.db_storage import load_price_data, load_attention_data, load_news_data
+from src.services.market_data_service import MarketDataService
+from src.utils.math_utils import (
+    safe_float,
+    compute_zscore,
+    compute_log_return,
+    compute_volatility,
+    compute_slope
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,131 +70,6 @@ class StateSnapshot:
         # datetime 需要转换为 ISO 字符串
         result['as_of'] = self.as_of.isoformat() if self.as_of else None
         return result
-
-
-# ========== 辅助函数 ==========
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    """安全地将值转换为 float，处理 None/NaN/Inf"""
-    if value is None:
-        return default
-    try:
-        f = float(value)
-        if np.isnan(f) or np.isinf(f):
-            return default
-        return f
-    except (TypeError, ValueError):
-        return default
-
-
-def _compute_zscore(value: float, mean: float, std: float) -> float:
-    """
-    计算 z-score，处理标准差为零的情况
-    
-    Parameters
-    ----------
-    value : float
-        当前值
-    mean : float
-        均值
-    std : float
-        标准差
-    
-    Returns
-    -------
-    float
-        z-score 值，std 为 0 时返回 0
-    """
-    if std == 0 or np.isnan(std) or std is None:
-        return 0.0
-    return (value - mean) / std
-
-
-def _compute_log_return(prices: pd.Series) -> float:
-    """
-    计算累计对数收益率
-    
-    Parameters
-    ----------
-    prices : pd.Series
-        按时间排序的价格序列
-    
-    Returns
-    -------
-    float
-        累计对数收益率 ln(P_end / P_start)
-    """
-    if prices.empty or len(prices) < 2:
-        return 0.0
-    
-    start_price = prices.iloc[0]
-    end_price = prices.iloc[-1]
-    
-    if start_price <= 0 or end_price <= 0:
-        return 0.0
-    
-    return float(np.log(end_price / start_price))
-
-
-def _compute_volatility(prices: pd.Series) -> float:
-    """
-    计算价格序列的收益率标准差（波动率代理）
-    
-    Parameters
-    ----------
-    prices : pd.Series
-        按时间排序的价格序列
-    
-    Returns
-    -------
-    float
-        对数收益率的标准差
-    """
-    if prices.empty or len(prices) < 3:
-        return 0.0
-    
-    log_returns = np.log(prices / prices.shift(1)).dropna()
-    
-    if log_returns.empty:
-        return 0.0
-    
-    return float(log_returns.std(ddof=1))
-
-
-def _compute_slope(series: pd.Series) -> float:
-    """
-    计算时间序列的线性趋势斜率
-    
-    使用简单线性回归：y = a + b*x
-    返回斜率 b，表示每个时间单位的变化量
-    
-    Parameters
-    ----------
-    series : pd.Series
-        时间序列数据
-    
-    Returns
-    -------
-    float
-        线性趋势斜率
-    """
-    if series.empty or len(series) < 2:
-        return 0.0
-    
-    # 去除 NaN
-    clean = series.dropna()
-    if len(clean) < 2:
-        return 0.0
-    
-    x = np.arange(len(clean))
-    y = clean.values
-    
-    # 简单线性回归
-    try:
-        slope, _ = np.polyfit(x, y, 1)
-        return float(slope)
-    except Exception:
-        return 0.0
 
 
 # ========== 价格/波动特征计算 ==========
@@ -243,7 +125,23 @@ def _compute_price_features(
     start_dt = as_of - pd.Timedelta(days=lookback_days)
     
     if price_df is None:
-        df, _ = load_price_data(symbol_code, timeframe, start_dt, as_of)
+        # 使用 MarketDataService 获取数据 (虽然这里只需要价格，但统一接口也没问题)
+        # 或者为了性能，如果 MarketDataService 开销大，可以保留 load_price_data
+        # 但为了重构目的，我们假设传入的 price_df 已经是通过 Service 获取的完整数据
+        # 如果没传，我们在 compute_state_snapshot 里统一获取了
+        # 这里为了兼容性，如果真的没传，还是得获取
+        # 但为了避免循环依赖或重复逻辑，最好是在 compute_state_snapshot 里准备好数据
+        pass
+    
+    # 为了保持 _compute_price_features 的独立性，我们暂时保留其内部逻辑，
+    # 但在 compute_state_snapshot 中我们会优先传入 price_df。
+    # 如果 price_df 是 None，说明调用者没传，我们需要自己加载。
+    # 这里我们修改为：如果 price_df 是 None，则返回空（假设上层负责加载）
+    # 或者，为了健壮性，我们在这里调用 Service。
+    
+    if price_df is None:
+         # Fallback: load just price data via Service (it returns merged, but we just use price cols)
+         df = MarketDataService.get_aligned_data(symbol, start=start_dt, end=as_of, timeframe=timeframe)
     else:
         # 从预加载数据中切片
         # 假设 price_df 已经包含所需列且 datetime 为 UTC
@@ -274,7 +172,7 @@ def _compute_price_features(
         return features, raw_stats
     
     # --- 原始统计 ---
-    latest_close = _safe_float(df['close'].iloc[-1])
+    latest_close = safe_float(df['close'].iloc[-1])
     raw_stats['close_price'] = latest_close
     
     # 窗口内数据
@@ -282,8 +180,8 @@ def _compute_price_features(
     window_df = df[df['datetime'] >= window_start]
     
     if not window_df.empty:
-        raw_stats['high_window'] = _safe_float(window_df['high'].max())
-        raw_stats['low_window'] = _safe_float(window_df['low'].min())
+        raw_stats['high_window'] = safe_float(window_df['high'].max())
+        raw_stats['low_window'] = safe_float(window_df['low'].min())
         raw_stats['data_points_window'] = len(window_df)
     else:
         raw_stats['high_window'] = latest_close
@@ -297,14 +195,14 @@ def _compute_price_features(
         recent_df = df[df['datetime'] >= seven_days_ago]
         
         if not recent_df.empty:
-            avg_volume_7d = _safe_float(recent_df['volume'].mean())
+            avg_volume_7d = safe_float(recent_df['volume'].mean())
         else:
             avg_volume_7d = 0.0
         
         # 窗口内平均成交量
         if not window_df.empty and 'volume' in window_df.columns:
-            avg_volume_window = _safe_float(window_df['volume'].mean())
-            std_volume_window = _safe_float(window_df['volume'].std())
+            avg_volume_window = safe_float(window_df['volume'].mean())
+            std_volume_window = safe_float(window_df['volume'].std())
         else:
             avg_volume_window = 0.0
             std_volume_window = 0.0
@@ -313,7 +211,7 @@ def _compute_price_features(
         raw_stats['avg_volume_window'] = avg_volume_window
         
         # volume_zscore: 最近 7D 均量相对窗口的 z-score
-        features['volume_zscore'] = _compute_zscore(avg_volume_7d, avg_volume_window, std_volume_window)
+        features['volume_zscore'] = compute_zscore(avg_volume_7d, avg_volume_window, std_volume_window)
     else:
         features['volume_zscore'] = 0.0
         raw_stats['avg_volume_7d'] = 0.0
@@ -322,7 +220,7 @@ def _compute_price_features(
     # --- 收益率特征 ---
     # 计算窗口内累计对数收益
     if not window_df.empty and 'close' in window_df.columns:
-        window_return = _compute_log_return(window_df['close'])
+        window_return = compute_log_return(window_df['close'])
         raw_stats['return_window_pct'] = float(np.exp(window_return) - 1)  # 转为百分比形式
     else:
         window_return = 0.0
@@ -345,7 +243,7 @@ def _compute_price_features(
         if len(historical_returns) >= 3:
             ret_mean = np.mean(historical_returns)
             ret_std = np.std(historical_returns, ddof=1)
-            features['ret_window'] = _compute_zscore(window_return, ret_mean, ret_std)
+            features['ret_window'] = compute_zscore(window_return, ret_mean, ret_std)
         else:
             features['ret_window'] = 0.0
     else:
@@ -353,7 +251,7 @@ def _compute_price_features(
     
     # --- 波动率特征 ---
     if not window_df.empty and 'close' in window_df.columns:
-        window_vol = _compute_volatility(window_df['close'])
+        window_vol = compute_volatility(window_df['close'])
         raw_stats['volatility_window'] = window_vol
     else:
         window_vol = 0.0
@@ -367,14 +265,14 @@ def _compute_price_features(
             start_idx = i - window_days
             if start_idx >= 0:
                 segment = df.iloc[start_idx:i]['close']
-                vol = _compute_volatility(segment)
+                vol = compute_volatility(segment)
                 if vol > 0:
                     historical_vols.append(vol)
         
         if len(historical_vols) >= 3:
             vol_mean = np.mean(historical_vols)
             vol_std = np.std(historical_vols, ddof=1)
-            features['vol_window'] = _compute_zscore(window_vol, vol_mean, vol_std)
+            features['vol_window'] = compute_zscore(window_vol, vol_mean, vol_std)
         else:
             features['vol_window'] = 0.0
     else:
@@ -443,7 +341,7 @@ def _compute_attention_features(
     start_dt = as_of - pd.Timedelta(days=lookback_days)
     
     if attention_df is None:
-        df = load_attention_data(symbol, start_dt, as_of)
+        df = MarketDataService.get_aligned_data(symbol, start=start_dt, end=as_of, timeframe=timeframe)
     else:
         mask = (attention_df['datetime'] > start_dt) & (attention_df['datetime'] <= as_of)
         df = attention_df.loc[mask].copy()
@@ -497,35 +395,35 @@ def _compute_attention_features(
     latest = df.iloc[-1]
     
     # --- 直接使用已计算的 z-score ---
-    features['att_composite_z'] = _safe_float(latest.get('composite_attention_zscore', 0))
-    features['att_news_z'] = _safe_float(latest.get('news_channel_score', 0))
-    features['att_spike_flag'] = _safe_float(latest.get('composite_attention_spike_flag', 0))
+    features['att_composite_z'] = safe_float(latest.get('composite_attention_zscore', 0))
+    features['att_news_z'] = safe_float(latest.get('news_channel_score', 0))
+    features['att_spike_flag'] = safe_float(latest.get('composite_attention_spike_flag', 0))
     
     # 原始统计
-    raw_stats['composite_attention_score'] = _safe_float(latest.get('composite_attention_score', 0))
-    raw_stats['google_trend_value'] = _safe_float(latest.get('google_trend_value', 0))
-    raw_stats['twitter_volume'] = _safe_float(latest.get('twitter_volume', 0))
-    raw_stats['google_trend_zscore'] = _safe_float(latest.get('google_trend_zscore', 0))
-    raw_stats['twitter_volume_zscore'] = _safe_float(latest.get('twitter_volume_zscore', 0))
+    raw_stats['composite_attention_score'] = safe_float(latest.get('composite_attention_score', 0))
+    raw_stats['google_trend_value'] = safe_float(latest.get('google_trend_value', 0))
+    raw_stats['twitter_volume'] = safe_float(latest.get('twitter_volume', 0))
+    raw_stats['google_trend_zscore'] = safe_float(latest.get('google_trend_zscore', 0))
+    raw_stats['twitter_volume_zscore'] = safe_float(latest.get('twitter_volume_zscore', 0))
     
     # --- 计算 7D 趋势斜率 ---
     seven_days_ago = as_of - pd.Timedelta(days=7)
     recent_df = df[df['datetime'] >= seven_days_ago]
     
     if not recent_df.empty and 'composite_attention_score' in recent_df.columns:
-        slope = _compute_slope(recent_df['composite_attention_score'])
+        slope = compute_slope(recent_df['composite_attention_score'])
         # 对斜率进行标准化（除以历史斜率的标准差）
         if len(df) >= window_days:
             historical_slopes = []
             for i in range(7, len(df)):
                 segment = df.iloc[max(0, i-7):i]['composite_attention_score']
-                s = _compute_slope(segment)
+                s = compute_slope(segment)
                 if not np.isnan(s):
                     historical_slopes.append(s)
             
             if len(historical_slopes) >= 3:
                 slope_std = np.std(historical_slopes, ddof=1)
-                features['att_trend_7d'] = _compute_zscore(slope, 0, slope_std)  # 假设均值为 0
+                features['att_trend_7d'] = compute_zscore(slope, 0, slope_std)  # 假设均值为 0
             else:
                 features['att_trend_7d'] = slope * 10  # 简单放缩
         else:
@@ -535,9 +433,9 @@ def _compute_attention_features(
     
     # --- 计算通道占比 ---
     # 基于各通道 z-score 的绝对值估算占比
-    news_z = abs(_safe_float(latest.get('news_channel_score', 0)))
-    google_z = abs(_safe_float(latest.get('google_trend_zscore', 0)))
-    twitter_z = abs(_safe_float(latest.get('twitter_volume_zscore', 0)))
+    news_z = abs(safe_float(latest.get('news_channel_score', 0)))
+    google_z = abs(safe_float(latest.get('google_trend_zscore', 0)))
+    twitter_z = abs(safe_float(latest.get('twitter_volume_zscore', 0)))
     
     total_z = news_z + google_z + twitter_z
     
@@ -576,8 +474,8 @@ def _compute_attention_features(
         
         # Bullish vs Bearish
         if 'bullish_attention' in window_df.columns and 'bearish_attention' in window_df.columns:
-            avg_bullish = _safe_float(window_df['bullish_attention'].mean())
-            avg_bearish = _safe_float(window_df['bearish_attention'].mean())
+            avg_bullish = safe_float(window_df['bullish_attention'].mean())
+            avg_bearish = safe_float(window_df['bearish_attention'].mean())
             
             raw_stats['avg_bullish'] = avg_bullish
             raw_stats['avg_bearish'] = avg_bearish
@@ -592,8 +490,8 @@ def _compute_attention_features(
                 
                 if not bull_col.empty and not bear_col.empty:
                     diff_series = bull_col - bear_col
-                    diff_std = _safe_float(diff_series.std(ddof=1))
-                    features['bullish_minus_bearish'] = _compute_zscore(diff, 0, diff_std)
+                    diff_std = safe_float(diff_series.std(ddof=1))
+                    features['bullish_minus_bearish'] = compute_zscore(diff, 0, diff_std)
                 else:
                     features['bullish_minus_bearish'] = diff * 10  # 简单放缩
             else:
@@ -605,7 +503,7 @@ def _compute_attention_features(
         
         # 窗口内平均 composite score
         if 'composite_attention_score' in window_df.columns:
-            raw_stats['avg_composite_score'] = _safe_float(window_df['composite_attention_score'].mean())
+            raw_stats['avg_composite_score'] = safe_float(window_df['composite_attention_score'].mean())
         else:
             raw_stats['avg_composite_score'] = 0.0
     else:
@@ -619,7 +517,7 @@ def _compute_attention_features(
     # --- 情绪特征 ---
     # 尝试从新闻数据获取 sentiment 信息
     if news_df is None:
-        news_df_slice = load_news_data(symbol, window_start, as_of)
+        news_df_slice = MarketDataService.get_news_data(symbol, window_start, as_of)
     else:
         mask = (news_df['datetime'] > window_start) & (news_df['datetime'] <= as_of)
         news_df_slice = news_df.loc[mask].copy()
@@ -628,11 +526,11 @@ def _compute_attention_features(
         sentiment_values = news_df_slice['sentiment_score'].dropna()
         
         if not sentiment_values.empty:
-            sentiment_mean = _safe_float(sentiment_values.mean())
+            sentiment_mean = safe_float(sentiment_values.mean())
             raw_stats['sentiment_mean_window'] = sentiment_mean
             
             # 标准化
-            sentiment_std = _safe_float(sentiment_values.std(ddof=1))
+            sentiment_std = safe_float(sentiment_values.std(ddof=1))
             if sentiment_std > 0:
                 # 相对于窗口内分布的 z-score
                 features['sentiment_mean_window'] = sentiment_mean / sentiment_std
@@ -752,8 +650,24 @@ def compute_state_snapshot(
     all_raw_stats: Dict[str, Any] = {}
     
     # 1. 计算价格/波动特征
+    # 如果没有传入预加载数据，我们在这里统一加载一次，避免分别加载导致的不一致或多次 IO
+    if price_df is None and attention_df is None:
+        # 计算需要的最大回溯时间
+        max_lookback = max(window_days * 2 + 7, 60)
+        start_dt = as_of - pd.Timedelta(days=max_lookback)
+        
+        unified_df = MarketDataService.get_aligned_data(symbol, start=start_dt, end=as_of, timeframe=timeframe)
+        
+        # 将统一的数据分别传给子函数
+        # 子函数会进行切片，所以传入完整数据没问题
+        price_df_arg = unified_df
+        attention_df_arg = unified_df
+    else:
+        price_df_arg = price_df
+        attention_df_arg = attention_df
+
     try:
-        price_features, price_stats = _compute_price_features(symbol, as_of, timeframe, window_days, price_df)
+        price_features, price_stats = _compute_price_features(symbol, as_of, timeframe, window_days, price_df_arg)
         all_features.update(price_features)
         all_raw_stats.update(price_stats)
     except Exception as e:
@@ -762,7 +676,7 @@ def compute_state_snapshot(
     
     # 2. 计算注意力特征
     try:
-        attention_features, attention_stats = _compute_attention_features(symbol, as_of, timeframe, window_days, attention_df, news_df)
+        attention_features, attention_stats = _compute_attention_features(symbol, as_of, timeframe, window_days, attention_df_arg, news_df)
         all_features.update(attention_features)
         all_raw_stats.update(attention_stats)
     except Exception as e:

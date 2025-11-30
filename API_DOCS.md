@@ -1338,3 +1338,42 @@ API 会自动检查数据是否存在:
 - **更新**：所有主要端点（如 `/api/price`, `/api/attention`, `/api/news/trend` 等）的查询参数现在支持大小写不敏感。
 - **示例**：`granularity=1D` 和 `granularity=1d` 均被视为有效。`symbol=btc` 和 `symbol=BTC` 均有效。
 - **受影响参数**：`granularity`, `interval`, `sort_by`, `vs_currency` 等。
+
+---
+
+## 🏗️ API Design Specifications (v2.0)
+
+Following the "API Health Check" and refactoring (Nov 2025), the following design standards are enforced across the codebase to ensure stability, type safety, and developer experience.
+
+### 1. Input Validation & Normalization
+- **Date Parameters**: All date inputs (`start`, `end`) are validated using a standardized helper `validate_date_param`.
+  - **Format**: ISO 8601 (`YYYY-MM-DDTHH:MM:SSZ`) is preferred.
+  - **Range**: Dates before 2009 (Bitcoin genesis) are rejected.
+  - **Timezone**: Naive datetimes are assumed to be UTC.
+- **Symbol Normalization**: `symbol` parameters are automatically converted to uppercase (e.g., `zec` -> `ZEC`).
+- **Enum Normalization**: Parameters like `granularity`, `interval`, and `timeframe` are automatically converted to lowercase to match internal logic (e.g., `1D` -> `1d`).
+
+### 2. Type Safety with Pydantic
+- **POST Requests**: All POST endpoints (especially Backtest APIs) now use Pydantic models (`BacktestParams`, `MultiBacktestParams`) instead of raw dictionaries.
+  - **Benefits**: Automatic type checking, required field enforcement, and auto-generated Swagger documentation.
+  - **Example**:
+    ```python
+    class BacktestParams(BaseModel):
+        symbol: str
+        lookback_days: int = 30
+        # ...
+    ```
+
+### 3. Async & Non-Blocking I/O
+- **External Calls**: Blocking synchronous I/O operations (like `requests.get` to Binance or NewsAPI) are wrapped in `asyncio.to_thread` to prevent freezing the main event loop.
+- **Database**: Database operations should ideally be async (using `databases` or `SQLAlchemy[asyncio]`), though some legacy synchronous paths remain wrapped.
+
+### 4. Error Handling Standards
+- **HTTP 400 (Bad Request)**: Returned for client-side errors, such as invalid date formats, unsupported timeframes, or missing required fields.
+- **HTTP 404 (Not Found)**: Returned when requested resources (symbols, data points) do not exist.
+- **HTTP 500 (Internal Server Error)**: Catch-all for unhandled exceptions, with details logged server-side and a generic message returned to the client to avoid leaking sensitive info.
+
+### 5. Versioning Strategy
+- **Current Version**: v1 (Implicit).
+- **Future**: Breaking changes will be introduced under `/api/v2/` prefix.
+- **Deprecation**: Deprecated fields (like `attention` in favor of `attention_score`) are maintained for backward compatibility but marked in documentation.

@@ -47,8 +47,18 @@ Experience the power of Attention-based trading in 3 steps:
 crypto-attention-lab/
 ├── src/                    # Python 后端
 │   ├── api/               # FastAPI 接口
+│   │   ├── routers/       # API 路由模块 (New)
+│   │   │   ├── market_data.py
+│   │   │   ├── attention.py
+│   │   │   ├── backtest.py
+│   │   │   ├── research.py
+│   │   │   └── system.py
+│   │   └── main.py        # 应用入口
+│   ├── services/          # 业务逻辑服务层
+│   │   ├── attention_service.py
+│   │   └── market_data_service.py
 │   ├── data/              # 数据获取模块
-│   ├── features/          # 特征工程
+│   ├── features/          # 特征工程 (含 calculators.py)
 │   ├── database/          # 数据库模型
 │   ├── backtest/          # 回测框架
 │   └── config/            # 配置文件

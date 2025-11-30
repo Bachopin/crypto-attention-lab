@@ -24,14 +24,20 @@
 └─────────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                   特征工程层                                 │
-│  news_features.py: source_weight, sentiment, tags           │
-│  attention_features.py: weighted/bullish/bearish/intensity  │
+│                   服务编排层 (Service Layer)                 │
+│  attention_service.py: 协调数据加载、计算与存储               │
+│  market_data_service.py: 统一价格与注意力数据对齐             │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   纯逻辑计算层 (Pure Logic)                  │
+│  calculators.py: 纯数学计算，无 I/O                          │
+│  news_features.py: 文本特征提取                              │
+│  attention_events.py: 纯逻辑事件检测                         │
 └─────────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                  事件检测 & 策略层                           │
-│  attention_events.py: 分位数阈值事件检测                     │
 │  basic_attention_factor.py: 简单加权注意力策略              │
 └─────────────────────────────────────────────────────────────┘
                            ↓
@@ -86,9 +92,9 @@ relevance_flag(title: str, symbol: str) -> str
 python scripts/generate_attention_data.py
 ```
 
-位置：`src/features/attention_features.py`
+位置：`src/services/attention_service.py` (编排) & `src/features/calculators.py` (计算)
 
-从新闻级特征聚合为日级：
+从新闻级特征聚合为日级（核心逻辑在 `calculators.calculate_composite_attention`）：
 ```python
 attention_score = min_max_normalize(news_count, 0-100)
 weighted_attention = sum(source_weight * relevance_weight)
@@ -99,9 +105,9 @@ event_intensity = has_high_weight_source AND strong_sentiment AND has_tags ? 1 :
 
 保存到 `data/processed/attention_features_zec.csv` 和数据库。
 
-👉 **2025 版更新**：`process_attention_features` 现在还会调用
-`google_trends_fetcher` 与 `twitter_attention_fetcher`，并基于
-`src/config/attention_channels.py` 中的配置生成三条通道（新闻、Google
+👉 **2025 版更新**：引入了 `AttentionService` 来统一管理数据流。它会调用
+`google_trends_fetcher` 与 `twitter_attention_fetcher`，并使用纯函数 `calculators.py`
+基于 `src/config/attention_channels.py` 中的配置生成三条通道（新闻、Google
 Trends、Twitter）与 `composite_attention_score`。
 
 ### 3b. Google Trends 同步（2025 新增）
@@ -114,6 +120,8 @@ python scripts/fetch_multi_symbol_google_trends.py --days 365
 
 ### 4. 事件检测
 位置：`src/events/attention_events.py`
+
+该模块已重构为**纯逻辑库**，核心函数 `compute_attention_events` 接收 DataFrame 并返回事件列表，不再直接操作数据库。API 层通过 `MarketDataService` 获取对齐数据后调用此逻辑。
 
 基于滚动分位数阈值检测异常事件：
 ```python
@@ -189,11 +197,20 @@ Google 通道的关键补充：
 - 如果网络/配额暂不可用，后端会退化为 0 并打印 warning，方便排查；
 - 数据同时缓存在数据库与 CSV，任一层缺失时仍可重建。
 
+### 3c. 数据对齐与服务 (Data Alignment Service)
+位置：`src/services/market_data_service.py`
+
+为了确保回测与研究模块使用的数据一致性，引入了 `MarketDataService`：
+- **统一接口**：`get_aligned_data(symbol, ...)`
+- **自动对齐**：以价格数据（OHLCV）的时间戳为基准，左连接（Left Join）注意力数据
+- **缺失值处理**：自动处理非交易日或缺失的注意力数据（ffill/0填充）
+- **时区标准化**：强制统一为 UTC 时间
+
 整体计算流程：
 1. `attention_fetcher` 收集多来源新闻并写入语言/平台元数据；
 2. `news_features` 结合 `attention_channels.py` 的语言/来源/节点配置计算加权新闻热度；
 3. `google_trends_fetcher` 与 `twitter_attention_fetcher` 依据同一配置抓取并缓存外部信号；
-4. `attention_features.process_attention_features` 汇总所有通道，按配置权重产出 `composite_attention_score` 及 z-score/flag；
+4. `AttentionService` 协调数据加载，调用 `calculators.calculate_composite_attention` 汇总所有通道，按配置权重产出 `composite_attention_score` 及 z-score/flag；
 5. API 层直接暴露每个通道与合成指标，方便前端或量化脚本使用。
 
 > ⚠️ 若未配置 Google/Twitter 凭证，系统会自动记录 0 并继续执行，确保回测/离线生成流程不被阻塞。

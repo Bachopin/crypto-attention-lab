@@ -37,7 +37,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from src.data.db_storage import load_price_data
+from src.services.market_data_service import MarketDataService
 from src.research.state_snapshot import StateSnapshot
 from src.research.similar_states import SimilarState
 
@@ -252,7 +252,7 @@ def _get_future_prices(
     end_datetime = start_datetime + timedelta(days=lookahead_days + 5)
     
     # 加载价格数据
-    df, _ = load_price_data(symbol_code, timeframe, start_datetime, end_datetime)
+    df = MarketDataService.get_price_data(symbol_code, timeframe, start_datetime, end_datetime)
     
     if df.empty:
         return pd.DataFrame()
@@ -401,7 +401,7 @@ def compute_all_sample_performances(
             
             # Load data once per symbol
             symbol_code = symbol if symbol.endswith('USDT') else f"{symbol}USDT"
-            df, _ = load_price_data(symbol_code, timeframe, min_date, max_date)
+            df = MarketDataService.get_price_data(symbol_code, timeframe, min_date, max_date)
             
             if not df.empty and 'datetime' in df.columns:
                 df['datetime'] = pd.to_datetime(df['datetime'], utc=True)

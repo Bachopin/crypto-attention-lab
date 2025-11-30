@@ -38,12 +38,12 @@ class TestBasicAttentionBacktest:
             'news_count': [1] * 10
         })
 
-    @patch('src.backtest.basic_attention_factor.load_price_data')
-    @patch('src.backtest.basic_attention_factor.load_attention_data')
-    def test_run_backtest_basic_attention(self, mock_load_attention, mock_load_price,
+    @patch('src.backtest.basic_attention_factor.MarketDataService.get_aligned_data')
+    def test_run_backtest_basic_attention(self, mock_get_aligned_data,
                                           price_data, attention_data):
-        mock_load_price.return_value = (price_data, False)
-        mock_load_attention.return_value = attention_data
+        # Merge data to simulate get_aligned_data return
+        merged_data = pd.merge(price_data, attention_data, on='datetime', how='left')
+        mock_get_aligned_data.return_value = merged_data
 
         result = run_backtest_basic_attention(
             symbol="ZECUSDT",
@@ -96,12 +96,11 @@ class TestStopLossAndTakeProfit:
             'news_count': [1] * 6,
         })
 
-    @patch('src.backtest.basic_attention_factor.load_price_data')
-    @patch('src.backtest.basic_attention_factor.load_attention_data')
-    def test_take_profit(self, mock_load_attention, mock_load_price,
+    @patch('src.backtest.basic_attention_factor.MarketDataService.get_aligned_data')
+    def test_take_profit(self, mock_get_aligned_data,
                          sl_tp_price_data, sl_tp_attention_data):
-        mock_load_price.return_value = (sl_tp_price_data, False)
-        mock_load_attention.return_value = sl_tp_attention_data
+        merged_data = pd.merge(sl_tp_price_data, sl_tp_attention_data, on='datetime', how='left')
+        mock_get_aligned_data.return_value = merged_data
 
         res_tp = run_backtest_basic_attention(
             symbol="ZECUSDT",
@@ -118,12 +117,11 @@ class TestStopLossAndTakeProfit:
         assert t_tp['entry_price'] == 100.0
         assert t_tp['exit_price'] == 110.0
 
-    @patch('src.backtest.basic_attention_factor.load_price_data')
-    @patch('src.backtest.basic_attention_factor.load_attention_data')
-    def test_stop_loss(self, mock_load_attention, mock_load_price,
+    @patch('src.backtest.basic_attention_factor.MarketDataService.get_aligned_data')
+    def test_stop_loss(self, mock_get_aligned_data,
                        sl_tp_price_data, sl_tp_attention_data):
-        mock_load_price.return_value = (sl_tp_price_data, False)
-        mock_load_attention.return_value = sl_tp_attention_data
+        merged_data = pd.merge(sl_tp_price_data, sl_tp_attention_data, on='datetime', how='left')
+        mock_get_aligned_data.return_value = merged_data
 
         res_sl = run_backtest_basic_attention(
             symbol="ZECUSDT",
@@ -168,12 +166,11 @@ class TestHoldingAndPositionSize:
             'news_count': [1] * 5,
         })
 
-    @patch('src.backtest.basic_attention_factor.load_price_data')
-    @patch('src.backtest.basic_attention_factor.load_attention_data')
-    def test_max_holding_days(self, mock_load_attention, mock_load_price,
+    @patch('src.backtest.basic_attention_factor.MarketDataService.get_aligned_data')
+    def test_max_holding_days(self, mock_get_aligned_data,
                               position_price_data, position_attention_data):
-        mock_load_price.return_value = (position_price_data, False)
-        mock_load_attention.return_value = position_attention_data
+        merged_data = pd.merge(position_price_data, position_attention_data, on='datetime', how='left')
+        mock_get_aligned_data.return_value = merged_data
 
         res_max_hold = run_backtest_basic_attention(
             symbol="ZECUSDT",
@@ -187,12 +184,11 @@ class TestHoldingAndPositionSize:
         assert t['entry_price'] == 100.0
         assert t['exit_price'] == 104.0
 
-    @patch('src.backtest.basic_attention_factor.load_price_data')
-    @patch('src.backtest.basic_attention_factor.load_attention_data')
-    def test_position_size_impact(self, mock_load_attention, mock_load_price,
+    @patch('src.backtest.basic_attention_factor.MarketDataService.get_aligned_data')
+    def test_position_size_impact(self, mock_get_aligned_data,
                                    position_price_data, position_attention_data):
-        mock_load_price.return_value = (position_price_data, False)
-        mock_load_attention.return_value = position_attention_data
+        merged_data = pd.merge(position_price_data, position_attention_data, on='datetime', how='left')
+        mock_get_aligned_data.return_value = merged_data
 
         res_ps_1 = run_backtest_basic_attention(
             symbol="ZECUSDT",

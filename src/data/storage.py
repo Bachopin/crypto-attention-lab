@@ -198,8 +198,8 @@ def ensure_attention_data_exists(symbol: str) -> bool:
             
             # 数据库中没有数据，尝试计算
             logger.info(f"No attention data in DB for {symbol}, generating...")
-            from src.features.attention_features import process_attention_features
-            result = process_attention_features(symbol=symbol)
+            from src.services.attention_service import AttentionService
+            result = AttentionService.update_attention_features(symbol=symbol)
             return result is not None and not result.empty
         except Exception as e:
             logger.error(f"Failed to check/generate attention data from DB: {e}")
@@ -214,10 +214,10 @@ def ensure_attention_data_exists(symbol: str) -> bool:
     
     # 尝试计算 attention features
     try:
-        from src.features.attention_features import process_attention_features
+        from src.services.attention_service import AttentionService
         
         logger.info(f"Processing attention features for {symbol}")
-        result = process_attention_features(symbol=symbol)
+        result = AttentionService.update_attention_features(symbol=symbol)
         
         return result is not None and not result.empty
     except Exception as e:

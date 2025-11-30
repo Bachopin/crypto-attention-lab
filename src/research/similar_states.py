@@ -30,7 +30,7 @@ from typing import Dict, Any, Optional, List, Iterable, Tuple
 import numpy as np
 import pandas as pd
 
-from src.data.db_storage import load_price_data, load_attention_data, load_news_data, get_available_symbols
+from src.services.market_data_service import MarketDataService
 from src.research.state_snapshot import StateSnapshot, compute_state_snapshot, compute_features_vectorized
 
 logger = logging.getLogger(__name__)
@@ -233,7 +233,7 @@ def _get_historical_dates(
     symbol_code = symbol if symbol.endswith('USDT') else f"{symbol}USDT"
     
     # 加载价格数据获取可用日期
-    df, _ = load_price_data(symbol_code, timeframe, start_date, end_date)
+    df = MarketDataService.get_price_data(symbol_code, timeframe, start_date, end_date)
     
     if df.empty or 'datetime' not in df.columns:
         return []
@@ -312,27 +312,18 @@ def iter_historical_states(
         symbol_code = f"{symbol}USDT"
         
         try:
-            # 加载价格数据
-            price_df, _ = load_price_data(symbol_code, timeframe, start_date, end_date)
-            if price_df.empty:
-                if verbose: logger.warning(f"No price data for {symbol}")
+            # 加载对齐的数据 (包含价格和注意力)
+            aligned_df = MarketDataService.get_aligned_data(symbol, start=start_date, end=end_date, timeframe=timeframe)
+            
+            if aligned_df.empty:
+                if verbose: logger.warning(f"No data for {symbol}")
                 continue
                 
-            if 'datetime' in price_df.columns:
-                price_df['datetime'] = pd.to_datetime(price_df['datetime'], utc=True)
-                price_df = price_df.sort_values('datetime')
-            
-            # 加载注意力数据
-            attention_df = load_attention_data(symbol, start_date, end_date)
-            if not attention_df.empty and 'datetime' in attention_df.columns:
-                attention_df['datetime'] = pd.to_datetime(attention_df['datetime'], utc=True)
-                attention_df = attention_df.sort_values('datetime')
-            
-            # 加载新闻数据 (Vectorized computation currently doesn't use news_df heavily, but we pass it)
-            # news_df = load_news_data(symbol, start_date, end_date)
-            # if not news_df.empty and 'datetime' in news_df.columns:
-            #     news_df['datetime'] = pd.to_datetime(news_df['datetime'], utc=True)
-            #     news_df = news_df.sort_values('datetime')
+            # compute_features_vectorized 期望 price_df 和 attention_df
+            # 我们传入 aligned_df 作为 price_df，空 DataFrame 作为 attention_df
+            # 因为 aligned_df 已经包含了注意力列，compute_features_vectorized 会直接使用
+            price_df = aligned_df
+            attention_df = pd.DataFrame()
                 
         except Exception as e:
             logger.error(f"Failed to load data for {symbol}: {e}")
@@ -461,7 +452,7 @@ def find_similar_states(
     """
     # 获取候选币种列表
     if candidate_symbols is None:
-        candidate_symbols = get_available_symbols()
+        candidate_symbols = MarketDataService.get_available_symbols()
     
     if not candidate_symbols:
         logger.warning("No candidate symbols available")

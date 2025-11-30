@@ -6,7 +6,7 @@ import numpy as np
 
 from src.data.db_storage import load_price_data, USE_DATABASE, get_db
 from src.features.node_attention_features import build_node_attention_features
-from src.events.attention_events import detect_attention_events
+from src.services.attention_service import AttentionService
 
 
 @dataclass
@@ -59,7 +59,7 @@ def compute_node_carry_factor(
     price_df["datetime"] = pd.to_datetime(price_df["datetime"], utc=True)
 
     # 注意力事件（按标的）
-    events = detect_attention_events(symbol=symbol, lookback_days=lookback_days, start=start, end=end)
+    events = AttentionService.get_attention_events(symbol=symbol, lookback_days=lookback_days, start=start, end=end)
     if not events:
         return pd.DataFrame()
 

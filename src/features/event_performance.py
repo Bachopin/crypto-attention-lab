@@ -3,7 +3,8 @@ from typing import List, Dict, Sequence, Optional
 import pandas as pd
 
 from src.data.db_storage import load_price_data, load_attention_data
-from src.events.attention_events import detect_attention_events, AttentionEvent
+from src.services.attention_service import AttentionService
+from src.features.event_detectors import AttentionEvent
 
 
 @dataclass
@@ -40,7 +41,7 @@ def compute_event_performance(
     p_df = p_df.sort_values("datetime").reset_index(drop=True)
     p_df["datetime"] = pd.to_datetime(p_df["datetime"])
 
-    events: List[AttentionEvent] = detect_attention_events(symbol=symbol)
+    events: List[AttentionEvent] = AttentionService.get_attention_events(symbol=symbol)
     if not events:
         return {}
 

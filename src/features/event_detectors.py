@@ -1,9 +1,11 @@
+"""
+Feature logic for detecting attention events.
+Pure calculation logic, no database access.
+"""
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 import pandas as pd
-from src.config.settings import PROCESSED_DATA_DIR, RAW_DATA_DIR
-from src.data.db_storage import load_attention_data
-
+from src.utils.math_utils import compute_rolling_quantile
 
 @dataclass
 class AttentionEvent:
@@ -12,28 +14,46 @@ class AttentionEvent:
     intensity: float
     summary: str
 
-
-def detect_attention_events(
-    symbol: str = "ZEC",
-    start: Optional[pd.Timestamp] = None,
-    end: Optional[pd.Timestamp] = None,
+def detect_attention_spikes(
+    df: pd.DataFrame,
     lookback_days: int = 30,
     min_quantile: float = 0.8,
 ) -> List[AttentionEvent]:
-    # 数据库优先加载
-    df = load_attention_data(symbol, start, end)
+    """
+    Pure logic function to detect attention events from a DataFrame.
+    
+    Args:
+        df: DataFrame containing attention metrics. Must have 'datetime' column.
+            Expected columns: 'composite_attention_score' (or 'attention_score'),
+            'weighted_attention', 'bullish_attention', 'bearish_attention', 'event_intensity'.
+        lookback_days: Window size for quantile calculation.
+        min_quantile: Quantile threshold (e.g., 0.8 for 80th percentile).
+        
+    Returns:
+        List of AttentionEvent objects.
+    """
     if df.empty:
         return []
-    df = df.dropna(subset=['datetime'])
+        
+    # Ensure we work on a copy to avoid modifying the input
+    df = df.copy()
+    
+    # Ensure datetime column exists
+    if 'datetime' not in df.columns:
+        # If index is datetime, reset index
+        if isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index()
+            df = df.rename(columns={'index': 'datetime'}) # Handle unnamed index
+        else:
+            # Cannot proceed without datetime
+            return []
 
-    # 计算 rolling 分位数阈值（更严格的 min_periods，避免初期全 0 导致噪声）
+    # Helper for quantile threshold using shared math util
     def q_threshold(s: pd.Series) -> pd.Series:
-        return s.rolling(lookback_days, min_periods=max(10, lookback_days // 2)).apply(
-            lambda x: pd.Series(x).quantile(min_quantile), raw=False
-        )
+        return compute_rolling_quantile(s, lookback_days, min_quantile)
 
     # 首选合成注意力作为 spike 基础；回退到 legacy attention_score
-    base_spike_series = df.get('composite_attention_score', df['attention_score']).copy()
+    base_spike_series = df.get('composite_attention_score', df.get('attention_score', pd.Series(index=df.index, dtype=float))).copy()
     df['att_base'] = base_spike_series.fillna(0)
     df['att_q'] = q_threshold(df['att_base'])
     df['w_q'] = q_threshold(df.get('weighted_attention', pd.Series(index=df.index, dtype=float).fillna(0)))

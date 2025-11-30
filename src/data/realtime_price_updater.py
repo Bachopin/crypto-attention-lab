@@ -247,7 +247,7 @@ class RealtimePriceUpdater:
         Args:
             force_check_completeness: 强制检查所有 timeframe 的数据完整性
         """
-        from src.features.attention_features import process_attention_features
+        from src.services.attention_service import AttentionService
         
         symbols = self.get_auto_update_symbols()
         
@@ -268,7 +268,7 @@ class RealtimePriceUpdater:
             # 2. 立即计算 Attention Features
             try:
                 logger.info(f"[Updater] Calculating attention features for {symbol}...")
-                attention_df = await asyncio.to_thread(process_attention_features, symbol, freq='D', save_to_db=True)
+                attention_df = await asyncio.to_thread(AttentionService.update_attention_features, symbol, freq='D', save_to_db=True)
                 logger.info(f"[Updater] ✅ Attention features updated for {symbol}")
                 
                 # 3. 通过 WebSocket 广播 Attention 更新（如果有订阅者）
