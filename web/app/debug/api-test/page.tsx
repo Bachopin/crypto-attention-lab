@@ -212,8 +212,8 @@ export default function ApiTestPage() {
             <p className="text-xs text-muted-foreground">Base: {resolvedApiBase}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/">
-              <Button variant="outline" size="sm">返回主页</Button>
+            <Link href="/?tab=settings">
+              <Button variant="outline" size="sm">返回设置</Button>
             </Link>
             <Button onClick={runAllTests} disabled={testing.size > 0} size="sm" className="gap-1">
               <RotateCw className={`w-3 h-3 ${testing.size > 0 ? 'animate-spin' : ''}`} />

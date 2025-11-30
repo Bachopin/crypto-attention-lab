@@ -2,7 +2,7 @@
 
 # Crypto Attention Lab - 全栈开发模式启动脚本（前台模式）
 # 按 Ctrl+C 同时停止所有服务
-# Usage: ./scripts/start_dev.sh
+# Usage: ./scripts/dev.sh
 
 # Change to project root directory
 cd "$(dirname "$0")/.."

@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Crypto Attention Lab API",
     description="API for cryptocurrency attention analysis and price data. Supports WebSocket for real-time updates.",
-    version="0.2.0",
+    version="1.0.0",
     lifespan=lifespan
 )
 
@@ -156,7 +156,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Crypto Attention Lab API",
-        "version": "0.2.0",
+        "version": "1.0.0",
         "websocket": {
             "clients": ws_manager.get_stats()["total_clients"],
             "binance_connected": ws_manager.get_stats()["binance_connected"]
@@ -168,7 +168,7 @@ def root():
     """API 根路径"""
     return {
         "message": "Crypto Attention Lab API",
-        "version": "0.2.0",
+        "version": "1.0.0",
         "endpoints": {
             "health": "/health or /ping",
             "symbols": "/api/symbols",

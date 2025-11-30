@@ -25,8 +25,8 @@ echo "✅ Node.js $(node -v)"
 echo "✅ npm $(npm -v)"
 echo ""
 
-# Navigate to web directory
-cd "$(dirname "$0")/web" || exit
+# Navigate to web directory (adjusted for scripts/ location)
+cd "$(dirname "$0")/../web" || exit
 
 # Check if node_modules exists
 if [ ! -d "node_modules" ]; then

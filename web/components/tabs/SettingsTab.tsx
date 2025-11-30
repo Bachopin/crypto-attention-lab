@@ -8,6 +8,9 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Activity } from 'lucide-react'
 
 export default function SettingsTab({ onUpdate }: { onUpdate: () => void }) {
   const { settings, updateSettings } = useSettings();
@@ -104,6 +107,29 @@ export default function SettingsTab({ onUpdate }: { onUpdate: () => void }) {
             </CardContent>
           </Card>
         </div>
+      </section>
+
+      <Separator />
+
+      {/* System Tools */}
+      <section className="space-y-4">
+        <h2 className="text-2xl font-bold">System Tools</h2>
+        <Card>
+          <CardHeader>
+            <CardTitle>Debug & Diagnostics</CardTitle>
+            <CardDescription>
+              Access system diagnostics, API testing tools, and real-time connection status.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/debug/api-test">
+              <Button variant="outline" className="gap-2">
+                <Activity className="w-4 h-4" />
+                Open API Debugger
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       </section>
     </div>
   )

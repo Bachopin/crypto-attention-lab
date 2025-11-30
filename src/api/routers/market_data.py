@@ -13,6 +13,7 @@ from src.data.db_storage import (
 )
 from src.database.models import Symbol, get_session
 from src.api.utils import validate_date_param
+from src.api.schemas import Timeframe
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ router = APIRouter()
 @router.get("/api/price", tags=["Market Data"])
 def get_price_data(
     symbol: str = Query(default="ZECUSDT", description="交易对符号，如 ZECUSDT"),
-    timeframe: str = Query(default="1d", description="时间周期: 1d, 4h, 1h, 15m"),
+    timeframe: Timeframe = Query(default=Timeframe.DAILY, description="时间周期"),
     start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
     end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式")
 ):
@@ -33,22 +34,14 @@ def get_price_data(
     try:
         # Normalize inputs
         symbol = symbol.upper()
-        timeframe = timeframe.lower()
+        # timeframe is already validated by Enum
 
-        # 验证 timeframe
-        valid_timeframes = ["1d", "4h", "1h", "15m"]
-        if timeframe not in valid_timeframes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe. Must be one of: {', '.join(valid_timeframes)}"
-            )
-        
         # 解析时间参数
         start_dt = validate_date_param(start, "start")
         end_dt = validate_date_param(end, "end")
         
         # 加载数据（直接从数据库）
-        df, is_fallback = load_price_data(symbol, timeframe, start_dt, end_dt)
+        df, is_fallback = load_price_data(symbol, timeframe.value, start_dt, end_dt)
         
         if df.empty:
             return []
@@ -69,7 +62,7 @@ def get_price_data(
                 "volume": float(row.get('volume', 0))
             })
         
-        logger.info(f"Returned {len(result)} price records for {symbol} {timeframe}")
+        logger.info(f"Returned {len(result)} price records for {symbol} {timeframe.value}")
         return result
         
     except HTTPException:

@@ -1,46 +1,30 @@
 from fastapi import APIRouter, Body, HTTPException
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
 import pandas as pd
 import logging
 
 from src.backtest.basic_attention_factor import run_backtest_basic_attention
 from src.backtest.strategy_templates import AttentionCondition
 from src.backtest.attention_rotation import run_attention_rotation_backtest
+from src.api.schemas import (
+    BacktestParams, 
+    MultiBacktestParams, 
+    AttentionRotationParams
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ==================== Models ====================
-
-class BacktestParams(BaseModel):
-    """基础回测参数模型"""
-    symbol: str = Field(..., description="交易对符号")
-    lookback_days: int = Field(30, ge=1, description="回溯天数")
-    attention_quantile: float = Field(0.8, ge=0.0, le=1.0, description="注意力分位数阈值")
-    max_daily_return: float = Field(0.05, description="最大日涨幅限制")
-    holding_days: int = Field(3, ge=1, description="持仓天数")
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
-    max_holding_days: Optional[int] = None
-    position_size: float = Field(1.0, gt=0.0, le=1.0)
-    start: Optional[str] = None
-    end: Optional[str] = None
-    attention_condition: Optional[Dict[str, Any]] = None
-    attention_source: str = Field("legacy", pattern="^(legacy|composite)$")
-
-class MultiBacktestParams(BacktestParams):
-    """多币种回测参数模型"""
-    symbol: Optional[str] = None # 覆盖父类，使其可选
-    symbols: List[str] = Field(..., min_length=1, description="交易对列表")
-
-
 def _parse_attention_condition(value) -> Optional[AttentionCondition]:
     if value is None:
         return None
+    if isinstance(value, AttentionCondition):
+        return value
     if not isinstance(value, dict):
-        raise HTTPException(status_code=400, detail="attention_condition must be an object")
+        # If it's coming from Pydantic model, it might already be a dict or object
+        # But here we handle the dict case primarily
+        pass
 
     try:
         return AttentionCondition(
@@ -147,31 +131,20 @@ def backtest_basic_attention_multi(
 # ==================== 注意力轮动策略回测 API ====================
 
 @router.post("/api/backtest/attention-rotation", tags=["Backtest"])
-def backtest_attention_rotation(payload: dict = Body(...)):
+def backtest_attention_rotation(params: AttentionRotationParams = Body(...)):
     """
     多币种 Attention 轮动策略回测
     """
     try:
-        symbols = payload.get("symbols") or []
-        if not symbols or not isinstance(symbols, list):
-            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
-
-        attention_source = payload.get("attention_source", "composite")
-        rebalance_days = int(payload.get("rebalance_days", 7))
-        lookback_days = int(payload.get("lookback_days", 30))
-        top_k = int(payload.get("top_k", 3))
-
-        start = payload.get("start")
-        end = payload.get("end")
-        start_dt = pd.to_datetime(start, utc=True) if start else None
-        end_dt = pd.to_datetime(end, utc=True) if end else None
+        start_dt = pd.to_datetime(params.start, utc=True) if params.start else None
+        end_dt = pd.to_datetime(params.end, utc=True) if params.end else None
 
         result = run_attention_rotation_backtest(
-            symbols=symbols,
-            attention_source=attention_source,
-            rebalance_days=rebalance_days,
-            lookback_days=lookback_days,
-            top_k=top_k,
+            symbols=params.symbols,
+            attention_source=params.attention_source,
+            rebalance_days=params.rebalance_days,
+            lookback_days=params.lookback_days,
+            top_k=params.top_k,
             start=start_dt,
             end=end_dt,
         )

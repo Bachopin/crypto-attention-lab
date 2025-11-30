@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, lazy, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import DashboardTab from '@/components/tabs/DashboardTab'
@@ -29,16 +30,26 @@ export default function Page() {
   return (
     <SettingsProvider>
       <TabDataProvider>
-        <Home />
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+          <Home />
+        </Suspense>
       </TabDataProvider>
     </SettingsProvider>
   )
 }
 
 function Home() {
+  const searchParams = useSearchParams()
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [activeTab, setActiveTab] = useState('dashboard')
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab) {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
 
   const refreshSymbols = () => {
     fetch(buildApiUrl('/api/symbols'))

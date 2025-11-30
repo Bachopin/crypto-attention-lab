@@ -9,6 +9,13 @@ from src.research.similar_states import find_similar_states
 from src.research.scenarios import analyze_scenarios
 from src.features.node_influence import load_node_carry_factors
 from src.data.db_storage import get_available_symbols
+from src.api.schemas import (
+    Timeframe, 
+    AttentionRegimeParams, 
+    StateSnapshotBatchParams, 
+    SimilarCasesCustomParams, 
+    ScenarioAnalysisCustomParams
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,70 +24,23 @@ router = APIRouter()
 # ==================== Research: Attention Regimes ====================
 
 @router.post("/api/research/attention-regimes", tags=["Research"])
-def research_attention_regimes(payload: dict = Body(...)):
+def research_attention_regimes(params: AttentionRegimeParams = Body(...)):
     """多币种 attention regime 研究分析接口"""
-    symbols = payload.get("symbols")
-    if not symbols or not isinstance(symbols, list):
-        raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
-
-    normalized_symbols = []
-    for sym in symbols:
-        if sym is None:
-            continue
-        name = str(sym).strip()
-        if name:
-            normalized_symbols.append(name.upper())
-
+    
+    normalized_symbols = [s.upper() for s in params.symbols if s.strip()]
     if not normalized_symbols:
         raise HTTPException(status_code=400, detail="symbols must contain at least one valid entry")
 
-    raw_lookahead = payload.get("lookahead_days")
-    if raw_lookahead is None:
-        lookahead_days = [7, 30]
-    elif isinstance(raw_lookahead, list):
-        lookahead_days = raw_lookahead
-    elif isinstance(raw_lookahead, str):
-        lookahead_days = [item.strip() for item in raw_lookahead.split(",") if item.strip()]
-    else:
-        raise HTTPException(status_code=400, detail="lookahead_days must be a list or comma string")
-
     try:
-        lookahead_days = [int(day) for day in lookahead_days]
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="lookahead_days must contain integers") from None
+        start_dt = pd.to_datetime(params.start, utc=True) if params.start else None
+        end_dt = pd.to_datetime(params.end, utc=True) if params.end else None
 
-    split_quantiles = payload.get("split_quantiles")
-    if split_quantiles is not None:
-        if not isinstance(split_quantiles, list):
-            raise HTTPException(status_code=400, detail="split_quantiles must be a list of floats")
-        try:
-            split_quantiles = [float(q) for q in split_quantiles]
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="split_quantiles must contain numeric values") from None
-
-    attention_source = payload.get("attention_source", "composite")
-    split_method = payload.get("split_method", "tercile")
-
-    start = payload.get("start")
-    end = payload.get("end")
-
-    try:
-        start_dt = pd.to_datetime(start, utc=True) if start else None
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid start datetime: {exc}") from None
-
-    try:
-        end_dt = pd.to_datetime(end, utc=True) if end else None
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid end datetime: {exc}") from None
-
-    try:
         result = analyze_attention_regimes(
             symbols=normalized_symbols,
-            lookahead_days=lookahead_days,
-            attention_source=attention_source,
-            split_method=split_method,
-            split_quantiles=split_quantiles,
+            lookahead_days=params.lookahead_days,
+            attention_source=params.attention_source.value,
+            split_method=params.split_method,
+            split_quantiles=params.split_quantiles,
             start=start_dt,
             end=end_dt,
         )
@@ -97,28 +57,21 @@ def research_attention_regimes(payload: dict = Body(...)):
 @router.get("/api/state/snapshot", tags=["Research"])
 def get_state_snapshot(
     symbol: str = Query(..., description="标的符号，如 ZEC, BTC"),
-    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    timeframe: Timeframe = Query(Timeframe.DAILY, description="时间粒度"),
     window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
 ):
     """
     获取指定 symbol 当前的状态快照
     """
     try:
-        # Normalize timeframe
-        timeframe = timeframe.lower()
-
-        # 验证 timeframe
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
+        # Normalize symbol
+        symbol = symbol.upper()
         
         # 计算状态快照
         snapshot = compute_state_snapshot(
             symbol=symbol,
             as_of=None,  # 使用当前时间
-            timeframe=timeframe,
+            timeframe=timeframe.value,
             window_days=window_days,
         )
         
@@ -148,36 +101,18 @@ def get_state_snapshot(
 
 @router.post("/api/state/snapshot/batch", tags=["Research"])
 def get_state_snapshots_batch(
-    payload: dict = Body(...)
+    params: StateSnapshotBatchParams = Body(...)
 ):
     """
     批量获取多个 symbol 的状态快照
     """
     try:
-        symbols = payload.get("symbols", [])
-        if not symbols or not isinstance(symbols, list):
-            raise HTTPException(status_code=400, detail="symbols must be a non-empty list")
-        
-        timeframe = payload.get("timeframe", "1d").lower()
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
-        
-        window_days = int(payload.get("window_days", 30))
-        if window_days < 7 or window_days > 365:
-            raise HTTPException(
-                status_code=400,
-                detail="window_days must be between 7 and 365"
-            )
-        
         # 批量计算
         snapshots = compute_state_snapshots_batch(
-            symbols=symbols,
+            symbols=params.symbols,
             as_of=None,
-            timeframe=timeframe,
-            window_days=window_days,
+            timeframe=params.timeframe.value,
+            window_days=params.window_days,
         )
         
         # 转换结果
@@ -196,7 +131,7 @@ def get_state_snapshots_batch(
         return {
             "snapshots": result_snapshots,
             "meta": {
-                "requested": len(symbols),
+                "requested": len(params.symbols),
                 "success": success_count,
                 "failed": failed_count,
             }
@@ -214,7 +149,7 @@ def get_state_snapshots_batch(
 @router.get("/api/state/similar-cases", tags=["Research"])
 def get_similar_cases(
     symbol: str = Query(..., description="目标币种符号，如 ZEC, BTC"),
-    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    timeframe: Timeframe = Query(Timeframe.DAILY, description="时间粒度"),
     window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
     top_k: int = Query(50, ge=1, le=500, description="返回的相似样本数量"),
     max_history_days: int = Query(365, ge=30, le=1095, description="最大历史回溯天数"),
@@ -224,21 +159,13 @@ def get_similar_cases(
     获取当前 symbol 在给定 timeframe/window_days 下的相似历史状态样本列表。
     """
     try:
-        # Normalize timeframe
-        timeframe = timeframe.lower()
-
-        # 验证 timeframe
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
+        symbol = symbol.upper()
         
         # 计算目标状态快照
         target = compute_state_snapshot(
             symbol=symbol,
             as_of=None,  # 使用当前时间
-            timeframe=timeframe,
+            timeframe=timeframe.value,
             window_days=window_days,
         )
         
@@ -267,7 +194,7 @@ def get_similar_cases(
         similar_states = find_similar_states(
             target=target,
             candidate_symbols=candidate_symbols,
-            timeframe=timeframe,
+            timeframe=timeframe.value,
             window_days=window_days,
             top_k=top_k,
             max_history_days=max_history_days,
@@ -309,67 +236,42 @@ def get_similar_cases(
 
 @router.post("/api/state/similar-cases/custom", tags=["Research"])
 def get_similar_cases_custom(
-    payload: dict = Body(...)
+    params: SimilarCasesCustomParams = Body(...)
 ):
     """
     自定义参数的相似状态检索（高级用法）
     """
     try:
-        # 提取参数
-        symbol = payload.get("symbol")
-        if not symbol:
-            raise HTTPException(status_code=400, detail="symbol is required")
-        
-        timeframe = payload.get("timeframe", "1d").lower()
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
-        
-        window_days = int(payload.get("window_days", 30))
-        if window_days < 7 or window_days > 365:
-            raise HTTPException(
-                status_code=400,
-                detail="window_days must be between 7 and 365"
-            )
-        
-        top_k = int(payload.get("top_k", 50))
-        max_history_days = int(payload.get("max_history_days", 365))
-        distance_metric = payload.get("distance_metric", "euclidean")
-        include_same_symbol = payload.get("include_same_symbol", True)
-        exclusion_days = int(payload.get("exclusion_days", 7))
-        
         # 候选币种
-        candidate_symbols = payload.get("candidate_symbols")
+        candidate_symbols = params.candidate_symbols
         if not candidate_symbols:
             candidate_symbols = get_available_symbols()
         
         # 计算目标状态
         target = compute_state_snapshot(
-            symbol=symbol,
+            symbol=params.symbol,
             as_of=None,
-            timeframe=timeframe,
-            window_days=window_days,
+            timeframe=params.timeframe.value,
+            window_days=params.window_days,
         )
         
         if target is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"No data available for symbol {symbol}"
+                detail=f"No data available for symbol {params.symbol}"
             )
         
         # 查找相似状态
         similar_states = find_similar_states(
             target=target,
             candidate_symbols=candidate_symbols,
-            timeframe=timeframe,
-            window_days=window_days,
-            top_k=top_k,
-            max_history_days=max_history_days,
-            exclusion_days=exclusion_days,
-            distance_metric=distance_metric,
-            include_same_symbol=include_same_symbol,
+            timeframe=params.timeframe.value,
+            window_days=params.window_days,
+            top_k=params.top_k,
+            max_history_days=params.max_history_days,
+            exclusion_days=params.exclusion_days,
+            distance_metric=params.distance_metric,
+            include_same_symbol=params.include_same_symbol,
             verbose=False,
         )
         
@@ -381,9 +283,9 @@ def get_similar_cases_custom(
             "similar_cases": similar_cases,
             "meta": {
                 "results_returned": len(similar_cases),
-                "distance_metric": distance_metric,
+                "distance_metric": params.distance_metric,
                 "candidate_symbols_count": len(candidate_symbols),
-                "message": f"Found {len(similar_cases)} similar states using {distance_metric} distance"
+                "message": f"Found {len(similar_cases)} similar states using {params.distance_metric} distance"
             }
         }
         
@@ -399,7 +301,7 @@ def get_similar_cases_custom(
 @router.get("/api/state/scenarios", tags=["Research"])
 def get_state_scenarios(
     symbol: str = Query(..., description="目标币种符号，如 ZEC, BTC"),
-    timeframe: str = Query("1d", description="时间粒度: 1d 或 4h"),
+    timeframe: Timeframe = Query(Timeframe.DAILY, description="时间粒度"),
     window_days: int = Query(30, ge=7, le=365, description="特征计算窗口天数"),
     top_k: int = Query(100, ge=10, le=500, description="用于分析的相似样本数量"),
     max_history_days: int = Query(365, ge=30, le=1095, description="最大历史回溯天数"),
@@ -409,21 +311,13 @@ def get_state_scenarios(
     对当前 symbol 的状态进行基于 Attention 的未来情景分析。
     """
     try:
-        # Normalize timeframe
-        timeframe = timeframe.lower()
-
-        # 验证 timeframe
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
+        symbol = symbol.upper()
         
         # Step 1: 计算目标状态快照
         target = compute_state_snapshot(
             symbol=symbol,
             as_of=None,
-            timeframe=timeframe,
+            timeframe=timeframe.value,
             window_days=window_days,
         )
         
@@ -452,7 +346,7 @@ def get_state_scenarios(
         similar_states = find_similar_states(
             target=target,
             candidate_symbols=candidate_symbols,
-            timeframe=timeframe,
+            timeframe=timeframe.value,
             window_days=window_days,
             top_k=top_k,
             max_history_days=max_history_days,
@@ -512,65 +406,39 @@ def get_state_scenarios(
 
 @router.post("/api/state/scenarios/custom", tags=["Research"])
 def get_state_scenarios_custom(
-    payload: dict = Body(...)
+    params: ScenarioAnalysisCustomParams = Body(...)
 ):
     """
     自定义参数的情景分析（高级用法）
     """
     try:
-        # 提取参数
-        symbol = payload.get("symbol")
-        if not symbol:
-            raise HTTPException(status_code=400, detail="symbol is required")
-        
-        timeframe = payload.get("timeframe", "1d").lower()
-        if timeframe not in ("1d", "4h"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid timeframe '{timeframe}'. Must be '1d' or '4h'"
-            )
-        
-        window_days = int(payload.get("window_days", 30))
-        top_k = int(payload.get("top_k", 100))
-        max_history_days = int(payload.get("max_history_days", 365))
-        include_sample_details = payload.get("include_sample_details", False)
-        
-        # 自定义 lookahead 窗口
-        lookahead_days = payload.get("lookahead_days", [3, 7, 30])
-        if not isinstance(lookahead_days, list):
-            raise HTTPException(
-                status_code=400,
-                detail="lookahead_days must be a list of integers"
-            )
-        lookahead_days = [int(d) for d in lookahead_days]
-        
         # 候选币种
-        candidate_symbols = payload.get("candidate_symbols")
+        candidate_symbols = params.candidate_symbols
         if not candidate_symbols:
             candidate_symbols = get_available_symbols()
         
         # Step 1: 计算目标状态
         target = compute_state_snapshot(
-            symbol=symbol,
+            symbol=params.symbol,
             as_of=None,
-            timeframe=timeframe,
-            window_days=window_days,
+            timeframe=params.timeframe.value,
+            window_days=params.window_days,
         )
         
         if target is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"No data available for symbol {symbol}"
+                detail=f"No data available for symbol {params.symbol}"
             )
         
         # Step 2: 查找相似状态
         similar_states = find_similar_states(
             target=target,
             candidate_symbols=candidate_symbols,
-            timeframe=timeframe,
-            window_days=window_days,
-            top_k=top_k,
-            max_history_days=max_history_days,
+            timeframe=params.timeframe.value,
+            window_days=params.window_days,
+            top_k=params.top_k,
+            max_history_days=params.max_history_days,
             include_same_symbol=True,
             verbose=False,
         )
@@ -582,7 +450,7 @@ def get_state_scenarios_custom(
                 "meta": {
                     "total_similar_samples": 0,
                     "valid_samples_analyzed": 0,
-                    "lookahead_days": lookahead_days,
+                    "lookahead_days": params.lookahead_days,
                     "message": "No similar historical states found"
                 }
             }
@@ -591,8 +459,8 @@ def get_state_scenarios_custom(
         scenarios = analyze_scenarios(
             target=target,
             similar_states=similar_states,
-            lookahead_days=lookahead_days,
-            include_sample_details=include_sample_details,
+            lookahead_days=params.lookahead_days,
+            include_sample_details=params.include_sample_details,
         )
         
         valid_samples = sum(s.sample_count for s in scenarios)
@@ -604,7 +472,7 @@ def get_state_scenarios_custom(
             "meta": {
                 "total_similar_samples": len(similar_states),
                 "valid_samples_analyzed": valid_samples,
-                "lookahead_days": lookahead_days,
+                "lookahead_days": params.lookahead_days,
                 "candidate_symbols_count": len(candidate_symbols),
                 "message": f"Custom scenario analysis complete: {len(scenarios)} scenarios identified"
             }

@@ -56,10 +56,10 @@ fi
 
 echo ""
 
-# 显示日志路径
-echo "📝 日志文件:"
-echo "  后端: logs/api.log"
-echo "  前端: logs/frontend.log"
+# 显示日志提示
+echo "📝 日志查看:"
+echo "  如果使用 ./scripts/dev.sh 启动，日志直接输出在终端。"
+echo "  如果后台运行，请检查 logs/ 目录。"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

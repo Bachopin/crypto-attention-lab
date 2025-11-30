@@ -7,6 +7,7 @@ from src.data.db_storage import load_attention_data
 from src.services.attention_service import AttentionService
 from src.features.event_performance import compute_event_performance
 from src.api.utils import validate_date_param
+from src.api.schemas import Timeframe
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ router = APIRouter()
 @router.get("/api/attention", tags=["Attention"])
 def get_attention_data(
     symbol: str = Query(default="ZEC", description="标的符号，如 ZEC"),
-    granularity: str = Query(default="1d", description="时间粒度，目前仅支持 1d"),
+    granularity: Timeframe = Query(default=Timeframe.DAILY, description="时间粒度"),
     start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
     end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式")
 ):
@@ -27,13 +28,15 @@ def get_attention_data(
     try:
         # Normalize inputs
         symbol = symbol.upper()
-        granularity = granularity.lower()
+        # granularity is validated by Enum
 
         # 解析时间参数
         start_dt = validate_date_param(start, "start")
         end_dt = validate_date_param(end, "end")
         
         # 加载数据
+        # Note: load_attention_data currently doesn't take granularity, assuming 1d
+        # If it supports it later, pass granularity.value
         df = load_attention_data(symbol, start_dt, end_dt)
         
         if df.empty:

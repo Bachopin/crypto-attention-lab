@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Crypto Attention Lab - FastAPI 后端启动脚本
-# Usage: ./scripts/start_api.sh
+# Usage: ./scripts/api.sh
 
 # Change to project root directory
 cd "$(dirname "$0")/.."

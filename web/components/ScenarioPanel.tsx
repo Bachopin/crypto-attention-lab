@@ -255,6 +255,7 @@ export default function ScenarioPanel({
   const [autoLoad, setAutoLoad] = useState(true);
 
   const loadScenarios = useCallback(async () => {
+    if (!symbol) return;
     setLoading(true);
     setError(null);
     try {

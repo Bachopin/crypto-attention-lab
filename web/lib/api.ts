@@ -342,7 +342,13 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, u
     
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      let errorMessage = error.detail || `HTTP ${response.status}`;
+      
+      if (typeof errorMessage !== 'string') {
+        errorMessage = JSON.stringify(errorMessage);
+      }
+      
+      throw new Error(errorMessage);
     }
     
     const data = await response.json();
@@ -790,7 +796,7 @@ export async function fetchStateScenarios(params: {
 
   const apiParams = {
     symbol,
-    timeframe,
+    timeframe: timeframe.toLowerCase(),
     window_days,
     top_k,
     max_history_days,

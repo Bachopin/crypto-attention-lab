@@ -1,0 +1,77 @@
+# 系统运行指南 (System Running)
+
+本文档详细介绍了 Crypto Attention Lab 的多种运行模式与运维操作。
+
+## 运行模式
+
+### 1. 全栈开发模式 (Full Stack Dev)
+最常用的开发模式，同时启动前后端，并开启热重载 (Hot Reload)。
+```bash
+./scripts/dev.sh
+```
+
+### 2. 仅后端模式 (Backend Only)
+如果你只需要开发 API 或运行数据脚本：
+```bash
+./scripts/api.sh
+# 或者直接使用 uvicorn
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 3. 仅前端模式 (Frontend Only)
+如果你只需要开发 UI，且后端已经在运行 (或使用 Mock 数据)：
+```bash
+./scripts/web.sh
+# 或者
+cd web && npm run dev
+```
+
+## 后台任务与数据流
+
+系统启动后，FastAPI 会自动管理以下后台任务：
+- **实时价格更新**: 每 5 分钟从 Binance/Coingecko 拉取最新价格。
+- **新闻数据抓取**: 每 30 分钟检查一次新闻源更新。
+- **WebSocket 推送**: 当数据更新时，自动通过 WebSocket 推送给前端。
+
+## 端口说明
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| Frontend | 3000 | Next.js Web 界面 |
+| Backend | 8000 | FastAPI 接口与 Swagger 文档 |
+| WebSocket | 8000 | `/ws/price`, `/ws/attention` |
+
+## 停止服务
+
+- **前台运行**: 在终端按 `Ctrl+C`。`dev.sh` 会自动捕获信号并关闭所有子进程。
+- **后台运行**: 如果服务在后台运行，可以使用：
+```bash
+./scripts/stop.sh
+```
+或者手动清理：
+```bash
+pkill -f "uvicorn"
+pkill -f "next-server"
+```
+
+## 故障排除
+
+### 1. 端口被占用
+错误信息: `Address already in use`
+解决:
+```bash
+lsof -ti:8000 | xargs kill -9
+lsof -ti:3000 | xargs kill -9
+```
+
+### 2. 数据库锁定
+错误信息: `database is locked`
+解决: 
+- 确保没有其他进程正在写入 SQLite 数据库。
+- 检查是否有僵尸 Python 进程：`ps aux | grep python`。
+
+### 3. 前端连接失败
+错误信息: `Connection refused` (在浏览器控制台)
+解决:
+- 检查后端是否启动: `curl http://localhost:8000/health`
+- 检查前端 `.env.local` 中的 `NEXT_PUBLIC_API_BASE_URL` 是否正确配置。
