@@ -35,6 +35,7 @@ class AttentionService:
         end: Optional[pd.Timestamp] = None,
         lookback_days: int = DEFAULT_LOOKBACK_DAYS,
         min_quantile: float = DEFAULT_MIN_QUANTILE,
+        auto_update: bool = True,
     ) -> List[AttentionEvent]:
         """
         Get attention events for a symbol.
@@ -42,6 +43,7 @@ class AttentionService:
         策略：
         - 如果参数等于默认值 (lookback_days=30, min_quantile=0.8)，优先读取预计算缓存
         - 如果参数不等于默认值，实时计算
+        - 如果没有预计算数据但有价格数据，且 auto_update=True，触发全量/增量计算
         - 如果没有预计算数据，回退到实时计算
         
         Args:
@@ -50,6 +52,7 @@ class AttentionService:
             end: End datetime.
             lookback_days: Lookback window for quantile (default: 30).
             min_quantile: Quantile threshold (default: 0.8).
+            auto_update: 如果缺少预计算事件，是否自动触发更新（默认 True）。
             
         Returns:
             List of AttentionEvent objects.
@@ -81,6 +84,20 @@ class AttentionService:
             if has_precomputed:
                 logger.debug(f"Using precomputed events for {symbol}: {len(precomputed_events)} events")
                 return precomputed_events
+            
+            # 没有预计算事件但有注意力数据，且 auto_update=True，触发更新
+            if auto_update and not df.empty:
+                logger.info(f"[AutoUpdate] No precomputed events for {symbol}, triggering feature update...")
+                try:
+                    # 尝试增量更新（内部会判断是否需要全量）
+                    AttentionService.update_attention_features_incremental(symbol, freq='D', save_to_db=True)
+                    # 更新后重新读取（禁用 auto_update 避免无限循环）
+                    return AttentionService.get_attention_events(
+                        symbol, start, end, lookback_days, min_quantile, auto_update=False
+                    )
+                except Exception as e:
+                    logger.warning(f"[AutoUpdate] Failed to update features for {symbol}: {e}")
+                    # 更新失败，回退到实时计算
         
         # 3. 实时计算（参数非默认值 或 没有预计算数据）
         if not use_cache:
