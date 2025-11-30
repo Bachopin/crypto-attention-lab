@@ -85,6 +85,11 @@ Retrieve detected attention events for a symbol and period.
 - `lookback_days` (integer, optional): Default `30`.
 - `min_quantile` (number, optional): Default `0.8`.
 
+**缓存与更新策略：**
+- **默认参数** (`lookback_days=30`, `min_quantile=0.8`)：优先从数据库读取预计算事件缓存，响应更快
+- **自定义参数**：实时计算，确保结果准确
+- **按需更新**：如果有注意力数据但无预计算事件，首次请求会自动触发增量计算并缓存
+
 #### Get Attention Event Performance
 `GET /api/attention-events/performance`
 
@@ -93,6 +98,8 @@ Aggregate performance stats around attention events.
 **Parameters:**
 - `symbol` (string, optional): Default `ZEC`.
 - `lookahead_days` (string, optional): CSV, e.g. `"1,3,5,10"`.
+
+**缓存策略：** 内部使用默认参数调用事件检测，自动受益于预计算缓存。
 
 ---
 
