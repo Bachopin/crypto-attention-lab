@@ -92,11 +92,10 @@ start_api() {
     # 清理端口 8000
     kill_port 8000 "后端 API"
 
-    log "启动后端 API..."
+    log "启动后端 API（生产模式，禁用热重载以降低 CPU 占用）..."
     nohup uvicorn src.api.main:app \
         --host 0.0.0.0 \
         --port 8000 \
-        --reload \
         > "$API_LOG" 2>&1 &
     
     echo $! > "$API_PID_FILE"

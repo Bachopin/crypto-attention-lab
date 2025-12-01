@@ -195,12 +195,28 @@ class WebSocketManager {
   }
 
   disconnect(): void {
+    this._isManualDisconnect = true;
     this.stopPing();
+    this.clearConnectionTimeout();
+    
     if (this.ws) {
+      this.ws.onclose = null; // 防止触发重连
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
       this.ws.close();
       this.ws = null;
     }
+    
+    this.subscribedSymbols.clear();
     this.setStatus('disconnected');
+  }
+  
+  private clearConnectionTimeout(): void {
+    if (this.connectionTimeout) {
+      clearTimeout(this.connectionTimeout);
+      this.connectionTimeout = null;
+    }
   }
 
   private attemptReconnect(): void {
@@ -226,8 +242,12 @@ class WebSocketManager {
   private startPing(): void {
     this.stopPing();
     this.pingInterval = setInterval(() => {
-      this.send({ action: 'ping' });
-    }, 30000);
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.send({ action: 'ping' });
+      } else {
+        this.stopPing();
+      }
+    }, WS_CONFIG.pingInterval);
   }
 
   private stopPing(): void {
@@ -289,7 +309,14 @@ class WebSocketManager {
 
     // 返回取消订阅函数
     return () => {
-      this.listeners.get(type)?.delete(callback);
+      const listeners = this.listeners.get(type);
+      if (listeners) {
+        listeners.delete(callback);
+        // 如果没有监听器了，清理空集合
+        if (listeners.size === 0) {
+          this.listeners.delete(type);
+        }
+      }
     };
   }
 
@@ -298,6 +325,13 @@ class WebSocketManager {
     return () => {
       this.statusListeners.delete(callback);
     };
+  }
+  
+  // 添加清理所有监听器的方法
+  dispose(): void {
+    this.disconnect();
+    this.listeners.clear();
+    this.statusListeners.clear();
   }
 
   getSubscribedSymbols(): string[] {

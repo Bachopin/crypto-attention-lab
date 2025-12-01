@@ -43,9 +43,14 @@ async def scheduled_news_update():
             logger.info("[Scheduler] Starting news aggregation cycle...")
             await asyncio.to_thread(run_news_fetch_pipeline, days=1)
             logger.info(f"[Scheduler] News aggregation completed. Sleeping {NEWS_UPDATE_INTERVAL}s.")
+        except asyncio.CancelledError:
+            logger.info("[Scheduler] News update task cancelled")
+            break
         except Exception as e:
-            logger.error(f"[Scheduler] News update failed: {e}")
-        await asyncio.sleep(NEWS_UPDATE_INTERVAL)
+            logger.error(f"[Scheduler] News update failed: {e}", exc_info=True)
+        finally:
+            # 确保即使异常也能继续调度
+            await asyncio.sleep(NEWS_UPDATE_INTERVAL)
 
 
 async def scheduled_price_update():
@@ -59,9 +64,14 @@ async def scheduled_price_update():
     logger.info(f"[Scheduler] Price update will start in {startup_delay}s (interval={PRICE_UPDATE_INTERVAL}s)...")
     await asyncio.sleep(startup_delay)
 
-    # 使用配置间隔（不再硬编码 300 秒）
-    updater = get_realtime_updater(update_interval=PRICE_UPDATE_INTERVAL)
-    await updater.run()
+    try:
+        # 使用配置间隔（不再硬编码 300 秒）
+        updater = get_realtime_updater(update_interval=PRICE_UPDATE_INTERVAL)
+        await updater.run()
+    except asyncio.CancelledError:
+        logger.info("[Scheduler] Price update task cancelled")
+    except Exception as e:
+        logger.error(f"[Scheduler] Price update fatal error: {e}", exc_info=True)
 
 
 async def warmup_binance_websocket():
@@ -103,9 +113,14 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭时取消任务
-    news_task.cancel()
-    price_task.cancel()
-    warmup_task.cancel()
+    logger.info("[Shutdown] Cancelling background tasks...")
+    tasks = [news_task, price_task, warmup_task]
+    for task in tasks:
+        task.cancel()
+    
+    # 等待所有任务完成清理
+    await asyncio.gather(*tasks, return_exceptions=True)
+    logger.info("[Shutdown] Background tasks stopped")
     
     # 停止 WebSocket 管理器
     try:
@@ -116,9 +131,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[WebSocket] Error stopping Binance WebSocket: {e}")
     
+    # 清理数据库连接池
     try:
-        await news_task
-    except asyncio.CancelledError:
+        from src.database.models import engine
+        if engine:
+            engine.dispose()
+            logger.info("[Shutdown] Database connections closed")
+    except Exception as e:
+        logger.warning(f"[Shutdown] Error closing database: {e}")
         logger.info("[Scheduler] News task cancelled")
     try:
         await price_task
