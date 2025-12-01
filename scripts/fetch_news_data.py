@@ -169,7 +169,10 @@ def fetch_cryptopanic_news(days: int = 14) -> List[Dict]:
     支持分页获取历史数据
     注册地址: https://cryptopanic.com/developers/api/
     """
+    # 尝试主 token
     token = os.getenv("CRYPTOPANIC_API_KEY") or os.getenv("CRYPTOPANIC_TOKEN")
+    backup_token = os.getenv("CRYPTOPANIC_TOKEN_BACKUP")
+    
     if not token:
         logger.warning("[CryptoPanic] No API token found, skipping")
         return []
@@ -183,13 +186,14 @@ def fetch_cryptopanic_news(days: int = 14) -> List[Dict]:
     next_cursor = None
     max_pages = 50  # 增加最大页数
     page_count = 0
+    current_token = token  # 当前使用的 token
     
     try:
         logger.info(f"[CryptoPanic] Fetching news for last {days} days...")
         
         while page_count < max_pages:
             params = {
-                "auth_token": token,
+                "auth_token": current_token,
                 # "currencies": "ZEC", # 获取所有新闻
                 "kind": "news",
                 "public": "true",
@@ -199,9 +203,25 @@ def fetch_cryptopanic_news(days: int = 14) -> List[Dict]:
             if next_cursor:
                 params["cursor"] = next_cursor
             
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            try:
+                response = requests.get(url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+            except Exception as e:
+                # 如果主 token 失败且有备用 token，切换到备用
+                if current_token == token and backup_token:
+                    logger.warning(f"[CryptoPanic] Main token failed ({e}), switching to backup token")
+                    current_token = backup_token
+                    params["auth_token"] = current_token
+                    try:
+                        response = requests.get(url, params=params, timeout=30)
+                        response.raise_for_status()
+                        data = response.json()
+                    except Exception as e2:
+                        logger.error(f"[CryptoPanic] Backup token also failed: {e2}")
+                        raise
+                else:
+                    raise
             
             results = data.get("results", [])
             if not results:
