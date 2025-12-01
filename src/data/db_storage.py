@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_, inspect, text, func
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
     Symbol, News, Price, AttentionFeature, GoogleTrend, TwitterVolume, NewsStats,
-    init_database, get_session, get_engine
+    init_database, get_session, get_engine, IS_POSTGRESQL
 )
 
 logger = logging.getLogger(__name__)
@@ -1404,15 +1404,19 @@ class DatabaseStorage:
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
-            # 按小时分组统计
-            # SQLite 使用 strftime，PostgreSQL 使用 date_trunc
+            # 按小时分组统计 - 根据数据库类型选择函数
+            if IS_POSTGRESQL:
+                hour_expr = func.to_char(News.datetime, 'YYYY-MM-DD"T"HH24')
+            else:
+                hour_expr = func.strftime('%Y-%m-%dT%H', News.datetime)
+            
             results = session.query(
-                func.strftime('%Y-%m-%dT%H', News.datetime).label('hour'),
+                hour_expr.label('hour'),
                 func.count(News.id).label('cnt')
             ).filter(
                 News.datetime >= cutoff
             ).group_by(
-                func.strftime('%Y-%m-%dT%H', News.datetime)
+                hour_expr
             ).all()
             
             for row in results:
@@ -1444,14 +1448,19 @@ class DatabaseStorage:
         try:
             cutoff = datetime.now(timezone.utc) - timedelta(days=days)
             
-            # 按日期分组统计
+            # 按日期分组统计 - 根据数据库类型选择函数
+            if IS_POSTGRESQL:
+                day_expr = func.to_char(News.datetime, 'YYYY-MM-DD')
+            else:
+                day_expr = func.strftime('%Y-%m-%d', News.datetime)
+            
             results = session.query(
-                func.strftime('%Y-%m-%d', News.datetime).label('day'),
+                day_expr.label('day'),
                 func.count(News.id).label('cnt')
             ).filter(
                 News.datetime >= cutoff
             ).group_by(
-                func.strftime('%Y-%m-%d', News.datetime)
+                day_expr
             ).all()
             
             for row in results:
@@ -1492,12 +1501,17 @@ class DatabaseStorage:
             total = session.query(func.count(News.id)).scalar() or 0
             session.add(NewsStats(stat_type='total', period_key='ALL', count=total))
             
-            # 重建每日统计（全量）
+            # 重建每日统计（全量）- 根据数据库类型选择函数
+            if IS_POSTGRESQL:
+                day_expr = func.to_char(News.datetime, 'YYYY-MM-DD')
+            else:
+                day_expr = func.strftime('%Y-%m-%d', News.datetime)
+            
             daily_results = session.query(
-                func.strftime('%Y-%m-%d', News.datetime).label('day'),
+                day_expr.label('day'),
                 func.count(News.id).label('cnt')
             ).group_by(
-                func.strftime('%Y-%m-%d', News.datetime)
+                day_expr
             ).all()
             
             for row in daily_results:
@@ -1508,15 +1522,20 @@ class DatabaseStorage:
                         count=row.cnt
                     ))
             
-            # 重建每小时统计（最近 30 天）
+            # 重建每小时统计（最近 30 天）- 根据数据库类型选择函数
             cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            if IS_POSTGRESQL:
+                hour_expr = func.to_char(News.datetime, 'YYYY-MM-DD"T"HH24')
+            else:
+                hour_expr = func.strftime('%Y-%m-%dT%H', News.datetime)
+            
             hourly_results = session.query(
-                func.strftime('%Y-%m-%dT%H', News.datetime).label('hour'),
+                hour_expr.label('hour'),
                 func.count(News.id).label('cnt')
             ).filter(
                 News.datetime >= cutoff
             ).group_by(
-                func.strftime('%Y-%m-%dT%H', News.datetime)
+                hour_expr
             ).all()
             
             for row in hourly_results:
