@@ -1,24 +1,14 @@
 "use client"
 
-import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
+import React, { useState, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { StatCard, SummaryCard } from '@/components/StatCards'
 import { BarChart3, TrendingUp } from 'lucide-react'
-import {
-  fetchPrice,
-  fetchAttention,
-  fetchNews,
-  fetchAttentionEvents,
-  fetchSummaryStats,
-  PriceCandle,
-  AttentionData,
-  NewsItem,
-  AttentionEvent,
-  Timeframe,
-  SummaryStats
-} from '@/lib/api'
-import { dashboardService } from '@/lib/services/dashboard-service'
+import { useAsync } from '@/lib/hooks'
+import { dashboardService, newsService } from '@/lib/services'
+import { AsyncBoundary } from '@/components/ui/async-boundary'
+import type { Timeframe } from '@/lib/api'
 import type { Time } from 'lightweight-charts'
 import type { PriceChartRef } from '@/components/PriceChart'
 import type { AttentionChartRef } from '@/components/AttentionChart'
@@ -42,7 +32,6 @@ const NewsList = dynamic(() => import('@/components/NewsList'), {
 
 // Lazy load heavy analysis panels
 const AttentionEvents = lazy(() => import('@/components/AttentionEvents'))
-const BacktestPanel = lazy(() => import('@/components/BacktestPanel'))
 const AttentionRegimePanel = lazy(() => import('@/components/AttentionRegimePanel'))
 
 interface DashboardTabProps {
@@ -54,15 +43,6 @@ interface DashboardTabProps {
 export default function DashboardTab({ symbol, availableSymbols, onSymbolChange }: DashboardTabProps) {
   // State
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
-  const [priceData, setPriceData] = useState<PriceCandle[]>([]);
-  const [attentionData, setAttentionData] = useState<AttentionData[]>([]);
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [events, setEvents] = useState<AttentionEvent[]>([]);
-  const [summaryStats, setSummaryStats] = useState<SummaryStats | null>(null);
-  const [overviewData, setOverviewData] = useState<PriceCandle[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
   // Chart Controls State
   const [volumeRatio, setVolumeRatio] = useState(0.2);
@@ -72,46 +52,49 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   const priceChartRef = useRef<PriceChartRef>(null);
   const attentionChartRef = useRef<AttentionChartRef>(null);
 
-  // Fetch Data
-  const loadData = useCallback(async (isUpdate = false) => {
-    if (isUpdate) setUpdating(true);
-    else setLoading(true);
-    setError(null);
+  // ============================================================
+  // Data Fetching with useAsync
+  // ============================================================
+  
+  // Critical data: summary + price
+  const criticalData = useAsync(
+    async () => {
+      const result = await dashboardService.fetchCriticalData(symbol, timeframe);
+      return result;
+    },
+    [symbol, timeframe],
+    { keepPreviousData: true }
+  );
 
-    try {
-      // 1. Critical Data
-      const { summary, price } = await dashboardService.fetchCriticalData(symbol, timeframe);
-      
-      setSummaryStats(summary);
-      setPriceData(price);
-      
-      if (!isUpdate) setLoading(false);
+  // Secondary data: attention, news, events (depends on price data)
+  const secondaryData = useAsync(
+    async () => {
+      if (!criticalData.data?.price?.[0]?.datetime) return null;
+      const startDate = criticalData.data.price[0].datetime;
+      return dashboardService.fetchSecondaryData(symbol, startDate);
+    },
+    [symbol, criticalData.data?.price?.[0]?.datetime],
+    { enabled: !!criticalData.data?.price?.length }
+  );
 
-      // 2. Secondary Data
-      const startDate = price[0]?.datetime;
-      const { attention, news, events } = await dashboardService.fetchSecondaryData(symbol, startDate);
+  // Background data: overview
+  const overviewData = useAsync(
+    () => dashboardService.fetchBackgroundData(symbol),
+    [symbol],
+    { keepPreviousData: true }
+  );
 
-      setAttentionData(attention);
-      setNews(news);
-      setEvents(events);
+  // Derived state
+  const priceData = criticalData.data?.price ?? [];
+  const summaryStats = criticalData.data?.summary ?? null;
+  const attentionData = secondaryData.data?.attention ?? [];
+  const news = secondaryData.data?.news ?? [];
+  const events = secondaryData.data?.events ?? [];
+  const overviewPriceData = overviewData.data ?? [];
 
-      // 3. Background Data
-      const overview = await dashboardService.fetchBackgroundData(symbol);
-      setOverviewData(overview);
-
-    } catch (error) {
-      console.error("Failed to load dashboard data", error);
-      setError(error instanceof Error ? error.message : 'Failed to load data');
-    } finally {
-      setLoading(false);
-      setUpdating(false);
-    }
-  }, [symbol, timeframe]);
-
-  // Initial Load
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const isLoading = criticalData.loading && !priceData.length;
+  const isUpdating = criticalData.loading && priceData.length > 0;
+  const error = criticalData.error;
 
   // Handlers
   const handleCrosshairMove = useCallback((time: Time | null) => {
@@ -119,32 +102,40 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
     attentionChartRef.current?.setCrosshair(time);
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    criticalData.refresh();
+    secondaryData.refresh();
+    overviewData.refresh();
+  }, [criticalData, secondaryData, overviewData]);
+
   // Calculate overview days
   const overviewDays = useMemo(() => {
-    if (!overviewData.length) return 0;
-    const start = new Date(overviewData[0].timestamp);
-    const end = new Date(overviewData[overviewData.length - 1].timestamp);
+    if (!overviewPriceData.length) return 0;
+    const start = new Date(overviewPriceData[0].timestamp);
+    const end = new Date(overviewPriceData[overviewPriceData.length - 1].timestamp);
     const diffTime = Math.abs(end.getTime() - start.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-  }, [overviewData]);
+  }, [overviewPriceData]);
 
-  if (loading && !priceData.length && !attentionData.length) {
+  // Loading state
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-            <p className="text-muted-foreground">Loading {symbol} data...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <p className="text-muted-foreground">Loading {symbol} data...</p>
         </div>
       </div>
     );
   }
 
+  // Error state
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
         <div className="text-destructive text-lg font-semibold">Error Loading Data</div>
-        <p className="text-muted-foreground">{error}</p>
-        <Button onClick={() => loadData()} variant="outline">Retry</Button>
+        <p className="text-muted-foreground">{error.message}</p>
+        <Button onClick={handleRefresh} variant="outline">Retry</Button>
       </div>
     );
   }
@@ -175,8 +166,8 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
             selectedSymbol={symbol}
             availableSymbols={availableSymbols}
             onSymbolChange={onSymbolChange}
-            onRefresh={() => loadData(true)}
-            updating={updating}
+            onRefresh={handleRefresh}
+            updating={isUpdating}
             updateCountdown={0}
             enableRealtimePrice={true}
           />
@@ -197,7 +188,14 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
             <TrendingUp className="w-5 h-5 text-primary" />
             Price Overview {overviewDays > 0 && <span className="text-sm font-normal text-muted-foreground">({overviewDays} 天)</span>}
           </h2>
-          <PriceOverview priceData={overviewData} height={192} />
+          <AsyncBoundary
+            loading={overviewData.loading && !overviewPriceData.length}
+            error={overviewData.error}
+            data={overviewPriceData}
+            loadingHeight={192}
+          >
+            {(data) => <PriceOverview priceData={data} height={192} />}
+          </AsyncBoundary>
         </div>
         <NewsList news={news} maxItems={5} title={`${symbol} RECENT NEWS`} />
       </section>
@@ -247,18 +245,11 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
         </div>
       </section>
 
-      {/* Section 5: Attention Events & Backtest */}
+      {/* Section 5: Attention Events & Regime Analysis */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Suspense fallback={<div className="h-[200px] bg-muted/50 rounded animate-pulse" />}>
           <AttentionEvents events={events} />
         </Suspense>
-        <Suspense fallback={<div className="h-[200px] bg-muted/50 rounded animate-pulse" />}>
-          <BacktestPanel />
-        </Suspense>
-      </section>
-      
-      {/* Section 6: Attention Regime Analysis */}
-      <section>
         <Suspense fallback={<div className="h-[300px] bg-muted/50 rounded animate-pulse" />}>
           <AttentionRegimePanel defaultSymbols={[symbol]} />
         </Suspense>

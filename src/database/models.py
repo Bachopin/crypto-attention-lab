@@ -1,15 +1,34 @@
 """
 Database models for multi-symbol crypto attention analysis
+
+支持 SQLite 和 PostgreSQL (with pgvector)
 """
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Text, Boolean,
-    ForeignKey, Index, UniqueConstraint, create_engine, func
+    Column, Integer, BigInteger, String, Float, DateTime, Text, Boolean,
+    ForeignKey, Index, UniqueConstraint, create_engine, func, Date
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime, timezone
+import os
 
 Base = declarative_base()
+
+# 检查是否使用 PostgreSQL（用于条件启用 pgvector）
+_DB_URL = os.getenv("DATABASE_URL", "")
+IS_POSTGRESQL = _DB_URL.startswith("postgresql")
+
+# pgvector 支持（仅 PostgreSQL）
+if IS_POSTGRESQL:
+    try:
+        from pgvector.sqlalchemy import Vector
+        VECTOR_ENABLED = True
+    except ImportError:
+        VECTOR_ENABLED = False
+        Vector = None
+else:
+    VECTOR_ENABLED = False
+    Vector = None
 
 
 class Symbol(Base):
@@ -50,7 +69,7 @@ class News(Base):
     __tablename__ = 'news'
     
     id = Column(Integer, primary_key=True)
-    timestamp = Column(Integer, nullable=False, index=True)  # Unix timestamp (ms)
+    timestamp = Column(BigInteger, nullable=False, index=True)  # Unix timestamp (ms)
     datetime = Column(DateTime(timezone=True), nullable=False, index=True)
     title = Column(Text, nullable=False)
     source = Column(String(100), nullable=False, index=True)
@@ -87,7 +106,7 @@ class Price(Base):
     symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
     timeframe = Column(String(10), nullable=False, index=True)  # '1d', '4h', '1h', etc.
     
-    timestamp = Column(Integer, nullable=False)  # Unix timestamp (ms)
+    timestamp = Column(BigInteger, nullable=False)  # Unix timestamp (ms)
     datetime = Column(DateTime(timezone=True), nullable=False)
     
     open = Column(Float, nullable=False)
@@ -107,7 +126,15 @@ class Price(Base):
 
 
 class AttentionFeature(Base):
-    """注意力特征聚合表（支持日级和 4H 级）"""
+    """注意力特征聚合表（支持日级和 4H 级）
+    
+    这是核心的预计算特征表，包含：
+    1. 注意力通道特征（新闻、Google Trends、Twitter）
+    2. 价格派生特征（收益率、波动率、成交量 z-score）
+    3. State Features（用于相似状态检索的规范化特征）
+    4. Forward Returns（历史数据的前瞻收益，用于场景分析）
+    5. Feature Vector（用于 pgvector 相似度搜索）
+    """
     __tablename__ = 'attention_features'
     
     id = Column(Integer, primary_key=True)
@@ -116,11 +143,11 @@ class AttentionFeature(Base):
     # 时间频率：'D' 为日级，'4H' 为 4 小时级
     timeframe = Column(String(10), nullable=False, default='D', index=True)
     
-    # 基础特征
+    # ========== 基础注意力特征 ==========
     news_count = Column(Integer, nullable=False, default=0)
     attention_score = Column(Float, nullable=False, default=0.0)  # 0-100
     
-    # 扩展特征
+    # 扩展注意力特征
     weighted_attention = Column(Float, default=0.0)
     bullish_attention = Column(Float, default=0.0)
     bearish_attention = Column(Float, default=0.0)
@@ -137,9 +164,69 @@ class AttentionFeature(Base):
     composite_attention_zscore = Column(Float, default=0.0)
     composite_attention_spike_flag = Column(Integer, default=0)
     
-    # 预计算的事件（JSON 格式，存储当天检测到的事件列表）
-    # 格式: [{"event_type": "attention_spike", "intensity": 0.5, "summary": "..."}, ...]
+    # 预计算的事件（JSON 格式）
     detected_events = Column(Text)  # JSON 字符串
+    
+    # ========== 新增: 价格快照 ==========
+    close_price = Column(Float)
+    open_price = Column(Float)
+    high_price = Column(Float)
+    low_price = Column(Float)
+    volume = Column(Float)
+    
+    # ========== 新增: 滚动收益率 ==========
+    return_1d = Column(Float)   # 1 天收益率
+    return_7d = Column(Float)   # 7 天累计收益率
+    return_30d = Column(Float)  # 30 天累计收益率
+    return_60d = Column(Float)  # 60 天累计收益率
+    
+    # ========== 新增: 滚动波动率 ==========
+    volatility_7d = Column(Float)   # 7 天波动率
+    volatility_30d = Column(Float)  # 30 天波动率
+    volatility_60d = Column(Float)  # 60 天波动率
+    
+    # ========== 新增: 其他滚动统计 ==========
+    volume_zscore_7d = Column(Float)   # 7 天成交量 z-score
+    volume_zscore_30d = Column(Float)  # 30 天成交量 z-score
+    high_30d = Column(Float)   # 30 天最高价
+    low_30d = Column(Float)    # 30 天最低价
+    high_60d = Column(Float)   # 60 天最高价
+    low_60d = Column(Float)    # 60 天最低价
+    
+    # ========== 新增: State Features (规范化，用于相似度检索) ==========
+    # 收益动量 z-score
+    feat_ret_zscore_7d = Column(Float)
+    feat_ret_zscore_30d = Column(Float)
+    feat_ret_zscore_60d = Column(Float)
+    # 波动水平 z-score
+    feat_vol_zscore_7d = Column(Float)
+    feat_vol_zscore_30d = Column(Float)
+    feat_vol_zscore_60d = Column(Float)
+    # 注意力趋势
+    feat_att_trend_7d = Column(Float)   # 7 天注意力斜率
+    # 通道占比
+    feat_att_news_share = Column(Float)
+    feat_att_google_share = Column(Float)
+    feat_att_twitter_share = Column(Float)
+    # 情绪
+    feat_bullish_minus_bearish = Column(Float)
+    feat_sentiment_mean = Column(Float)
+    
+    # ========== 新增: Forward Returns (仅历史数据，T+N 后回填) ==========
+    forward_return_3d = Column(Float)   # 3 天后收益
+    forward_return_7d = Column(Float)   # 7 天后收益
+    forward_return_30d = Column(Float)  # 30 天后收益
+    max_drawdown_7d = Column(Float)     # 7 天内最大回撤
+    max_drawdown_30d = Column(Float)    # 30 天内最大回撤
+    
+    # ========== 新增: Feature Vector (pgvector, 仅 PostgreSQL) ==========
+    # 12 维特征向量，用于高效相似度搜索
+    # 包含: [feat_ret_zscore_30d, feat_vol_zscore_30d, composite_attention_zscore,
+    #        feat_att_trend_7d, feat_att_news_share, feat_att_google_share,
+    #        feat_att_twitter_share, feat_bullish_minus_bearish, feat_sentiment_mean,
+    #        volume_zscore_30d, google_trend_zscore, twitter_volume_zscore]
+    # 注意: 此字段仅在 PostgreSQL + pgvector 环境下使用
+    # feature_vector = Column(Vector(12))  # 需要 pgvector 扩展
     
     # 关系
     symbol_ref = relationship('Symbol', back_populates='attention_features')
@@ -329,6 +416,30 @@ class StateSnapshot(Base):
             'features': json.loads(self.features) if self.features else {},
             'raw_stats': json.loads(self.raw_stats) if self.raw_stats else {},
         }
+
+
+class NewsStats(Base):
+    """新闻统计缓存表
+    
+    存储预计算的新闻统计数据，避免每次 API 调用都全表扫描。
+    
+    stat_type:
+    - 'total': 全局总数，period_key = 'ALL'
+    - 'hourly': 每小时统计，period_key = '2025-12-01T14' (ISO日期+小时)
+    - 'daily': 每日统计，period_key = '2025-12-01' (ISO日期)
+    """
+    __tablename__ = 'news_stats'
+    
+    id = Column(Integer, primary_key=True)
+    stat_type = Column(String(20), nullable=False, index=True)  # 'total', 'hourly', 'daily'
+    period_key = Column(String(20), nullable=False, index=True)  # 时间标识或 'ALL'
+    count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('stat_type', 'period_key', name='uq_news_stats_type_period'),
+        Index('ix_news_stats_type_period', 'stat_type', 'period_key'),
+    )
 
 
 # 数据库引擎和会话工厂

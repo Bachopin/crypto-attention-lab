@@ -6,14 +6,14 @@ import os
 import pandas as pd
 import requests
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple, List, Dict
 import logging
 from sqlalchemy import and_, or_, inspect, text, func
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
 from src.database.models import (
-    Symbol, News, Price, AttentionFeature, GoogleTrend, TwitterVolume,
+    Symbol, News, Price, AttentionFeature, GoogleTrend, TwitterVolume, NewsStats,
     init_database, get_session, get_engine
 )
 
@@ -458,6 +458,9 @@ class DatabaseStorage:
                 session.bulk_save_objects(new_objects)
                 session.commit()
                 logger.info(f"Saved {len(new_objects)} new news items to separate news DB")
+                
+                # 更新新闻统计缓存
+                self._update_news_stats_after_save(new_objects)
             else:
                 logger.info("No new news items to save")
                 
@@ -468,6 +471,73 @@ class DatabaseStorage:
         finally:
             session.close()
     
+    def _update_news_stats_after_save(self, new_objects: List[News]):
+        """保存新闻后更新统计缓存"""
+        if not new_objects:
+            return
+            
+        session = get_session(self.news_engine)
+        try:
+            # 确保 NewsStats 表存在
+            NewsStats.__table__.create(bind=self.news_engine, checkfirst=True)
+            
+            # 按小时和日期分组统计新增数量
+            hourly_counts: Dict[str, int] = {}
+            daily_counts: Dict[str, int] = {}
+            
+            for news in new_objects:
+                dt = news.datetime
+                if dt is None:
+                    continue
+                    
+                # 小时 key: '2025-12-01T14'
+                hour_key = dt.strftime('%Y-%m-%dT%H')
+                hourly_counts[hour_key] = hourly_counts.get(hour_key, 0) + 1
+                
+                # 日期 key: '2025-12-01'
+                day_key = dt.strftime('%Y-%m-%d')
+                daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+            
+            # 更新每小时统计
+            for period_key, count in hourly_counts.items():
+                self._upsert_news_stat(session, 'hourly', period_key, count)
+            
+            # 更新每日统计
+            for period_key, count in daily_counts.items():
+                self._upsert_news_stat(session, 'daily', period_key, count)
+            
+            # 更新全局总数
+            total_added = len(new_objects)
+            self._upsert_news_stat(session, 'total', 'ALL', total_added)
+            
+            session.commit()
+            logger.debug(f"Updated news stats: +{total_added} total, {len(hourly_counts)} hours, {len(daily_counts)} days")
+            
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Failed to update news stats: {e}")
+        finally:
+            session.close()
+    
+    def _upsert_news_stat(self, session, stat_type: str, period_key: str, add_count: int):
+        """更新或插入新闻统计记录（增量更新）"""
+        existing = session.query(NewsStats).filter(
+            and_(
+                NewsStats.stat_type == stat_type,
+                NewsStats.period_key == period_key
+            )
+        ).first()
+        
+        if existing:
+            existing.count += add_count
+        else:
+            stat = NewsStats(
+                stat_type=stat_type,
+                period_key=period_key,
+                count=add_count
+            )
+            session.add(stat)
+
     def get_news(
         self,
         symbols: List[str] = None,
@@ -699,7 +769,7 @@ class DatabaseStorage:
                     ).first()
                 
                 if existing:
-                    # 更新
+                    # 更新基础注意力特征
                     existing.news_count = record.get('news_count', 0)
                     existing.attention_score = record.get('attention_score', 0.0)
                     existing.weighted_attention = record.get('weighted_attention', 0.0)
@@ -717,11 +787,92 @@ class DatabaseStorage:
                     existing.composite_attention_score = record.get('composite_attention_score', 0.0)
                     existing.composite_attention_zscore = record.get('composite_attention_zscore', 0.0)
                     existing.composite_attention_spike_flag = record.get('composite_attention_spike_flag', 0)
+                    
+                    # 更新预计算字段（价格快照）
+                    if 'close_price' in record:
+                        existing.close_price = record.get('close_price')
+                    if 'open_price' in record:
+                        existing.open_price = record.get('open_price')
+                    if 'high_price' in record:
+                        existing.high_price = record.get('high_price')
+                    if 'low_price' in record:
+                        existing.low_price = record.get('low_price')
+                    if 'volume' in record:
+                        existing.volume = record.get('volume')
+                    
+                    # 更新预计算字段（滚动收益率）
+                    if 'return_1d' in record:
+                        existing.return_1d = record.get('return_1d')
+                    if 'return_7d' in record:
+                        existing.return_7d = record.get('return_7d')
+                    if 'return_30d' in record:
+                        existing.return_30d = record.get('return_30d')
+                    if 'return_60d' in record:
+                        existing.return_60d = record.get('return_60d')
+                    
+                    # 更新预计算字段（滚动波动率）
+                    if 'volatility_7d' in record:
+                        existing.volatility_7d = record.get('volatility_7d')
+                    if 'volatility_30d' in record:
+                        existing.volatility_30d = record.get('volatility_30d')
+                    if 'volatility_60d' in record:
+                        existing.volatility_60d = record.get('volatility_60d')
+                    
+                    # 更新预计算字段（成交量和高低点）
+                    if 'volume_zscore_7d' in record:
+                        existing.volume_zscore_7d = record.get('volume_zscore_7d')
+                    if 'volume_zscore_30d' in record:
+                        existing.volume_zscore_30d = record.get('volume_zscore_30d')
+                    if 'high_30d' in record:
+                        existing.high_30d = record.get('high_30d')
+                    if 'low_30d' in record:
+                        existing.low_30d = record.get('low_30d')
+                    if 'high_60d' in record:
+                        existing.high_60d = record.get('high_60d')
+                    if 'low_60d' in record:
+                        existing.low_60d = record.get('low_60d')
+                    
+                    # 更新预计算字段（State Features）
+                    if 'feat_ret_zscore_7d' in record:
+                        existing.feat_ret_zscore_7d = record.get('feat_ret_zscore_7d')
+                    if 'feat_ret_zscore_30d' in record:
+                        existing.feat_ret_zscore_30d = record.get('feat_ret_zscore_30d')
+                    if 'feat_vol_zscore_7d' in record:
+                        existing.feat_vol_zscore_7d = record.get('feat_vol_zscore_7d')
+                    if 'feat_vol_zscore_30d' in record:
+                        existing.feat_vol_zscore_30d = record.get('feat_vol_zscore_30d')
+                    if 'feat_att_trend_7d' in record:
+                        existing.feat_att_trend_7d = record.get('feat_att_trend_7d')
+                    if 'feat_att_news_share' in record:
+                        existing.feat_att_news_share = record.get('feat_att_news_share')
+                    if 'feat_att_google_share' in record:
+                        existing.feat_att_google_share = record.get('feat_att_google_share')
+                    if 'feat_att_twitter_share' in record:
+                        existing.feat_att_twitter_share = record.get('feat_att_twitter_share')
+                    if 'feat_bullish_minus_bearish' in record:
+                        existing.feat_bullish_minus_bearish = record.get('feat_bullish_minus_bearish')
+                    
+                    # 更新预计算字段（Forward Returns）
+                    if 'forward_return_3d' in record:
+                        existing.forward_return_3d = record.get('forward_return_3d')
+                    if 'forward_return_7d' in record:
+                        existing.forward_return_7d = record.get('forward_return_7d')
+                    if 'forward_return_30d' in record:
+                        existing.forward_return_30d = record.get('forward_return_30d')
+                    if 'max_drawdown_7d' in record:
+                        existing.max_drawdown_7d = record.get('max_drawdown_7d')
+                    if 'max_drawdown_30d' in record:
+                        existing.max_drawdown_30d = record.get('max_drawdown_30d')
+                    
+                    # 更新预计算事件
+                    if 'detected_events' in record:
+                        existing.detected_events = record.get('detected_events')
                 else:
                     feat = AttentionFeature(
                         symbol_id=sym.id,
                         datetime=dt,
                         timeframe=rec_timeframe,
+                        # 基础注意力特征
                         news_count=record.get('news_count', 0),
                         attention_score=record.get('attention_score', 0.0),
                         weighted_attention=record.get('weighted_attention', 0.0),
@@ -739,6 +890,45 @@ class DatabaseStorage:
                         composite_attention_score=record.get('composite_attention_score', 0.0),
                         composite_attention_zscore=record.get('composite_attention_zscore', 0.0),
                         composite_attention_spike_flag=record.get('composite_attention_spike_flag', 0),
+                        detected_events=record.get('detected_events'),
+                        # 预计算字段：价格快照
+                        close_price=record.get('close_price'),
+                        open_price=record.get('open_price'),
+                        high_price=record.get('high_price'),
+                        low_price=record.get('low_price'),
+                        volume=record.get('volume'),
+                        # 预计算字段：滚动收益率
+                        return_1d=record.get('return_1d'),
+                        return_7d=record.get('return_7d'),
+                        return_30d=record.get('return_30d'),
+                        return_60d=record.get('return_60d'),
+                        # 预计算字段：滚动波动率
+                        volatility_7d=record.get('volatility_7d'),
+                        volatility_30d=record.get('volatility_30d'),
+                        volatility_60d=record.get('volatility_60d'),
+                        # 预计算字段：成交量和高低点
+                        volume_zscore_7d=record.get('volume_zscore_7d'),
+                        volume_zscore_30d=record.get('volume_zscore_30d'),
+                        high_30d=record.get('high_30d'),
+                        low_30d=record.get('low_30d'),
+                        high_60d=record.get('high_60d'),
+                        low_60d=record.get('low_60d'),
+                        # 预计算字段：State Features
+                        feat_ret_zscore_7d=record.get('feat_ret_zscore_7d'),
+                        feat_ret_zscore_30d=record.get('feat_ret_zscore_30d'),
+                        feat_vol_zscore_7d=record.get('feat_vol_zscore_7d'),
+                        feat_vol_zscore_30d=record.get('feat_vol_zscore_30d'),
+                        feat_att_trend_7d=record.get('feat_att_trend_7d'),
+                        feat_att_news_share=record.get('feat_att_news_share'),
+                        feat_att_google_share=record.get('feat_att_google_share'),
+                        feat_att_twitter_share=record.get('feat_att_twitter_share'),
+                        feat_bullish_minus_bearish=record.get('feat_bullish_minus_bearish'),
+                        # 预计算字段：Forward Returns
+                        forward_return_3d=record.get('forward_return_3d'),
+                        forward_return_7d=record.get('forward_return_7d'),
+                        forward_return_30d=record.get('forward_return_30d'),
+                        max_drawdown_7d=record.get('max_drawdown_7d'),
+                        max_drawdown_30d=record.get('max_drawdown_30d'),
                     )
                     session.add(feat)
                     # 尝试 flush 以提前发现约束冲突
@@ -1092,6 +1282,258 @@ class DatabaseStorage:
             if active_only:
                 query = query.filter_by(is_active=True)
             return [s.symbol for s in query.all()]
+        finally:
+            session.close()
+    
+    # ==================== 新闻统计方法 ====================
+    
+    def get_news_total_count(self) -> int:
+        """
+        获取新闻总数（从缓存读取，如果不存在则实时统计并缓存）
+        """
+        session = get_session(self.news_engine)
+        try:
+            # 确保表存在
+            NewsStats.__table__.create(bind=self.news_engine, checkfirst=True)
+            
+            # 尝试从缓存读取
+            stat = session.query(NewsStats).filter(
+                and_(
+                    NewsStats.stat_type == 'total',
+                    NewsStats.period_key == 'ALL'
+                )
+            ).first()
+            
+            if stat:
+                return stat.count
+            
+            # 缓存不存在，实时统计并缓存
+            total = session.query(func.count(News.id)).scalar() or 0
+            
+            new_stat = NewsStats(
+                stat_type='total',
+                period_key='ALL',
+                count=total
+            )
+            session.add(new_stat)
+            session.commit()
+            logger.info(f"Initialized news total count cache: {total}")
+            
+            return total
+        finally:
+            session.close()
+    
+    def get_news_hourly_stats(
+        self, 
+        start: Optional[datetime] = None, 
+        end: Optional[datetime] = None,
+        limit: int = 168  # 默认 7 天
+    ) -> List[Dict]:
+        """
+        获取每小时新闻统计
+        
+        Returns:
+            List of {'period': '2025-12-01T14', 'count': 10}
+        """
+        session = get_session(self.news_engine)
+        try:
+            NewsStats.__table__.create(bind=self.news_engine, checkfirst=True)
+            
+            query = session.query(NewsStats).filter(NewsStats.stat_type == 'hourly')
+            
+            if start:
+                start_key = start.strftime('%Y-%m-%dT%H')
+                query = query.filter(NewsStats.period_key >= start_key)
+            if end:
+                end_key = end.strftime('%Y-%m-%dT%H')
+                query = query.filter(NewsStats.period_key <= end_key)
+            
+            query = query.order_by(NewsStats.period_key.desc()).limit(limit)
+            
+            results = query.all()
+            
+            # 如果缓存为空，可能需要从 News 表重建
+            if not results:
+                self._rebuild_hourly_stats(session)
+                results = query.all()
+            
+            return [{'period': r.period_key, 'count': r.count} for r in reversed(results)]
+        finally:
+            session.close()
+    
+    def get_news_daily_stats(
+        self, 
+        start: Optional[datetime] = None, 
+        end: Optional[datetime] = None,
+        limit: int = 30  # 默认 30 天
+    ) -> List[Dict]:
+        """
+        获取每日新闻统计
+        
+        Returns:
+            List of {'period': '2025-12-01', 'count': 150}
+        """
+        session = get_session(self.news_engine)
+        try:
+            NewsStats.__table__.create(bind=self.news_engine, checkfirst=True)
+            
+            query = session.query(NewsStats).filter(NewsStats.stat_type == 'daily')
+            
+            if start:
+                start_key = start.strftime('%Y-%m-%d')
+                query = query.filter(NewsStats.period_key >= start_key)
+            if end:
+                end_key = end.strftime('%Y-%m-%d')
+                query = query.filter(NewsStats.period_key <= end_key)
+            
+            query = query.order_by(NewsStats.period_key.desc()).limit(limit)
+            
+            results = query.all()
+            
+            # 如果缓存为空，可能需要从 News 表重建
+            if not results:
+                self._rebuild_daily_stats(session)
+                results = query.all()
+            
+            return [{'period': r.period_key, 'count': r.count} for r in reversed(results)]
+        finally:
+            session.close()
+    
+    def _rebuild_hourly_stats(self, session, days: int = 7):
+        """从 News 表重建最近 N 天的小时统计"""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            
+            # 按小时分组统计
+            # SQLite 使用 strftime，PostgreSQL 使用 date_trunc
+            results = session.query(
+                func.strftime('%Y-%m-%dT%H', News.datetime).label('hour'),
+                func.count(News.id).label('cnt')
+            ).filter(
+                News.datetime >= cutoff
+            ).group_by(
+                func.strftime('%Y-%m-%dT%H', News.datetime)
+            ).all()
+            
+            for row in results:
+                if row.hour:
+                    existing = session.query(NewsStats).filter(
+                        and_(
+                            NewsStats.stat_type == 'hourly',
+                            NewsStats.period_key == row.hour
+                        )
+                    ).first()
+                    
+                    if existing:
+                        existing.count = row.cnt
+                    else:
+                        session.add(NewsStats(
+                            stat_type='hourly',
+                            period_key=row.hour,
+                            count=row.cnt
+                        ))
+            
+            session.commit()
+            logger.info(f"Rebuilt hourly stats for last {days} days: {len(results)} periods")
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Failed to rebuild hourly stats: {e}")
+    
+    def _rebuild_daily_stats(self, session, days: int = 90):
+        """从 News 表重建最近 N 天的每日统计"""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            
+            # 按日期分组统计
+            results = session.query(
+                func.strftime('%Y-%m-%d', News.datetime).label('day'),
+                func.count(News.id).label('cnt')
+            ).filter(
+                News.datetime >= cutoff
+            ).group_by(
+                func.strftime('%Y-%m-%d', News.datetime)
+            ).all()
+            
+            for row in results:
+                if row.day:
+                    existing = session.query(NewsStats).filter(
+                        and_(
+                            NewsStats.stat_type == 'daily',
+                            NewsStats.period_key == row.day
+                        )
+                    ).first()
+                    
+                    if existing:
+                        existing.count = row.cnt
+                    else:
+                        session.add(NewsStats(
+                            stat_type='daily',
+                            period_key=row.day,
+                            count=row.cnt
+                        ))
+            
+            session.commit()
+            logger.info(f"Rebuilt daily stats for last {days} days: {len(results)} periods")
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Failed to rebuild daily stats: {e}")
+    
+    def rebuild_all_news_stats(self):
+        """完全重建所有新闻统计（用于初始化或修复）"""
+        session = get_session(self.news_engine)
+        try:
+            NewsStats.__table__.create(bind=self.news_engine, checkfirst=True)
+            
+            # 清空现有统计
+            session.query(NewsStats).delete()
+            session.commit()
+            
+            # 重建总数
+            total = session.query(func.count(News.id)).scalar() or 0
+            session.add(NewsStats(stat_type='total', period_key='ALL', count=total))
+            
+            # 重建每日统计（全量）
+            daily_results = session.query(
+                func.strftime('%Y-%m-%d', News.datetime).label('day'),
+                func.count(News.id).label('cnt')
+            ).group_by(
+                func.strftime('%Y-%m-%d', News.datetime)
+            ).all()
+            
+            for row in daily_results:
+                if row.day:
+                    session.add(NewsStats(
+                        stat_type='daily',
+                        period_key=row.day,
+                        count=row.cnt
+                    ))
+            
+            # 重建每小时统计（最近 30 天）
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            hourly_results = session.query(
+                func.strftime('%Y-%m-%dT%H', News.datetime).label('hour'),
+                func.count(News.id).label('cnt')
+            ).filter(
+                News.datetime >= cutoff
+            ).group_by(
+                func.strftime('%Y-%m-%dT%H', News.datetime)
+            ).all()
+            
+            for row in hourly_results:
+                if row.hour:
+                    session.add(NewsStats(
+                        stat_type='hourly',
+                        period_key=row.hour,
+                        count=row.cnt
+                    ))
+            
+            session.commit()
+            logger.info(f"Rebuilt all news stats: total={total}, daily={len(daily_results)}, hourly={len(hourly_results)}")
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to rebuild news stats: {e}")
+            raise
         finally:
             session.close()
     

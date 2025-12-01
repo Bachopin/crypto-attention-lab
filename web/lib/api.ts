@@ -617,6 +617,55 @@ export async function fetchStateScenarios(params: {
   return fetchAPI<StateScenarioResponse>('/api/state/scenarios', apiParams);
 }
 
+/**
+ * 获取单个情景详情
+ * GET /api/state/scenario/:id
+ * TODO: 需要后端实现
+ */
+export async function fetchScenarioDetail(scenarioId: string): Promise<unknown> {
+  return fetchAPI<unknown>(`/api/state/scenario/${scenarioId}`);
+}
+
+/**
+ * 根据事件获取情景分析
+ * GET /api/state/event-scenario
+ * TODO: 需要后端实现
+ */
+export async function fetchEventScenario(params: {
+  symbol: string;
+  event_type: string;
+  event_date?: string;
+}): Promise<unknown> {
+  return fetchAPI<unknown>('/api/state/event-scenario', params);
+}
+
+/**
+ * 获取当前状态快照
+ * GET /api/state/snapshot
+ * TODO: 需要后端实现
+ */
+export async function fetchStateSnapshot(symbol: string): Promise<unknown> {
+  return fetchAPI<unknown>('/api/state/snapshot', { symbol });
+}
+
+/**
+ * 搜索相似历史状态
+ * GET /api/state/similar
+ * TODO: 需要后端实现
+ */
+export async function fetchSimilarStates(params: {
+  symbol: string;
+  timeframe?: string;
+  lookback_days?: number;
+  top_n?: number;
+  weight_attention?: number;
+  weight_price?: number;
+  weight_volume?: number;
+  weight_regime?: number;
+}): Promise<unknown[]> {
+  return fetchAPI<unknown[]>('/api/state/similar', params);
+}
+
 export async function runAttentionRotationBacktest(params: {
   symbols: string[];
   attention_source?: 'composite' | 'news_channel';

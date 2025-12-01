@@ -55,7 +55,9 @@ const REQUESTS: ApiRequestConfig[] = [
   // 新闻数据
   { key: 'news', label: '/api/news', path: '/api/news?symbol=ZEC&limit=5', description: 'ZEC 相关新闻', category: '新闻' },
   { key: 'news-all', label: '/api/news (ALL)', path: '/api/news?symbol=ALL&limit=10', description: '全部新闻', category: '新闻' },
-  { key: 'news-count', label: '/api/news/count', path: '/api/news/count?symbol=ALL', description: '新闻总数', category: '新闻' },
+  { key: 'news-count', label: '/api/news/count', path: '/api/news/count?symbol=ALL', description: '新闻总数（缓存）', category: '新闻' },
+  { key: 'news-stats-hourly', label: '/api/news/stats/hourly', path: '/api/news/stats/hourly?limit=24', description: '每小时新闻统计', category: '新闻' },
+  { key: 'news-stats-daily', label: '/api/news/stats/daily', path: '/api/news/stats/daily?limit=7', description: '每日新闻统计', category: '新闻' },
   { key: 'news-trend', label: '/api/news/trend', path: '/api/news/trend?symbol=ALL&interval=1d', description: '新闻趋势', category: '新闻' },
   
   // 研究分析
@@ -209,12 +211,26 @@ export default function ApiTestPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 sticky top-0 z-40">
+        {/* Debug 页面导航 */}
+        <div className="border-b border-border/50 bg-muted/30">
+          <div className="container mx-auto px-4 h-8 flex items-center gap-4 text-xs">
+            <span className="text-muted-foreground">调试工具:</span>
+            <span className="font-medium text-primary">API 测试</span>
+            <span className="text-muted-foreground">|</span>
+            <Link href="/debug/frontend-health" className="text-muted-foreground hover:text-foreground transition-colors">
+              前端健康检查
+            </Link>
+          </div>
+        </div>
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">API 调试工具</h1>
             <p className="text-xs text-muted-foreground">Base: {resolvedApiBase}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/debug/frontend-health">
+              <Button variant="outline" size="sm">前端健康</Button>
+            </Link>
             <Link href="/?tab=settings">
               <Button variant="outline" size="sm">返回设置</Button>
             </Link>

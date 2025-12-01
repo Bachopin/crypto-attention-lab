@@ -257,20 +257,28 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
 
       {/* Radar Section */}
       <div className="space-y-6">
-        {radarLoading ? (
+        {/* 仅在首次加载且无数据时显示骨架屏，刷新时保持旧数据可见 */}
+        {radarLoading && radarNews.length === 0 ? (
            <div className="space-y-4">
              <div className="h-[120px] bg-muted/50 rounded-lg animate-pulse" />
              <div className="h-[200px] bg-muted/50 rounded-lg animate-pulse" />
            </div>
         ) : (
-           <>
+           <div className="relative">
+             {/* 刷新时显示更新中提示 */}
+             {radarLoading && radarNews.length > 0 && (
+               <div className="absolute top-2 right-2 z-10 flex items-center gap-2 bg-background/80 backdrop-blur px-2 py-1 rounded text-xs text-muted-foreground">
+                 <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                 更新中...
+               </div>
+             )}
              <NewsSummaryCharts news={radarNews} timeRange={newsRange} />
              <SymbolNewsHeatTable 
                 news={radarNews} 
                 selectedSymbol={newsSymbolFilter} 
                 onSymbolSelect={handleSymbolFilterChange} 
              />
-           </>
+           </div>
         )}
       </div>
 

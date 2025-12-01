@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { buildApiUrl, fetchStateScenarios, StateScenarioResponse, ScenarioSummary } from '@/lib/api';
+import { buildApiUrl } from '@/lib/api';
+import { scenarioService } from '@/lib/services';
+import { useAsync, useAsyncCallback } from '@/lib/hooks';
+import { AsyncBoundary } from '@/components/ui/async-boundary';
 import { useSettings } from '@/components/SettingsProvider';
 import { useTabData } from '@/components/TabDataProvider';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -18,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { StateScenarioResponse, ScenarioSummary } from '@/types/models';
 
 type Props = {
   defaultSymbol?: string;
@@ -58,9 +62,6 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
       : []
   );
   
-  // 首次加载标记
-  const initialLoadDone = useRef(false);
-  
   // Map global timeframe to local supported timeframe
   const initialTimeframe = settings.defaultTimeframe.toLowerCase();
   const validTimeframe = (initialTimeframe === '1d' || initialTimeframe === '4h') ? initialTimeframe : '1d';
@@ -69,16 +70,13 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   const [windowDays, setWindowDays] = useState<string>(settings.defaultWindowDays.toString());
   const [topK, setTopK] = useState<string>('100');
 
-  const [loadingCompare, setLoadingCompare] = useState(false);
-  const [compareError, setCompareError] = useState<string | null>(null);
-  
   // 同步 primarySymbol 到 context
   const handlePrimarySymbolChange = (symbol: string) => {
     setPrimarySymbol(symbol);
     setScenarioPrimarySymbol(symbol);
   };
 
-  // 获取自动更新的代币列表
+  // 获取可用符号列表
   useEffect(() => {
     const fetchSymbols = async () => {
       setLoadingSymbols(true);
@@ -87,11 +85,9 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
         const data = await response.json();
         if (data.symbols && data.symbols.length > 0) {
           setAvailableSymbols(data.symbols);
-          // 如果当前选中的不在列表中，自动切换到第一个
           if (!data.symbols.includes(primarySymbol)) {
             setPrimarySymbol(data.symbols[0]);
           }
-          // 更新对比列表只包含可用的代币（排除主代币）
           const defaultCompare = data.symbols
             .filter((s: string) => s !== primarySymbol)
             .slice(0, 3);
@@ -108,49 +104,51 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
     fetchSymbols();
   }, [primarySymbol]);
 
-  // Primary symbol data is handled by ScenarioPanel, but we need to handle comparison here
+  // 使用 useAsyncCallback 处理对比分析
+  const { execute: loadCompare, loading: loadingCompare, error: compareError } = useAsyncCallback(
+    async (symbols: string[]) => {
+      const results: StateScenarioResponse[] = [];
+      for (const sym of symbols) {
+        try {
+          const res = await scenarioService.getScenarioAnalysis({
+            symbol: sym,
+            timeframe,
+            windowDays: parseInt(windowDays),
+            topK: parseInt(topK),
+          });
+          // Transform to match StateScenarioResponse format
+          results.push({
+            target: res.target,
+            scenarios: res.scenarios,
+            meta: {
+              total_similar_samples: res.meta.totalSimilarSamples,
+              valid_samples_analyzed: res.meta.validSamplesAnalyzed,
+              lookahead_days: res.meta.lookaheadDays,
+              message: res.meta.message,
+            },
+          });
+        } catch (e) {
+          console.error(`Failed to load scenario for ${sym}`, e);
+        }
+      }
+      setCompareData(results);
+      setScenarioCompareData(results);
+      return results;
+    }
+  );
 
-  async function handleLoadCompare() {
-    // 过滤只使用可用的代币
+  const handleLoadCompare = async () => {
     const symbols = compareSymbolsInput
       .split(',')
       .map(s => s.trim().toUpperCase())
       .filter(s => s.length > 0 && availableSymbols.includes(s));
     
     if (symbols.length === 0) {
-      setCompareError('请输入有效的代币符号（仅支持已启用自动更新的代币）');
       return;
     }
 
-    setLoadingCompare(true);
-    setCompareError(null);
-    setCompareData([]);
-
-    try {
-      const results: StateScenarioResponse[] = [];
-      for (const sym of symbols) {
-        try {
-          const res = await fetchStateScenarios({
-            symbol: sym,
-            timeframe,
-            window_days: parseInt(windowDays),
-            top_k: parseInt(topK),
-          });
-          results.push(res);
-        } catch (e) {
-          console.error(`Failed to load scenario for ${sym}`, e);
-          // Continue with other symbols
-        }
-      }
-      setCompareData(results);
-      // 存入缓存
-      setScenarioCompareData(results);
-    } catch (e: any) {
-      setCompareError(e.message ?? 'Failed to load compare scenarios');
-    } finally {
-      setLoadingCompare(false);
-    }
-  }
+    await loadCompare(symbols);
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -302,12 +300,19 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
         <CardContent>
           {compareError && (
              <div className="p-4 mb-4 text-sm text-red-500 bg-red-50 dark:bg-red-950/30 rounded-md">
-               {compareError}
+               {compareError.message}
              </div>
           )}
           
           {compareData.length > 0 ? (
-            <div className="rounded-md border">
+            <div className="rounded-md border relative">
+              {/* 运行中提示 - 保持旧结果可见 */}
+              {loadingCompare && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-2 bg-background/90 backdrop-blur px-3 py-1.5 rounded-md border text-xs text-muted-foreground">
+                  <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  正在更新...
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -326,7 +331,6 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
                     const dominant = getDominantScenario(data.scenarios);
                     const volatility = data.target.features['volatility_30d'];
                     
-                    // Determine risk profile based on volatility and drawdown
                     let riskProfile = 'Moderate';
                     if (volatility > 0.05 || (dominant?.max_drawdown_7d || 0) < -0.1) riskProfile = 'High';
                     if (volatility < 0.02 && (dominant?.max_drawdown_7d || 0) > -0.05) riskProfile = 'Low';
@@ -379,5 +383,4 @@ export function ScenarioTab({ defaultSymbol = 'ZEC' }: Props) {
   );
 }
 
-// 默认导出，支持懒加载
 export default ScenarioTab;

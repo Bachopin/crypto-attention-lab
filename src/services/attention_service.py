@@ -192,6 +192,26 @@ class AttentionService:
         # 3.5 计算并添加事件检测结果
         result_df = detect_events_per_row(result_df, lookback_days=30, min_quantile=0.8)
         logger.info(f"Detected events for {len(result_df)} rows for {symbol}")
+        
+        # 3.6 计算预计算字段 (价格派生指标)
+        try:
+            from src.features.precomputed_fields import compute_all_precomputed_fields
+            precomputed_df = compute_all_precomputed_fields(price_df, result_df)
+            
+            if not precomputed_df.empty:
+                # 合并预计算字段到结果
+                result_df['datetime'] = pd.to_datetime(result_df['datetime'], utc=True)
+                result_df = result_df.set_index('datetime')
+                
+                # 只添加结果中不存在的列
+                for col in precomputed_df.columns:
+                    if col not in result_df.columns:
+                        result_df[col] = precomputed_df[col]
+                
+                result_df = result_df.reset_index()
+                logger.info(f"Added precomputed fields for {symbol}")
+        except Exception as precomp_err:
+            logger.warning(f"Failed to compute precomputed fields for {symbol}: {precomp_err}")
             
         # 4. Persist Results
         if USE_DATABASE and save_to_db:
@@ -364,6 +384,24 @@ class AttentionService:
         
         # 8.5 计算并添加事件检测结果（在完整上下文上计算，确保分位数准确）
         result_df = detect_events_per_row(result_df, lookback_days=30, min_quantile=0.8)
+        
+        # 8.6 计算预计算字段（使用完整上下文范围以确保滚动计算准确）
+        try:
+            from src.features.precomputed_fields import compute_all_precomputed_fields
+            precomputed_df = compute_all_precomputed_fields(price_df_subset, result_df)
+            
+            if not precomputed_df.empty:
+                result_df['datetime'] = pd.to_datetime(result_df['datetime'], utc=True)
+                result_df = result_df.set_index('datetime')
+                
+                for col in precomputed_df.columns:
+                    if col not in result_df.columns:
+                        result_df[col] = precomputed_df[col]
+                
+                result_df = result_df.reset_index()
+                logger.debug(f"[Incremental] Added precomputed fields for {symbol}")
+        except Exception as precomp_err:
+            logger.warning(f"[Incremental] Failed to compute precomputed fields for {symbol}: {precomp_err}")
         
         # 9. 仅保留新数据部分（去掉上下文窗口部分）
         result_df['datetime'] = pd.to_datetime(result_df['datetime'], utc=True)

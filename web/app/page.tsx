@@ -3,7 +3,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Activity, LayoutGrid, TrendingUp, Newspaper, Settings, Network } from 'lucide-react'
+import { Activity, LayoutGrid, TrendingUp, Newspaper, Settings, Network, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import DashboardTab from '@/components/tabs/DashboardTab'
@@ -17,6 +17,7 @@ const MarketOverviewTab = lazy(() => import('@/components/tabs/MarketOverviewTab
 const NewsTab = lazy(() => import('@/components/tabs/NewsTab'))
 const SettingsTab = lazy(() => import('@/components/tabs/SettingsTab'))
 const ScenarioTab = lazy(() => import('@/components/tabs/ScenarioTab'))
+const BacktestTab = lazy(() => import('@/components/tabs/BacktestTab'))
 
 function TabLoading() {
   return (
@@ -93,6 +94,10 @@ function Home() {
                   <Activity className="w-4 h-4" />
                   情景分析
                 </TabsTrigger>
+                <TabsTrigger value="backtest" className="gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  历史回测
+                </TabsTrigger>
                 <TabsTrigger value="news" className="gap-2">
                   <Newspaper className="w-4 h-4" />
                   新闻概览
@@ -141,6 +146,14 @@ function Home() {
             <ErrorBoundary name="scenario">
               <Suspense fallback={<TabLoading />}>
                 <ScenarioTab defaultSymbol={selectedSymbol} />
+              </Suspense>
+            </ErrorBoundary>
+          </TabsContent>
+
+          <TabsContent value="backtest" className="mt-0 space-y-6" forceMount style={{ display: activeTab === 'backtest' ? 'block' : 'none' }}>
+            <ErrorBoundary name="backtest">
+              <Suspense fallback={<TabLoading />}>
+                <BacktestTab />
               </Suspense>
             </ErrorBoundary>
           </TabsContent>

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from 'react';
-import { fetchAttentionRegimeAnalysis, AttentionRegimeResponse } from '@/lib/api';
+import { attentionService } from '@/lib/services';
+import { useAsyncCallback } from '@/lib/hooks';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -15,31 +16,63 @@ interface Props {
   defaultSymbols?: string[];
 }
 
+type AttentionSource = 'composite' | 'news_channel';
+type SplitMethod = 'tercile' | 'quartile';
+
+interface RegimeStats {
+  avg_return: number;
+  pos_ratio: number;
+  sample_count: number;
+}
+
+interface Regime {
+  name: string;
+  stats: Record<string, RegimeStats>;
+}
+
+interface SymbolResult {
+  regimes: Regime[];
+  meta?: { error?: string };
+}
+
+interface AnalysisResult {
+  results: Record<string, SymbolResult>;
+  meta: {
+    lookahead_days: number[];
+  };
+}
+
 export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ETH'] }: Props) {
   const [symbolsInput, setSymbolsInput] = useState(defaultSymbols.join(','));
   const [lookaheadDaysInput, setLookaheadDaysInput] = useState('7,30');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<AttentionRegimeResponse | null>(null);
-  const [attentionSource, setAttentionSource] = useState<'composite' | 'news_channel'>('composite');
-  const [splitMethod, setSplitMethod] = useState<'tercile' | 'quartile'>('tercile');
+  const [attentionSource, setAttentionSource] = useState<AttentionSource>('composite');
+  const [splitMethod, setSplitMethod] = useState<SplitMethod>('tercile');
 
-  async function runAnalysis() {
-    setLoading(true); setError(null); setData(null);
-    try {
+  // 使用 useAsyncCallback 替代手动状态管理
+  const { execute: runAnalysis, data, loading, error } = useAsyncCallback(
+    async () => {
       const symbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
       const lookahead_days = lookaheadDaysInput.split(',').map(s => Number(s.trim())).filter(v => !isNaN(v) && v > 0);
+      
       if (!symbols.length) throw new Error('请提供至少一个 symbol');
-      const res = await fetchAttentionRegimeAnalysis({ symbols, lookahead_days, attention_source: attentionSource, split_method: splitMethod });
-      setData(res);
-    } catch (e: any) {
-      setError(e?.message || '分析失败');
-    } finally {
-      setLoading(false);
+      
+      const result = await attentionService.getAttentionRegimeAnalysis(symbols, {
+        lookaheadDays: lookahead_days,
+        attentionSource,
+        splitMethod,
+      });
+      
+      // 转换格式以匹配组件期望
+      return {
+        results: result.results as unknown as Record<string, SymbolResult>,
+        meta: {
+          lookahead_days: result.meta.lookaheadDays,
+        },
+      } as AnalysisResult;
     }
-  }
+  );
 
-  const generateAnalysisReport = (regimes: any[], lookaheadDays: number[]) => {
+  const generateAnalysisReport = (regimes: Regime[], lookaheadDays: number[]) => {
     if (!regimes || regimes.length < 2) return null;
     
     const low = regimes[0];
@@ -110,6 +143,7 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
           </TooltipContent>
         </Tooltip>
       </div>
+      
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">Symbols (逗号分隔)</span>
@@ -170,14 +204,15 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
           </div>
         </div>
       </div>
+      
       <div className="flex items-center gap-3">
-        <Button onClick={runAnalysis} disabled={loading}>{loading ? 'Running...' : 'Run Analysis'}</Button>
-        {error && <div className="text-red-500 text-xs">{error}</div>}
+        <Button onClick={() => runAnalysis()} disabled={loading}>{loading ? 'Running...' : 'Run Analysis'}</Button>
+        {error && <div className="text-red-500 text-xs">{error.message}</div>}
       </div>
 
       {data && (
         <div className="overflow-auto text-xs">
-          {Object.entries(data.results).map(([sym, symRes]: [string, any]) => (
+          {Object.entries(data.results).map(([sym, symRes]: [string, SymbolResult]) => (
             <div key={sym} className="mb-4 rounded border bg-background p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-medium">{sym}</span>
@@ -237,8 +272,7 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
                   </tr>
                 </thead>
                 <tbody>
-                  {symRes.regimes && symRes.regimes.map((regime: any) => {
-                    // Get sample count from the first available stats
+                  {symRes.regimes && symRes.regimes.map((regime: Regime) => {
                     const firstStatKey = Object.keys(regime.stats)[0];
                     const sampleCount = firstStatKey ? regime.stats[firstStatKey].sample_count : 0;
                     

@@ -10,6 +10,7 @@ from src.data.db_storage import (
     load_price_data,
     load_news_data,
     get_available_symbols,
+    get_db,
 )
 from src.database.models import Symbol, get_session
 from src.api.utils import validate_date_param
@@ -157,8 +158,17 @@ def get_news_count(
 ):
     """
     获取新闻条目总数（用于分页展示）。
+    
+    优化：对于无过滤条件的全局查询，使用预计算缓存，响应时间 <10ms。
     """
     try:
+        # 快速路径：无过滤条件时直接返回缓存的总数
+        if symbol.upper() == "ALL" and not start and not end and not before and not source:
+            db = get_db()
+            total = db.get_news_total_count()
+            return {"total": total, "cached": True}
+        
+        # 有过滤条件时，使用传统查询
         start_dt = None
         end_dt = None
         
@@ -191,12 +201,88 @@ def get_news_count(
         if source and not df.empty and 'source' in df.columns:
             df = df[df['source'] == source]
 
-        return {"total": int(len(df))}
+        return {"total": int(len(df)), "cached": False}
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in get_news_count: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/news/stats/hourly", tags=["Market Data"])
+def get_news_hourly_stats(
+    start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    limit: int = Query(default=168, description="返回最近 N 个小时的统计，默认 168（7天）")
+):
+    """
+    获取每小时新闻数量统计。
+    
+    返回格式: [{"period": "2025-12-01T14", "count": 10}, ...]
+    """
+    try:
+        start_dt = None
+        end_dt = None
+        
+        if start:
+            start_dt = pd.to_datetime(start, utc=True)
+        if end:
+            end_dt = pd.to_datetime(end, utc=True)
+        
+        db = get_db()
+        stats = db.get_news_hourly_stats(start_dt, end_dt, limit)
+        
+        return {"stats": stats, "count": len(stats)}
+    
+    except Exception as e:
+        logger.error(f"Error in get_news_hourly_stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/news/stats/daily", tags=["Market Data"])
+def get_news_daily_stats(
+    start: Optional[str] = Query(default=None, description="开始时间 ISO8601 格式"),
+    end: Optional[str] = Query(default=None, description="结束时间 ISO8601 格式"),
+    limit: int = Query(default=30, description="返回最近 N 天的统计，默认 30")
+):
+    """
+    获取每日新闻数量统计。
+    
+    返回格式: [{"period": "2025-12-01", "count": 150}, ...]
+    """
+    try:
+        start_dt = None
+        end_dt = None
+        
+        if start:
+            start_dt = pd.to_datetime(start, utc=True)
+        if end:
+            end_dt = pd.to_datetime(end, utc=True)
+        
+        db = get_db()
+        stats = db.get_news_daily_stats(start_dt, end_dt, limit)
+        
+        return {"stats": stats, "count": len(stats)}
+    
+    except Exception as e:
+        logger.error(f"Error in get_news_daily_stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/news/stats/rebuild", tags=["Management"])
+def rebuild_news_stats():
+    """
+    重建所有新闻统计缓存（管理接口）。
+    
+    用于初始化或修复统计数据。
+    """
+    try:
+        db = get_db()
+        db.rebuild_all_news_stats()
+        return {"success": True, "message": "News stats rebuilt successfully"}
+    except Exception as e:
+        logger.error(f"Error rebuilding news stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
