@@ -1007,7 +1007,9 @@ class DatabaseStorage:
             if not results:
                 return pd.DataFrame()
             
+            # 返回完整的注意力特征，包含预计算字段
             return pd.DataFrame([{
+                # 基础字段
                 'datetime': f.datetime,
                 'timeframe': f.timeframe,
                 'news_count': f.news_count,
@@ -1027,6 +1029,49 @@ class DatabaseStorage:
                 'composite_attention_score': f.composite_attention_score,
                 'composite_attention_zscore': f.composite_attention_zscore,
                 'composite_attention_spike_flag': f.composite_attention_spike_flag,
+                # 预计算的事件
+                'detected_events': f.detected_events,
+                # 价格快照
+                'close_price': f.close_price,
+                'open_price': f.open_price,
+                'high_price': f.high_price,
+                'low_price': f.low_price,
+                'volume': f.volume,
+                # 滚动收益率
+                'return_1d': f.return_1d,
+                'return_7d': f.return_7d,
+                'return_30d': f.return_30d,
+                'return_60d': f.return_60d,
+                # 滚动波动率
+                'volatility_7d': f.volatility_7d,
+                'volatility_30d': f.volatility_30d,
+                'volatility_60d': f.volatility_60d,
+                # 其他滚动统计
+                'volume_zscore_7d': f.volume_zscore_7d,
+                'volume_zscore_30d': f.volume_zscore_30d,
+                'high_30d': f.high_30d,
+                'low_30d': f.low_30d,
+                'high_60d': f.high_60d,
+                'low_60d': f.low_60d,
+                # State Features (用于相似度检索)
+                'feat_ret_zscore_7d': f.feat_ret_zscore_7d,
+                'feat_ret_zscore_30d': f.feat_ret_zscore_30d,
+                'feat_ret_zscore_60d': f.feat_ret_zscore_60d,
+                'feat_vol_zscore_7d': f.feat_vol_zscore_7d,
+                'feat_vol_zscore_30d': f.feat_vol_zscore_30d,
+                'feat_vol_zscore_60d': f.feat_vol_zscore_60d,
+                'feat_att_trend_7d': f.feat_att_trend_7d,
+                'feat_att_news_share': f.feat_att_news_share,
+                'feat_att_google_share': f.feat_att_google_share,
+                'feat_att_twitter_share': f.feat_att_twitter_share,
+                'feat_bullish_minus_bearish': f.feat_bullish_minus_bearish,
+                'feat_sentiment_mean': f.feat_sentiment_mean,
+                # Forward Returns (历史数据的前瞻收益)
+                'forward_return_3d': f.forward_return_3d,
+                'forward_return_7d': f.forward_return_7d,
+                'forward_return_30d': f.forward_return_30d,
+                'max_drawdown_7d': f.max_drawdown_7d,
+                'max_drawdown_30d': f.max_drawdown_30d,
             } for f in results])
         finally:
             session.close()
