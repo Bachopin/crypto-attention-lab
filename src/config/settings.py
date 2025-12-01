@@ -1,5 +1,9 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# 确保 .env 在模块加载时被读取
+load_dotenv()
 
 from src.config.attention_channels import SYMBOL_ATTENTION_CONFIG
 
