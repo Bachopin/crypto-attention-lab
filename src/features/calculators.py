@@ -256,6 +256,8 @@ def calculate_composite_attention(
         tw = twitter_volume_df.copy()
         if 'tweet_count' in tw.columns:
             tw = tw.rename(columns={'tweet_count': 'twitter_volume'})
+        elif 'value' in tw.columns:
+            tw = tw.rename(columns={'value': 'twitter_volume'})
             
         if freq == '4H':
             grouped['twitter_volume'] = _expand_daily_to_4h(

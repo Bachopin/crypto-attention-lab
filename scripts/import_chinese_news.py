@@ -217,6 +217,12 @@ def main():
         action='store_true',
         help='仅解析文件，不导入数据库'
     )
+    parser.add_argument(
+        '--skip',
+        type=int,
+        default=0,
+        help='跳过前N条数据，从第N+1条开始导入'
+    )
     
     args = parser.parse_args()
     
@@ -234,6 +240,12 @@ def main():
         return 1
     
     logger.info(f"解析到 {len(news_list)} 条新闻")
+    
+    # 应用 skip 参数
+    if args.skip > 0:
+        logger.info(f"跳过前 {args.skip} 条数据")
+        news_list = news_list[args.skip:]
+        logger.info(f"剩余 {len(news_list)} 条待导入")
     
     # 显示样例
     logger.info("\n样例数据:")
