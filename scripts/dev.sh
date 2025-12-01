@@ -69,7 +69,7 @@ trap cleanup SIGINT SIGTERM
 
 # Start FastAPI backend in background
 echo -e "${GREEN}[1/2] 启动 FastAPI 后端...${NC}"
-uvicorn src.api.main:app \
+python3 -m uvicorn src.api.main:app \
     --app-dir "$PROJECT_ROOT" \
     --host 0.0.0.0 \
     --port 8000 \

@@ -16,6 +16,9 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 # 价格更新间隔（秒）- 最小粒度 15min，10分钟更新足够
 PRICE_UPDATE_INTERVAL = int(os.getenv("PRICE_UPDATE_INTERVAL", 600))  # 10分钟
 
+# 新闻更新间隔（秒）- 聚合与去重开销较低，1小时足够；过短会增加重复与速率限制风险
+NEWS_UPDATE_INTERVAL = int(os.getenv("NEWS_UPDATE_INTERVAL", 3600))  # 1小时
+
 # 特征值更新冷却期（秒）- 计算开销较大，1小时一次
 FEATURE_UPDATE_COOLDOWN = int(os.getenv("FEATURE_UPDATE_COOLDOWN", 3600))  # 1小时
 

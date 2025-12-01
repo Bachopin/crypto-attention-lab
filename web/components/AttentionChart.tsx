@@ -33,8 +33,17 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       onCrosshairMoveRef.current = onCrosshairMove
     }, [onVisibleRangeChange, onCrosshairMove])
 
+    // Memoize data transformation
+    const attentionChartData = useMemo(() => {
+      const result = attentionData.map((d) => ({
+        time: Math.floor(d.timestamp / 1000) as any,
+        value: (d.composite_attention_score ?? d.attention_score ?? 0),
+      }))
+      return result
+    }, [attentionData])
+
     // 数据是否为空
-    const hasData = attentionData && attentionData.length > 0
+    const hasData = attentionChartData && attentionChartData.length > 0
 
     useImperativeHandle(ref, () => ({
       setVisibleRange: (range: Range<Time>) => {
@@ -139,9 +148,11 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         if (entries.length === 0 || !entries[0].contentRect) return
         if (chartRef.current && chartContainerRef.current) {
           const newWidth = chartContainerRef.current.clientWidth
-          if (newWidth > 0) {
-            chartRef.current.applyOptions({ width: newWidth })
-          }
+          console.log(`[AttentionChart] Resize: width=${newWidth}`)
+          if (newWidth <= 0) return
+          chartRef.current.applyOptions({ width: newWidth })
+          // Force fit content on resize
+          chartRef.current.timeScale().fitContent()
         }
       })
 
@@ -159,37 +170,17 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       }
 
       window.addEventListener('resize', handleWindowResize)
-      // 订阅全局可视范围事件以进行同步
-      const handleGlobalRange = (e: Event) => {
-        const ce = e as CustomEvent
-        const range = ce.detail as Range<Time>
-        try {
-          if (!isDisposedRef.current && chartRef.current && range) {
-            chartRef.current.timeScale().setVisibleRange(range)
-          }
-        } catch {}
-      }
-      window.addEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
       isDisposedRef.current = false
 
       return () => {
         isDisposedRef.current = true
         resizeObserver.disconnect()
         window.removeEventListener('resize', handleWindowResize)
-        window.removeEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
         chart.remove()
         chartRef.current = null
         lineSeriesRef.current = null
       }
-    }, [height]) // 只依赖 height，回调通过 ref 处理
-
-    // Memoize data transformation
-    const attentionChartData = useMemo(() => {
-      return attentionData.map((d) => ({
-        time: Math.floor(d.timestamp / 1000) as any,
-        value: (d.composite_attention_score ?? d.attention_score ?? 0),
-      }))
-    }, [attentionData])
+    }, [height, attentionChartData.length]) // 高度或数据长度变化时重建图表
 
     // Update data
     useEffect(() => {
@@ -197,14 +188,46 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
       if (!lineSeriesRef.current || !chartRef.current) return
 
       try {
-        lineSeriesRef.current.setData(attentionChartData)
+        // Ensure data is sorted by time (lightweight-charts requirement)
+        const sortedData = [...attentionChartData].sort((a, b) => (a.time as number) - (b.time as number))
+        
+        // Filter out invalid data points
+        const validData = sortedData.filter(d => 
+          d.time !== undefined && 
+          !isNaN(d.time as number) && 
+          d.value !== undefined && 
+          !isNaN(d.value)
+        )
+
+        // Deduplicate time points (keep last)
+        const uniqueDataMap = new Map();
+        validData.forEach(d => uniqueDataMap.set(d.time, d));
+        const uniqueData = Array.from(uniqueDataMap.values()).sort((a: any, b: any) => a.time - b.time);
+
+        console.log(`[AttentionChart] Setting data: ${uniqueData.length} points (original: ${attentionChartData.length})`)
+        if (uniqueData.length > 0) {
+          console.log(`[AttentionChart] Data range: ${uniqueData[0].time} - ${uniqueData[uniqueData.length-1].time}`)
+          console.log(`[AttentionChart] Value range: ${Math.min(...uniqueData.map(d => d.value))} - ${Math.max(...uniqueData.map(d => d.value))}`)
+        }
+
+        lineSeriesRef.current.setData(uniqueData)
 
         // Fit content - 只有在有数据时才执行
-        if (attentionChartData.length > 0) {
-          chartRef.current.timeScale().fitContent()
+        if (uniqueData.length > 0) {
+          // Use setTimeout to ensure layout is complete
+          setTimeout(() => {
+            if (chartRef.current) {
+              try {
+                console.log('[AttentionChart] Fitting content...')
+                chartRef.current.timeScale().fitContent()
+              } catch (e) {
+                console.warn('[AttentionChart] fitContent failed', e)
+              }
+            }
+          }, 100)
         }
       } catch (err) {
-        // Chart may be disposed, ignore
+        console.warn('[AttentionChart] Failed to set data:', err)
       }
     }, [attentionChartData])
 
@@ -221,8 +244,8 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
     }
 
     return (
-      <div className="relative w-full">
-        <div ref={chartContainerRef} className="w-full" />
+      <div className="relative w-full bg-card/50" style={{ height }}>
+        <div ref={chartContainerRef} className="w-full h-full" />
       </div>
     )
   }

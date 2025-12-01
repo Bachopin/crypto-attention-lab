@@ -122,35 +122,32 @@ def build_node_attention_features(symbol: str, freq: str = "D") -> pd.DataFrame:
 def save_node_attention_features(df: pd.DataFrame) -> None:
     """将节点级注意力特征持久化。
 
-    - 若启用数据库，则写入专用表 `node_attention_features`（由 ORM 管理）。
-    - 否则，写入 `data/processed/node_attention_features_{symbol}.csv`。
+    - 强制写入专用表 `node_attention_features`（由 ORM 管理）。
     """
 
     if df.empty:
         return
 
-    from src.config.settings import PROCESSED_DATA_DIR
+    # 强制使用数据库
+    db = get_db()
+    from src.database.models import NodeAttentionFeature  # type: ignore
+    from src.database.models import get_session
 
-    if USE_DATABASE:
-        # 延迟导入以避免循环依赖
-        db = get_db()
-        from src.database.models import NodeAttentionFeature  # type: ignore
-        from src.database.models import get_session
-
-        session = get_session(db.engine)
-        try:
-            records = df.to_dict("records")
-            objects = []
-            for rec in records:
-                obj = NodeAttentionFeature.from_record(rec)  # 需在 models 中实现辅助构造
-                objects.append(obj)
-            if objects:
-                session.bulk_save_objects(objects)
-                session.commit()
-        finally:
-            session.close()
-    else:
-        PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        for sym, sub in df.groupby("symbol"):
-            path = PROCESSED_DATA_DIR / f"node_attention_features_{sym.lower()}.csv"
-            sub.to_csv(path, index=False)
+    session = get_session(db.engine)
+    try:
+        records = df.to_dict("records")
+        objects = []
+        for rec in records:
+            # 使用 from_record 处理类型转换和默认值
+            obj = NodeAttentionFeature.from_record(rec)
+            objects.append(obj)
+        if objects:
+            # 使用 merge 避免主键冲突
+            for obj in objects:
+                session.merge(obj)
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to save node attention features to DB: {e}")
+    finally:
+        session.close()

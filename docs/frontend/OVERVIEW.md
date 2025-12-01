@@ -42,6 +42,7 @@ crypto-attention-lab/
 - Dark theme optimized for trading terminals
 - TradingView-style candlestick charts with volume
 - Attention score overlay on price charts
+- **Event Markers** (NEW): Visual markers on charts for detected attention events (spikes, high bullish/bearish)
 - Responsive grid layout
 
 ### 2. **Three-Layer Dashboard Structure**

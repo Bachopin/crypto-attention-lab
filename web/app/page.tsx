@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Activity, LayoutGrid, TrendingUp, Newspaper, Settings, Network, BarChart3 } from 'lucide-react'
@@ -28,11 +28,22 @@ function TabLoading() {
   )
 }
 
+function FullPageLoading() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground">Loading Crypto Attention Lab...</p>
+      </div>
+    </div>
+  )
+}
+
 export default function Page() {
   return (
     <SettingsProvider>
       <TabDataProvider>
-        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+        <Suspense fallback={<FullPageLoading />}>
           <Home />
         </Suspense>
       </TabDataProvider>
@@ -45,15 +56,22 @@ function Home() {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
   const [activeTab, setActiveTab] = useState('dashboard')
+  const [mounted, setMounted] = useState(false)
+
+  // Only sync with searchParams after mount to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
+    if (!mounted) return
     const tab = searchParams.get('tab')
-    if (tab) {
+    if (tab && tab !== activeTab) {
       setActiveTab(tab)
     }
-  }, [searchParams])
+  }, [searchParams, mounted, activeTab])
 
-  const refreshSymbols = async () => {
+  const refreshSymbols = useCallback(async () => {
     try {
       const data = await fetchSymbols()
       if (data.symbols && data.symbols.length > 0) {
@@ -63,12 +81,17 @@ function Home() {
       console.error('Failed to fetch symbols:', err)
       // Optional: Show toast notification here
     }
-  }
+  }, [])
 
   // Fetch available symbols on mount
   useEffect(() => {
     refreshSymbols()
-  }, [])
+  }, [refreshSymbols])
+
+  // Don't render main content until mounted to avoid hydration issues
+  if (!mounted) {
+    return <FullPageLoading />
+  }
 
   return (
     <div className="min-h-screen bg-background">

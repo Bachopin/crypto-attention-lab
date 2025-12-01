@@ -66,7 +66,27 @@ def backtest_basic_attention(
             attention_source=params.attention_source,
             attention_condition=attention_condition,
         )
-        return res
+        # 为了与前端类型对齐，补充 params 字段（后端本来未返回）
+        try:
+            out = dict(res)
+            out.setdefault("params", {
+                "symbol": params.symbol,
+                "lookback_days": params.lookback_days,
+                "attention_quantile": params.attention_quantile,
+                "max_daily_return": params.max_daily_return,
+                "holding_days": params.holding_days,
+                "stop_loss_pct": params.stop_loss_pct,
+                "take_profit_pct": params.take_profit_pct,
+                "max_holding_days": params.max_holding_days,
+                "position_size": params.position_size,
+                "attention_source": params.attention_source,
+                "start": params.start,
+                "end": params.end,
+            })
+            return out
+        except Exception:
+            # 兜底返回原始结构
+            return res
     except Exception as e:
         logger.error(f"Error in backtest_basic_attention: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -85,6 +105,7 @@ def backtest_basic_attention_multi(
 
         per_symbol_summary = {}
         per_symbol_equity_curves = {}
+        per_symbol_trades = {}
         per_symbol_meta = {}
 
         for sym in params.symbols:
@@ -106,21 +127,57 @@ def backtest_basic_attention_multi(
             if "summary" in res and "equity_curve" in res:
                 per_symbol_summary[sym] = res["summary"]
                 per_symbol_equity_curves[sym] = res["equity_curve"]
+                per_symbol_trades[sym] = res.get("trades", [])
                 per_symbol_meta[sym] = res.get("meta", {})
             else:
                 per_symbol_summary[sym] = {"error": res.get("error", "unknown error")}
                 per_symbol_equity_curves[sym] = []
+                per_symbol_trades[sym] = []
                 per_symbol_meta[sym] = res.get("meta", {})
 
-        return {
+        # Placeholder for aggregate summary (to be implemented)
+        aggregate_summary = {
+            "total_return": 0.0,
+            "cumulative_return": 0.0,
+            "annualized_return": 0.0,
+            "max_drawdown": 0.0,
+            "win_rate": 0.0,
+            "total_trades": 0,
+            "sharpe_ratio": 0.0,
+            "avg_return": 0.0,
+            "avg_trade_return": 0.0,
+        }
+        
+        aggregate_equity_curve = []
+
+        # 前端期望存在 params 字段（至少包含 symbols），否则会在转换时读取 undefined.params.symbols 报错
+        response = {
+            "params": {
+                "symbols": params.symbols,
+                "lookback_days": params.lookback_days,
+                "attention_quantile": params.attention_quantile,
+                "max_daily_return": params.max_daily_return,
+                "holding_days": params.holding_days,
+                "stop_loss_pct": params.stop_loss_pct,
+                "take_profit_pct": params.take_profit_pct,
+                "max_holding_days": params.max_holding_days,
+                "position_size": params.position_size,
+                "attention_source": params.attention_source,
+                "start": params.start,
+                "end": params.end,
+            },
             "per_symbol_summary": per_symbol_summary,
             "per_symbol_equity_curves": per_symbol_equity_curves,
+            "per_symbol_trades": per_symbol_trades,
             "per_symbol_meta": per_symbol_meta,
+            "aggregate_summary": aggregate_summary,
+            "aggregate_equity_curve": aggregate_equity_curve,
             "meta": {
                 "attention_source": params.attention_source,
                 "symbols": params.symbols,
             },
         }
+        return response
     except HTTPException:
         raise
     except Exception as e:

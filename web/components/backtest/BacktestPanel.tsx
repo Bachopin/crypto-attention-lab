@@ -73,6 +73,18 @@ export function BacktestPanel({ symbol: initialSymbol, className = '' }: Backtes
   const [selectedComparePresets, setSelectedComparePresets] = useState<string[]>([]);
   const [selectedMultiSymbol, setSelectedMultiSymbol] = useState<string | null>(null);
 
+  // 构建 API 格式的 AttentionCondition（移到 useAsyncCallback 之前）
+  const buildAttentionCondition = useCallback((): AttentionCondition | null => {
+    if (!attentionCondition.enabled) return null;
+    return {
+      source: attentionCondition.source,
+      regime: attentionCondition.regime,
+      lowerQuantile: attentionCondition.regime === 'custom' ? attentionCondition.lowerQuantile : undefined,
+      upperQuantile: attentionCondition.regime === 'custom' ? attentionCondition.upperQuantile : undefined,
+      lookbackDays: attentionCondition.lookbackDays,
+    };
+  }, [attentionCondition]);
+
   // 单币种回测
   const { 
     execute: runBacktest, 
@@ -139,18 +151,6 @@ export function BacktestPanel({ symbol: initialSymbol, className = '' }: Backtes
 
   const loading = singleLoading || multiLoading;
   const error = singleError || multiError;
-
-  // 构建 API 格式的 AttentionCondition
-  const buildAttentionCondition = useCallback((): AttentionCondition | null => {
-    if (!attentionCondition.enabled) return null;
-    return {
-      source: attentionCondition.source,
-      regime: attentionCondition.regime,
-      lowerQuantile: attentionCondition.regime === 'custom' ? attentionCondition.lowerQuantile : undefined,
-      upperQuantile: attentionCondition.regime === 'custom' ? attentionCondition.upperQuantile : undefined,
-      lookbackDays: attentionCondition.lookbackDays,
-    };
-  }, [attentionCondition]);
 
   // 运行单币种回测
   const handleRunSingle = useCallback(async () => {

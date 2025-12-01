@@ -43,6 +43,10 @@ cp web/.env.example web/.env.local
 ```
 默认配置通常可以直接运行。如果需要真实数据，请在 `.env` 中填入 API Key (如 NewsAPI, Binace API 等)。
 
+推荐关键变量：
+- `FEATURE_CACHE_TTL`（后端）: 预计算特征热缓存 TTL（秒），默认 `60`。增大可减少重复查询频率，减小可提高新数据可见性。
+- `NEXT_PUBLIC_API_BASE_URL`（前端）: 覆盖前端调用的 API 根地址（默认使用 Next.js rewrites 代理至 `http://127.0.0.1:8000`）。部署到远端时设置为后端外网地址。
+
 ## 4. 启动应用
 
 ### 一键启动 (推荐)

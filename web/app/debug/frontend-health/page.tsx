@@ -1,40 +1,128 @@
+/* eslint-disable react/display-name */
 'use client'
 
-import { useCallback, useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo, Suspense } from 'react'
 import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  RotateCw, 
-  Wifi, 
-  WifiOff, 
-  HardDrive, 
-  Cpu, 
-  Globe,
-  Database,
-  Zap,
-  Clock,
-  Activity,
-  Settings,
-  Layers
-} from 'lucide-react'
-import { useWebSocketStatus } from '@/lib/websocket'
-import { useSettings } from '@/components/SettingsProvider'
-import { useTabData } from '@/components/TabDataProvider'
-import { 
-  dashboardService, 
-  priceService, 
-  attentionService, 
-  backtestService, 
-  scenarioService, 
-  newsService,
-  autoUpdateService 
-} from '@/lib/services'
-import { getApiBaseUrl } from '@/lib/api'
+
+// ==================== 安全导入 ====================
+// Debug 页面使用安全导入，确保即使某些模块有问题也能渲染
+
+// UI 组件 - 使用 try/catch 包装，提供回退
+let Card: any, CardContent: any, CardHeader: any, CardTitle: any
+let Button: any, Badge: any
+try {
+  const ui = require('@/components/ui/card')
+  Card = ui.Card
+  CardContent = ui.CardContent
+  CardHeader = ui.CardHeader
+  CardTitle = ui.CardTitle
+} catch {
+  // 回退到简单 div
+  Card = ({ children, className }: any) => <div className={`border rounded-lg ${className || ''}`}>{children}</div>
+  CardContent = ({ children, className }: any) => <div className={`p-4 ${className || ''}`}>{children}</div>
+  CardHeader = ({ children, className }: any) => <div className={`p-4 border-b ${className || ''}`}>{children}</div>
+  CardTitle = ({ children, className }: any) => <h3 className={`font-semibold ${className || ''}`}>{children}</h3>
+}
+
+try {
+  Button = require('@/components/ui/button').Button
+} catch {
+  Button = ({ children, onClick, disabled, className, variant, size }: any) => (
+    <button 
+      onClick={onClick} 
+      disabled={disabled} 
+      className={`px-3 py-1.5 rounded border ${disabled ? 'opacity-50' : ''} ${className || ''}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+try {
+  Badge = require('@/components/ui/badge').Badge
+} catch {
+  Badge = ({ children, variant, className }: any) => (
+    <span className={`px-2 py-0.5 text-xs rounded ${className || ''}`}>{children}</span>
+  )
+}
+
+// 图标 - 使用安全导入
+let CheckCircle2: any, XCircle: any, AlertCircle: any, RotateCw: any
+let Wifi: any, WifiOff: any, HardDrive: any, Cpu: any, Globe: any
+let Database: any, Zap: any, Clock: any, Activity: any, Settings: any, Layers: any
+
+try {
+  const icons = require('lucide-react')
+  CheckCircle2 = icons.CheckCircle2
+  XCircle = icons.XCircle
+  AlertCircle = icons.AlertCircle
+  RotateCw = icons.RotateCw
+  Wifi = icons.Wifi
+  WifiOff = icons.WifiOff
+  HardDrive = icons.HardDrive
+  Cpu = icons.Cpu
+  Globe = icons.Globe
+  Database = icons.Database
+  Zap = icons.Zap
+  Clock = icons.Clock
+  Activity = icons.Activity
+  Settings = icons.Settings
+  Layers = icons.Layers
+} catch {
+  // 回退到简单文本图标
+  const FallbackIcon = ({ className }: { className?: string }) => <span className={className}>●</span>
+  CheckCircle2 = FallbackIcon
+  XCircle = FallbackIcon
+  AlertCircle = FallbackIcon
+  RotateCw = FallbackIcon
+  Wifi = FallbackIcon
+  WifiOff = FallbackIcon
+  HardDrive = FallbackIcon
+  Cpu = FallbackIcon
+  Globe = FallbackIcon
+  Database = FallbackIcon
+  Zap = FallbackIcon
+  Clock = FallbackIcon
+  Activity = FallbackIcon
+  Settings = FallbackIcon
+  Layers = FallbackIcon
+}
+
+// WebSocket hook - 安全导入
+let useWebSocketStatus: () => { priceStatus: string; attentionStatus: string }
+try {
+  useWebSocketStatus = require('@/lib/websocket').useWebSocketStatus
+} catch {
+  useWebSocketStatus = () => ({ priceStatus: 'unavailable', attentionStatus: 'unavailable' })
+}
+
+// Services - 安全导入（lazy）
+let priceService: any, attentionService: any, backtestService: any
+let scenarioService: any, newsService: any, autoUpdateService: any
+
+function loadServices() {
+  try {
+    const services = require('@/lib/services')
+    priceService = services.priceService
+    attentionService = services.attentionService
+    backtestService = services.backtestService
+    scenarioService = services.scenarioService
+    newsService = services.newsService
+    autoUpdateService = services.autoUpdateService
+    return true
+  } catch (e) {
+    console.error('[Debug] Failed to load services:', e)
+    return false
+  }
+}
+
+// API helper - 安全导入
+let getApiBaseUrl: () => string
+try {
+  getApiBaseUrl = require('@/lib/api').getApiBaseUrl
+} catch {
+  getApiBaseUrl = () => 'http://127.0.0.1:8000'
+}
 
 // ==================== Types ====================
 
@@ -256,61 +344,71 @@ export default function FrontendHealthPage() {
   }, [])
 
   // Service check configurations
-  const serviceChecks: ServiceCheckConfig[] = useMemo(() => [
-    {
-      name: 'Price Service',
-      icon: <Activity className="w-4 h-4" />,
-      check: () => checkServiceHealth('Price Service', () => 
-        priceService.getPriceData('BTC', '1D', { limit: 1 })
-      )
-    },
-    {
-      name: 'Attention Service',
-      icon: <Zap className="w-4 h-4" />,
-      check: () => checkServiceHealth('Attention Service', () => 
-        attentionService.getAttentionData('BTC')
-      )
-    },
-    {
-      name: 'News Service',
-      icon: <Globe className="w-4 h-4" />,
-      check: () => checkServiceHealth('News Service', () => 
-        newsService.getNews({ symbol: 'ALL', limit: 1 })
-      )
-    },
-    {
-      name: 'Scenario Service',
-      icon: <Layers className="w-4 h-4" />,
-      check: () => checkServiceHealth('Scenario Service', () => 
-        scenarioService.getScenarios({ symbol: 'BTC', timeframe: '1d' })
-      )
-    },
-    {
-      name: 'Backtest Service',
-      icon: <Clock className="w-4 h-4" />,
-      check: () => checkServiceHealth('Backtest Service', () => 
-        backtestService.runBacktest({
-          symbol: 'BTC',
-          lookbackDays: 30,
-          attentionQuantile: 0.7,
-          maxDailyReturn: 0.05,
-          holdingDays: 5,
-          stopLossPct: null,
-          takeProfitPct: null,
-          maxHoldingDays: null,
-          positionSize: 1,
-          attentionSource: 'composite'
-        })
-      )
-    },
-    {
-      name: 'AutoUpdate Service',
-      icon: <RotateCw className="w-4 h-4" />,
-      check: () => checkServiceHealth('AutoUpdate Service', () => 
-        autoUpdateService.getAutoUpdateStatus()
-      )
+  const serviceChecks: ServiceCheckConfig[] = useMemo(() => {
+    // 尝试加载 services
+    const servicesLoaded = loadServices()
+    
+    if (!servicesLoaded) {
+      // Services 加载失败，返回空配置
+      return []
     }
-  ], [])
+    
+    return [
+      {
+        name: 'Price Service',
+        icon: <Activity className="w-4 h-4" />,
+        check: () => checkServiceHealth('Price Service', () => 
+          priceService?.getPriceData?.('BTC', '1D', { limit: 1 }) ?? Promise.reject(new Error('Service not loaded'))
+        )
+      },
+      {
+        name: 'Attention Service',
+        icon: <Zap className="w-4 h-4" />,
+        check: () => checkServiceHealth('Attention Service', () => 
+          attentionService?.getAttentionData?.('BTC') ?? Promise.reject(new Error('Service not loaded'))
+        )
+      },
+      {
+        name: 'News Service',
+        icon: <Globe className="w-4 h-4" />,
+        check: () => checkServiceHealth('News Service', () => 
+          newsService?.getNews?.({ symbol: 'ALL', limit: 1 }) ?? Promise.reject(new Error('Service not loaded'))
+        )
+      },
+      {
+        name: 'Scenario Service',
+        icon: <Layers className="w-4 h-4" />,
+        check: () => checkServiceHealth('Scenario Service', () => 
+          scenarioService?.getScenarios?.({ symbol: 'BTC', timeframe: '1d' }) ?? Promise.reject(new Error('Service not loaded'))
+        )
+      },
+      {
+        name: 'Backtest Service',
+        icon: <Clock className="w-4 h-4" />,
+        check: () => checkServiceHealth('Backtest Service', () => 
+          backtestService?.runBacktest?.({
+            symbol: 'BTC',
+            lookbackDays: 30,
+            attentionQuantile: 0.7,
+            maxDailyReturn: 0.05,
+            holdingDays: 5,
+            stopLossPct: null,
+            takeProfitPct: null,
+            maxHoldingDays: null,
+            positionSize: 1,
+            attentionSource: 'composite'
+          }) ?? Promise.reject(new Error('Service not loaded'))
+        )
+      },
+      {
+        name: 'AutoUpdate Service',
+        icon: <RotateCw className="w-4 h-4" />,
+        check: () => checkServiceHealth('AutoUpdate Service', () => 
+          autoUpdateService?.getAutoUpdateStatus?.() ?? Promise.reject(new Error('Service not loaded'))
+        )
+      }
+    ]
+  }, [])
 
   // Run single check
   const runCheck = useCallback(async (config: ServiceCheckConfig) => {
@@ -398,7 +496,7 @@ export default function FrontendHealthPage() {
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold">前端健康检查</h1>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground" suppressHydrationWarning>
               API Base: {getApiBaseUrl() || 'Next.js Proxy'}
             </p>
           </div>

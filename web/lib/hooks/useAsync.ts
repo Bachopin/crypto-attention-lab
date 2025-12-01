@@ -191,13 +191,16 @@ export function useAsyncCallback<T, Args extends any[]>(
   const [loading, setLoading] = useState(false);
 
   const retryCountRef = useRef(0);
+  // 使用 ref 保持最新的 asyncFn 引用，避免闭包陈旧问题
+  const asyncFnRef = useRef(asyncFn);
+  asyncFnRef.current = asyncFn;
 
   const execute = useCallback(async (...args: Args): Promise<T | null> => {
     setLoading(true);
     setError(null);
 
     try {
-      const result = await asyncFn(...args);
+      const result = await asyncFnRef.current(...args);
       setData(result);
       retryCountRef.current = 0;
       onSuccess?.(result);
@@ -218,7 +221,7 @@ export function useAsyncCallback<T, Args extends any[]>(
     } finally {
       setLoading(false);
     }
-  }, [asyncFn, onSuccess, onError, retryCount, retryDelay]);
+  }, [onSuccess, onError, retryCount, retryDelay]);
 
   const reset = useCallback(() => {
     setData(null);

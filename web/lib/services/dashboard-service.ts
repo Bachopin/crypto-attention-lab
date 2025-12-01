@@ -60,7 +60,11 @@ export class DashboardService {
           console.warn('[DashboardService] News fetch failed', e); 
           return []; 
         }),
-        fetchAttentionEvents({ symbol, start: startDate }).catch(e => { 
+        // 对于事件，我们希望覆盖当前 K 线区间内的所有事件：
+        // - Attention 图 & Price 图的时间范围，已经由 price/attention 数据决定并在图表内部 fitContent
+        // - 这里使用 lookback_days 来近似 K 线区间长度，而不是强行从第一根 K 线时间截断
+        //   这样可以保证当前可见 K 线上的所有事件标注都能被拿到
+        fetchAttentionEvents({ symbol }).catch(e => { 
           console.warn('[DashboardService] Events fetch failed', e); 
           return []; 
         }),

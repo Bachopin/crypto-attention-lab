@@ -59,7 +59,7 @@ export async function fetchSymbols(): Promise<{ symbols: string[] }> {
 // ==================== API Configuration ====================
 
 const RAW_ENV_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || '').trim();
-const LOCAL_BACKEND_FALLBACK = 'http://localhost:8000';
+const LOCAL_BACKEND_FALLBACK = 'http://127.0.0.1:8000';
 
 function normalizeBaseUrl(base: string): string {
   if (!base) return '';
@@ -188,6 +188,7 @@ async function fetchAPI<T>(endpoint: string, params: Record<string, any> = {}, u
       }
 
       const message = errorDetails.detail || `Request failed with status ${response.status}`;
+      console.error(`[API Error] ${endpoint}:`, { status: response.status, detail: message, errorDetails });
       throw new ApiError(message, response.status, endpoint, errorDetails);
     }
     
@@ -365,7 +366,23 @@ export async function fetchNewsTrend(params: {
  * GET /api/top-coins?limit=100
  */
 export async function fetchTopCoins(limit: number = 100): Promise<TopCoinsResponse> {
-  return fetchAPI<TopCoinsResponse>('/api/top-coins', { limit });
+  try {
+    return await fetchAPI<TopCoinsResponse>('/api/top-coins', { limit });
+  } catch (error) {
+    console.warn('[fetchTopCoins] CoinGecko unavailable, returning fallback:', error);
+    // 前端降级：返回硬编码常见 top coins
+    return {
+      coins: [
+        { symbol: 'BTC', name: 'Bitcoin', market_cap_rank: 1, market_cap: null, current_price: null, price_change_24h: null, image: '', id: 'bitcoin' },
+        { symbol: 'ETH', name: 'Ethereum', market_cap_rank: 2, market_cap: null, current_price: null, price_change_24h: null, image: '', id: 'ethereum' },
+        { symbol: 'BNB', name: 'BNB', market_cap_rank: 4, market_cap: null, current_price: null, price_change_24h: null, image: '', id: 'binancecoin' },
+        { symbol: 'SOL', name: 'Solana', market_cap_rank: 5, market_cap: null, current_price: null, price_change_24h: null, image: '', id: 'solana' },
+      ],
+      count: 4,
+      updated_at: new Date().toISOString(),
+      fallback: true,
+    };
+  }
 }
 
 // ==================== New API: Events & Backtest ====================

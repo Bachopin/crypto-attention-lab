@@ -183,83 +183,68 @@ def save_node_carry_factors(df: pd.DataFrame) -> None:
     if df.empty:
         return
 
-    from src.config.settings import PROCESSED_DATA_DIR
-
     # 清理异常值，避免 NaN/Inf 导致数据库约束错误
     df = df.copy()
     df.replace([np.nan, np.inf, -np.inf], 0.0, inplace=True)
 
-    if USE_DATABASE:
-        db = get_db()
-        from src.database.models import NodeCarryFactorModel  # type: ignore
-        from src.database.models import get_session
+    # 强制使用数据库
+    db = get_db()
+    from src.database.models import NodeCarryFactorModel  # type: ignore
+    from src.database.models import get_session
 
-        session = get_session(db.engine)
-        try:
-            records = df.to_dict("records")
-            objects: List[NodeCarryFactorModel] = []
-            for rec in records:
-                obj = NodeCarryFactorModel.from_record(rec)  # 需在 models 中实现
-                objects.append(obj)
-            if objects:
-                session.bulk_save_objects(objects)
-                session.commit()
-        finally:
-            session.close()
-    else:
-        PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        for sym, sub in df.groupby("symbol"):
-            path = PROCESSED_DATA_DIR / f"node_carry_factors_{sym.lower()}.csv"
-            sub.to_csv(path, index=False)
+    session = get_session(db.engine)
+    try:
+        records = df.to_dict("records")
+        objects: List[NodeCarryFactorModel] = []
+        for rec in records:
+            # 使用 from_record 处理类型转换和默认值
+            obj = NodeCarryFactorModel.from_record(rec)
+            objects.append(obj)
+        if objects:
+            # 使用 merge 而不是 bulk_save_objects 以处理更新
+            for obj in objects:
+                session.merge(obj)
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to save node carry factors to DB: {e}")
+    finally:
+        session.close()
 
 
 def load_node_carry_factors(symbol: Optional[str] = None) -> pd.DataFrame:
     """加载节点带货能力因子。
 
     - symbol 为 None 时返回所有标的；
-    - 在 CSV 模式下，将合并所有文件后再按 symbol 过滤。
     """
 
-    from src.config.settings import PROCESSED_DATA_DIR
+    # 强制使用数据库
+    db = get_db()
+    from src.database.models import NodeCarryFactorModel  # type: ignore
+    from src.database.models import get_session
 
-    if USE_DATABASE:
-        db = get_db()
-        from src.database.models import NodeCarryFactorModel  # type: ignore
-        from src.database.models import get_session
-
-        session = get_session(db.engine)
-        try:
-            query = session.query(NodeCarryFactorModel)
-            if symbol:
-                query = query.filter(NodeCarryFactorModel.symbol == symbol)
-            rows = query.all()
-            if not rows:
-                return pd.DataFrame()
-
-            return pd.DataFrame([
-                {
-                    "symbol": r.symbol,
-                    "node_id": r.node_id,
-                    "n_events": r.n_events,
-                    "mean_excess_return": r.mean_excess_return,
-                    "hit_rate": r.hit_rate,
-                    "ir": r.ir,
-                    "lookahead": r.lookahead,
-                    "lookback_days": r.lookback_days,
-                    "updated_at": r.updated_at,
-                }
-                for r in rows
-            ])
-        finally:
-            session.close()
-    else:
-        frames: List[pd.DataFrame] = []
-        for path in PROCESSED_DATA_DIR.glob("node_carry_factors_*.csv"):
-            sub = pd.read_csv(path)
-            frames.append(sub)
-        if not frames:
-            return pd.DataFrame()
-        df = pd.concat(frames, ignore_index=True)
+    session = get_session(db.engine)
+    try:
+        query = session.query(NodeCarryFactorModel)
         if symbol:
-            df = df[df["symbol"] == symbol]
-        return df
+            query = query.filter(NodeCarryFactorModel.symbol == symbol)
+        rows = query.all()
+        if not rows:
+            return pd.DataFrame()
+
+        return pd.DataFrame([
+            {
+                "symbol": r.symbol,
+                "node_id": r.node_id,
+                "n_events": r.n_events,
+                "mean_excess_return": r.mean_excess_return,
+                "hit_rate": r.hit_rate,
+                "ir": r.ir,
+                "lookahead": r.lookahead,
+                "lookback_days": r.lookback_days,
+                "updated_at": r.updated_at,
+            }
+            for r in rows
+        ])
+    finally:
+        session.close()

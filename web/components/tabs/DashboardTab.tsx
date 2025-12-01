@@ -84,13 +84,31 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
     { keepPreviousData: true }
   );
 
-  // Derived state
-  const priceData = criticalData.data?.price ?? [];
+  // Derived state - memoized to prevent unnecessary re-renders
+  const priceData = useMemo(() => criticalData.data?.price ?? [], [criticalData.data?.price]);
   const summaryStats = criticalData.data?.summary ?? null;
-  const attentionData = secondaryData.data?.attention ?? [];
-  const news = secondaryData.data?.news ?? [];
-  const events = secondaryData.data?.events ?? [];
-  const overviewPriceData = overviewData.data ?? [];
+  const attentionData = useMemo(() => secondaryData.data?.attention ?? [], [secondaryData.data?.attention]);
+  const news = useMemo(() => secondaryData.data?.news ?? [], [secondaryData.data?.news]);
+  const events = useMemo(() => secondaryData.data?.events ?? [], [secondaryData.data?.events]);
+  const overviewPriceData = useMemo(() => overviewData.data ?? [], [overviewData.data]);
+
+  // Debug logging
+  console.log(`[DashboardTab] Render: symbol=${symbol}, timeframe=${timeframe}`);
+  console.log(`[DashboardTab] Critical Data: loading=${criticalData.loading}, hasPrice=${priceData.length > 0}`);
+  if (priceData.length > 0) {
+    console.log(`[DashboardTab] Price Range: ${priceData[0].datetime} to ${priceData[priceData.length - 1].datetime}`);
+  }
+  
+  console.log(`[DashboardTab] Secondary Data: loading=${secondaryData.loading}`);
+  console.log(`[DashboardTab] Attention Data: length=${attentionData.length}`);
+  if (attentionData.length > 0) {
+    console.log(`[DashboardTab] First Attention Point:`, attentionData[0]);
+    console.log(`[DashboardTab] Last Attention Point:`, attentionData[attentionData.length - 1]);
+  }
+  console.log(`[DashboardTab] Events: length=${events.length}`);
+  if (events.length > 0) {
+    console.log(`[DashboardTab] First Event:`, events[0]);
+  }
 
   const isLoading = criticalData.loading && !priceData.length;
   const isUpdating = criticalData.loading && priceData.length > 0;
@@ -203,7 +221,14 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
       {/* Section 3: Main Price Action Chart */}
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-bold">Price Action</h2>
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            Price Action
+            {events.length > 0 && (
+              <span className="text-sm font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                {events.length} Events
+              </span>
+            )}
+          </h2>
           <div className="flex gap-2">
             {(['15M', '1H', '4H', '1D'] as Timeframe[]).map((tf) => (
               <Button key={tf} variant={timeframe === tf ? 'default' : 'outline'} size="sm" onClick={() => setTimeframe(tf)}>
@@ -248,7 +273,7 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
       {/* Section 5: Attention Events & Regime Analysis */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Suspense fallback={<div className="h-[200px] bg-muted/50 rounded animate-pulse" />}>
-          <AttentionEvents events={events} />
+          <AttentionEvents events={events} symbol={symbol} />
         </Suspense>
         <Suspense fallback={<div className="h-[300px] bg-muted/50 rounded animate-pulse" />}>
           <AttentionRegimePanel defaultSymbols={[symbol]} />

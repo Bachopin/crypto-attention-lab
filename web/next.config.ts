@@ -26,15 +26,15 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*', // Python 后端地址
+        destination: 'http://127.0.0.1:8000/api/:path*', // Python 后端地址
       },
       {
         source: '/health',
-        destination: 'http://localhost:8000/health', // 健康检查端点
+        destination: 'http://127.0.0.1:8000/health', // 健康检查端点
       },
       {
         source: '/ping',
-        destination: 'http://localhost:8000/ping', // Ping 端点
+        destination: 'http://127.0.0.1:8000/ping', // Ping 端点
       },
     ]
   },

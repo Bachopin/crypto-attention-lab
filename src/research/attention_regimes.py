@@ -95,6 +95,8 @@ def _load_attention(symbol: str, start: Optional[datetime], end: Optional[dateti
         df = df.sort_index()
     # Daily sample unify
     df = df.resample('1D').last().dropna(how='all')
+    # Normalize index to date only (remove time component) for proper join
+    df.index = df.index.normalize()
     return df
 
 
@@ -115,6 +117,8 @@ def _load_prices(symbol: str, start: Optional[datetime], end: Optional[datetime]
             if c in df.columns:
                 df['close'] = df[c]
                 break
+    # Normalize index to date only (remove time component) for proper join
+    df.index = df.index.normalize()
     return df[['close']].dropna()
 
 

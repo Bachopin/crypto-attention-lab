@@ -3,15 +3,20 @@ export type AppSettings = {
   defaultAttentionSource: 'composite' | 'news_channel';
   defaultTimeframe: '1D' | '4H';
   defaultWindowDays: number;
+  // New settings
+  showEventMarkers: boolean;
+  eventDetectionQuantile: number;
 };
 
 const SETTINGS_KEY = 'crypto-attention-lab:app-settings';
 
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdatePrice: true,
   defaultAttentionSource: 'composite',
   defaultTimeframe: '1D',
   defaultWindowDays: 30,
+  showEventMarkers: true,
+  eventDetectionQuantile: 0.9,
 };
 
 export function loadSettings(): AppSettings {

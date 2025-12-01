@@ -140,8 +140,26 @@ def _compute_price_features(
     # 或者，为了健壮性，我们在这里调用 Service。
     
     if price_df is None:
-         # Fallback: load just price data via Service (it returns merged, but we just use price cols)
-         df = MarketDataService.get_aligned_data(symbol, start=start_dt, end=as_of, timeframe=timeframe)
+         # Fallback: load aligned data with minimal attention columns to reduce IO
+         att_cols_needed = [
+             'composite_attention_score',
+             'composite_attention_zscore',
+             'news_channel_score',
+             'composite_attention_spike_flag',
+             'google_trend_value',
+             'google_trend_zscore',
+             'twitter_volume',
+             'twitter_volume_zscore',
+             'feat_att_news_share',
+             'feat_att_google_share',
+             'feat_att_twitter_share',
+             'news_count',
+             'bullish_attention',
+             'bearish_attention',
+         ]
+         df = MarketDataService.get_aligned_data(
+             symbol, start=start_dt, end=as_of, timeframe=timeframe, attention_columns=att_cols_needed
+         )
     else:
         # 从预加载数据中切片
         # 假设 price_df 已经包含所需列且 datetime 为 UTC
@@ -431,23 +449,43 @@ def _compute_attention_features(
     else:
         features['att_trend_7d'] = 0.0
     
-    # --- 计算通道占比 ---
-    # 基于各通道 z-score 的绝对值估算占比
+    # --- 通道占比 ---
+    # 优先使用预计算字段，否则回退到实时计算
+    precomputed_news_share = latest.get('feat_att_news_share')
+    precomputed_google_share = latest.get('feat_att_google_share')
+    precomputed_twitter_share = latest.get('feat_att_twitter_share')
+    
+    # 检查预计算值是否有效
+    has_precomputed = (
+        precomputed_news_share is not None 
+        and precomputed_google_share is not None 
+        and precomputed_twitter_share is not None
+        and not (np.isnan(precomputed_news_share) if isinstance(precomputed_news_share, float) else False)
+    )
+    
+    # 获取原始 z-score 值用于 raw_stats
     news_z = abs(safe_float(latest.get('news_channel_score', 0)))
     google_z = abs(safe_float(latest.get('google_trend_zscore', 0)))
     twitter_z = abs(safe_float(latest.get('twitter_volume_zscore', 0)))
     
-    total_z = news_z + google_z + twitter_z
-    
-    if total_z > 0:
-        features['att_news_share'] = news_z / total_z
-        features['att_google_share'] = google_z / total_z
-        features['att_twitter_share'] = twitter_z / total_z
+    if has_precomputed:
+        # 使用预计算值
+        features['att_news_share'] = safe_float(precomputed_news_share)
+        features['att_google_share'] = safe_float(precomputed_google_share)
+        features['att_twitter_share'] = safe_float(precomputed_twitter_share)
     else:
-        # 默认权重（来自 attention_channels.py）
-        features['att_news_share'] = 0.5
-        features['att_google_share'] = 0.3
-        features['att_twitter_share'] = 0.2
+        # 回退到实时计算
+        total_z = news_z + google_z + twitter_z
+        
+        if total_z > 0:
+            features['att_news_share'] = news_z / total_z
+            features['att_google_share'] = google_z / total_z
+            features['att_twitter_share'] = twitter_z / total_z
+        else:
+            # 默认权重（来自 attention_channels.py）
+            features['att_news_share'] = 0.5
+            features['att_google_share'] = 0.3
+            features['att_twitter_share'] = 0.2
     
     raw_stats['channel_news_zscore'] = news_z
     raw_stats['channel_google_zscore'] = google_z
@@ -656,7 +694,25 @@ def compute_state_snapshot(
         max_lookback = max(window_days * 2 + 7, 60)
         start_dt = as_of - pd.Timedelta(days=max_lookback)
         
-        unified_df = MarketDataService.get_aligned_data(symbol, start=start_dt, end=as_of, timeframe=timeframe)
+        att_cols_needed = [
+            'composite_attention_score',
+            'composite_attention_zscore',
+            'news_channel_score',
+            'composite_attention_spike_flag',
+            'google_trend_value',
+            'google_trend_zscore',
+            'twitter_volume',
+            'twitter_volume_zscore',
+            'feat_att_news_share',
+            'feat_att_google_share',
+            'feat_att_twitter_share',
+            'news_count',
+            'bullish_attention',
+            'bearish_attention',
+        ]
+        unified_df = MarketDataService.get_aligned_data(
+            symbol, start=start_dt, end=as_of, timeframe=timeframe, attention_columns=att_cols_needed
+        )
         
         # 将统一的数据分别传给子函数
         # 子函数会进行切片，所以传入完整数据没问题
@@ -869,17 +925,25 @@ def compute_features_vectorized(
             res['feat_att_trend_7d'] = 0.0
 
         # 6. Channel Shares
-        news_z = df['news_channel_score'].abs().fillna(0) if 'news_channel_score' in df.columns else 0
-        google_z = df['google_trend_zscore'].abs().fillna(0) if 'google_trend_zscore' in df.columns else 0
-        twitter_z = df['twitter_volume_zscore'].abs().fillna(0) if 'twitter_volume_zscore' in df.columns else 0
-        
-        total_z = news_z + google_z + twitter_z
-        # Avoid div by zero
-        total_z = total_z.replace(0, 1.0)
-        
-        res['feat_att_news_share'] = news_z / total_z
-        res['feat_att_google_share'] = google_z / total_z
-        res['feat_att_twitter_share'] = twitter_z / total_z
+        # 优先使用预计算字段，否则回退到实时计算
+        if 'feat_att_news_share' in df.columns and 'feat_att_google_share' in df.columns and 'feat_att_twitter_share' in df.columns:
+            # 使用预计算值
+            res['feat_att_news_share'] = df['feat_att_news_share'].fillna(0.5)  # 默认 50%
+            res['feat_att_google_share'] = df['feat_att_google_share'].fillna(0.3)  # 默认 30%
+            res['feat_att_twitter_share'] = df['feat_att_twitter_share'].fillna(0.2)  # 默认 20%
+        else:
+            # 回退到实时计算
+            news_z = df['news_channel_score'].abs().fillna(0) if 'news_channel_score' in df.columns else 0
+            google_z = df['google_trend_zscore'].abs().fillna(0) if 'google_trend_zscore' in df.columns else 0
+            twitter_z = df['twitter_volume_zscore'].abs().fillna(0) if 'twitter_volume_zscore' in df.columns else 0
+            
+            total_z = news_z + google_z + twitter_z
+            # Avoid div by zero
+            total_z = total_z.replace(0, 1.0)
+            
+            res['feat_att_news_share'] = news_z / total_z
+            res['feat_att_google_share'] = google_z / total_z
+            res['feat_att_twitter_share'] = twitter_z / total_z
         
         res['feat_att_news_z'] = df['news_channel_score'].fillna(0) if 'news_channel_score' in df.columns else 0
         res['feat_att_spike_flag'] = df['composite_attention_spike_flag'].fillna(0) if 'composite_attention_spike_flag' in df.columns else 0

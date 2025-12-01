@@ -293,11 +293,29 @@ class PrecomputationService:
             # 预加载数据以提高效率
             # 计算需要的回溯时间（window_days * 2 + 一些余量）
             data_start = calc_start - timedelta(days=DEFAULT_SNAPSHOT_WINDOW * 2 + 7)
+            # 仅加载快照计算所需的注意力列，最大化复用预存字段并减少 IO
+            att_cols_needed = [
+                'composite_attention_score',
+                'composite_attention_zscore',
+                'news_channel_score',
+                'composite_attention_spike_flag',
+                'google_trend_value',
+                'google_trend_zscore',
+                'twitter_volume',
+                'twitter_volume_zscore',
+                'feat_att_news_share',
+                'feat_att_google_share',
+                'feat_att_twitter_share',
+                'news_count',
+                'bullish_attention',
+                'bearish_attention',
+            ]
             unified_df = MarketDataService.get_aligned_data(
-                symbol_upper, 
-                start=data_start, 
-                end=price_end, 
-                timeframe=timeframe
+                symbol_upper,
+                start=data_start,
+                end=price_end,
+                timeframe=timeframe,
+                attention_columns=att_cols_needed,
             )
             
             if unified_df.empty:

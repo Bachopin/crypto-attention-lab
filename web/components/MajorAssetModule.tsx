@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import PriceChart, { PriceChartRef } from '@/components/PriceChart'
 import AttentionChart, { AttentionChartRef } from '@/components/AttentionChart'
 import { formatNumber, formatPercentage } from '@/lib/utils'
+import { useSettings } from '@/components/SettingsProvider'
 import {
   fetchPrice,
   fetchAttention,
@@ -90,6 +91,7 @@ function MajorAssetModuleComponent({
   onCrosshairMove,
   crosshairTime,
 }: MajorAssetModuleProps) {
+  const { settings } = useSettings()
   const priceChartRef = useRef<PriceChartRef>(null)
   const attentionChartRef = useRef<AttentionChartRef>(null)
 
@@ -108,7 +110,12 @@ function MajorAssetModuleComponent({
 
   // 市场概况页面：成交量窗格固定为 1/5，不显示控制按钮
   const volumeRatio = 0.2
-  const [showEventMarkers, setShowEventMarkers] = useState(true)
+  const [showEventMarkers, setShowEventMarkers] = useState(settings.showEventMarkers)
+
+  // Sync local state with global settings when settings change
+  useEffect(() => {
+    setShowEventMarkers(settings.showEventMarkers)
+  }, [settings.showEventMarkers])
 
   // 使用 ref 存储 crosshairTime，避免因 memo 阻止更新
   const crosshairTimeRef = useRef<Time | null>(crosshairTime ?? null)
@@ -150,12 +157,16 @@ function MajorAssetModuleComponent({
           start: dateRange.start,
           end: dateRange.end,
         }),
+        // 为 events 添加超时和错误处理
         fetchAttentionEvents({
           symbol,
           start: dateRange.start,
           end: dateRange.end,
           lookback_days: 30,
-          min_quantile: 0.9,
+          min_quantile: settings.eventDetectionQuantile, // Use setting
+        }).catch(err => {
+          console.warn(`[MajorAssetModule] Failed to load events for ${symbol}:`, err)
+          return [] // 返回空数组而不是让整个请求失败
         }),
         // Regime 分析也并行加载
         fetchAttentionRegimeAnalysis({
@@ -202,7 +213,7 @@ function MajorAssetModuleComponent({
         error: err instanceof Error ? err.message : 'Failed to load data',
       }))
     }
-  }, [symbol, timeframe, dateRange.start, dateRange.end])
+  }, [symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile])
 
   // 使用 ref 跟踪是否已经加载过数据
   const hasLoadedRef = useRef(false)
@@ -210,8 +221,8 @@ function MajorAssetModuleComponent({
 
   // 加载数据 - 首次加载或参数变化时才执行
   useEffect(() => {
-    // 构建参数签名用于比较
-    const currentParams = `${symbol}-${timeframe}-${dateRange.start || 'all'}-${dateRange.end || 'now'}`
+    // 构建参数签名用于比较 - 加入 quantile 以便设置变更时重新加载
+    const currentParams = `${symbol}-${timeframe}-${dateRange.start || 'all'}-${dateRange.end || 'now'}-${settings.eventDetectionQuantile}`
     
     // 如果参数没变，不重新加载
     if (prevParamsRef.current === currentParams) {
@@ -225,7 +236,7 @@ function MajorAssetModuleComponent({
     const isFirstLoad = !hasLoadedRef.current
     loadData(isFirstLoad) // isFirstLoad=true 显示 loading, false 静默更新
     hasLoadedRef.current = true
-  }, [loadData, symbol, timeframe, dateRange.start, dateRange.end])
+  }, [loadData, symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile])
 
   // 自动刷新：每 5 分钟静默更新数据（与后端价格更新频率同步）
   useEffect(() => {

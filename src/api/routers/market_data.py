@@ -414,6 +414,20 @@ def get_symbols():
 
 # ==================== CoinGecko 市值排行 API ====================
 
+# 硬编码 fallback 常见 top coins（CoinGecko 不可用时使用）
+_FALLBACK_TOP_COINS = [
+    {"symbol": "BTC", "name": "Bitcoin", "market_cap_rank": 1, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "bitcoin"},
+    {"symbol": "ETH", "name": "Ethereum", "market_cap_rank": 2, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "ethereum"},
+    {"symbol": "BNB", "name": "BNB", "market_cap_rank": 4, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "binancecoin"},
+    {"symbol": "SOL", "name": "Solana", "market_cap_rank": 5, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "solana"},
+    {"symbol": "XRP", "name": "XRP", "market_cap_rank": 6, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "ripple"},
+    {"symbol": "DOGE", "name": "Dogecoin", "market_cap_rank": 7, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "dogecoin"},
+    {"symbol": "ADA", "name": "Cardano", "market_cap_rank": 8, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "cardano"},
+    {"symbol": "AVAX", "name": "Avalanche", "market_cap_rank": 10, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "avalanche-2"},
+    {"symbol": "LINK", "name": "Chainlink", "market_cap_rank": 12, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "chainlink"},
+    {"symbol": "DOT", "name": "Polkadot", "market_cap_rank": 14, "market_cap": None, "current_price": None, "price_change_24h": None, "image": "", "id": "polkadot"},
+]
+
 # 缓存 CoinGecko 市值前100数据（每小时更新一次）
 _top_coins_cache = {
     "data": [],
@@ -458,7 +472,7 @@ def get_top_coins(
             "price_change_percentage": "24h"
         }
         
-        resp = http_requests.get(url, params=params, timeout=15)
+        resp = http_requests.get(url, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
         
@@ -489,8 +503,8 @@ def get_top_coins(
         }
         
     except http_requests.exceptions.RequestException as e:
-        logger.error(f"CoinGecko API request failed: {e}")
-        # 如果有缓存数据，返回缓存（即使过期）
+        logger.warning(f"CoinGecko API request failed: {e}")
+        # 优先返回过期缓存
         if _top_coins_cache["data"]:
             cached_data = _top_coins_cache["data"][:limit]
             return {
@@ -501,7 +515,16 @@ def get_top_coins(
                 "stale": True,
                 "error": str(e)
             }
-        raise HTTPException(status_code=503, detail=f"CoinGecko API unavailable: {e}")
+        # 否则返回硬编码 fallback
+        logger.info(f"CoinGecko unavailable and no cache; using fallback top coins")
+        fallback_data = _FALLBACK_TOP_COINS[:limit]
+        return {
+            "coins": fallback_data,
+            "count": len(fallback_data),
+            "updated_at": datetime.fromtimestamp(now).isoformat(),
+            "fallback": True,
+            "error": str(e)
+        }
     except Exception as e:
         logger.error(f"Error fetching top coins: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

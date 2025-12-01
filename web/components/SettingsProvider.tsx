@@ -1,23 +1,26 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AppSettings, loadSettings, saveSettings } from '@/lib/settings';
+import { AppSettings, loadSettings, saveSettings, DEFAULT_SETTINGS } from '@/lib/settings';
 
 interface SettingsContextType {
   settings: AppSettings;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
+  isLoaded: boolean;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<AppSettings>(loadSettings());
-  const [loaded, setLoaded] = useState(false);
+  // Initialize with default settings to avoid hydration mismatch
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     // Load settings on client side mount
-    setSettings(loadSettings());
-    setLoaded(true);
+    const stored = loadSettings();
+    setSettings(stored);
+    setIsLoaded(true);
   }, []);
 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
@@ -28,14 +31,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  if (!loaded) {
-    // Prevent rendering children until settings are loaded to ensure
-    // consistent state and avoid hydration mismatches.
-    return null; 
-  }
-
+  // Always render children to avoid layout shift and hydration issues.
+  // Components can check isLoaded if they need to wait for real settings.
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings }}>
+    <SettingsContext.Provider value={{ settings, updateSettings, isLoaded }}>
       {children}
     </SettingsContext.Provider>
   );

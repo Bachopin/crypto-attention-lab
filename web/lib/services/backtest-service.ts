@@ -270,28 +270,49 @@ export async function runAttentionRotationBacktest(
 
 /**
  * 获取事件表现分析
+ * 
+ * 后端返回格式: {event_type: {lookahead_days: {...}, ...}, ...}
+ * 需要转换为前端期望的表格格式
  */
 export async function getEventPerformance(
   symbol: string,
   lookaheadDays: string = '1,3,5,10'
 ): Promise<EventPerformanceTable> {
-  const apiResult = await fetchEventPerformanceApi({ symbol, lookahead_days: lookaheadDays });
+  // 后端期望不带 USDT 后缀的 symbol
+  const cleanSymbol = symbol.replace(/USDT$/i, '').toUpperCase();
+  const apiResult = await fetchEventPerformanceApi({ symbol: cleanSymbol, lookahead_days: lookaheadDays });
+
+  // 转换后端格式为前端表格行格式
+  // 后端: {event_type: {'1': {avg_return, sample_size}, '3': {...}, ...}}
+  // 前端: {rows: [{eventType, count, avgReturn1d, avgReturn3d, ...}]}
+  const rows: EventPerformanceRow[] = [];
+  
+  for (const [eventType, horizons] of Object.entries(apiResult)) {
+    const horizonData = horizons as Record<string, { avg_return: number; sample_size: number }>;
+    
+    // 取第一个 horizon 的 sample_size 作为 count（所有 horizon 应该相同）
+    const firstHorizon = Object.values(horizonData)[0];
+    const count = firstHorizon?.sample_size || 0;
+    
+    rows.push({
+      eventType,
+      count,
+      avgReturn1d: horizonData['1']?.avg_return || 0,
+      avgReturn3d: horizonData['3']?.avg_return || 0,
+      avgReturn5d: horizonData['5']?.avg_return || 0,
+      avgReturn10d: horizonData['10']?.avg_return || 0,
+      // 后端暂不提供 win rate，设为 0
+      winRate1d: 0,
+      winRate3d: 0,
+      winRate5d: 0,
+      winRate10d: 0,
+    });
+  }
 
   return {
-    symbol: apiResult.symbol,
-    updatedAt: apiResult.updated_at,
-    rows: apiResult.rows.map(row => ({
-      eventType: row.event_type,
-      count: row.count,
-      avgReturn1d: row.avg_return_1d,
-      avgReturn3d: row.avg_return_3d,
-      avgReturn5d: row.avg_return_5d,
-      avgReturn10d: row.avg_return_10d,
-      winRate1d: row.win_rate_1d,
-      winRate3d: row.win_rate_3d,
-      winRate5d: row.win_rate_5d,
-      winRate10d: row.win_rate_10d,
-    })),
+    symbol: cleanSymbol,
+    updatedAt: new Date().toISOString(),
+    rows,
   };
 }
 

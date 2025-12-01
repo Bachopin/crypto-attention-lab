@@ -42,7 +42,19 @@ def run_backtest_basic_attention(
         source_key = "legacy"
 
     # 使用 MarketDataService 获取对齐的数据
-    df = MarketDataService.get_aligned_data(symbol, start=start, end=end, timeframe='1d')
+    # 仅加载所需注意力列，减少 IO 与内存
+    needed_cols = ['bullish_attention', 'bearish_attention']
+    signal_column = 'weighted_attention' if source_key == 'legacy' else 'composite_attention_score'
+    if signal_column not in needed_cols:
+        needed_cols.append(signal_column)
+
+    df = MarketDataService.get_aligned_data(
+        symbol,
+        start=start,
+        end=end,
+        timeframe='1d',
+        attention_columns=needed_cols,
+    )
     
     if df.empty:
         return {"error": "missing data", "meta": {"attention_source": source_key}}

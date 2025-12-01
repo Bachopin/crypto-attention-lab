@@ -18,6 +18,9 @@ class SortOrder(str, Enum):
 class AttentionSource(str, Enum):
     LEGACY = "legacy"
     COMPOSITE = "composite"
+    NEWS_CHANNEL = "news_channel"
+    GOOGLE_CHANNEL = "google_channel"
+    TWITTER_CHANNEL = "twitter_channel"
 
 # ==================== Common Models ====================
 

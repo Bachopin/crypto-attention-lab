@@ -48,6 +48,11 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
   const [attentionSource, setAttentionSource] = useState<AttentionSource>('composite');
   const [splitMethod, setSplitMethod] = useState<SplitMethod>('tercile');
 
+  // Sync symbolsInput when defaultSymbols changes
+  React.useEffect(() => {
+    setSymbolsInput(defaultSymbols.join(','));
+  }, [defaultSymbols]);
+
   // 使用 useAsyncCallback 替代手动状态管理
   const { execute: runAnalysis, data, loading, error } = useAsyncCallback(
     async () => {
@@ -86,8 +91,8 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
         </div>
         {lookaheadDays.map(days => {
           const k = String(days);
-          const lowStats = low.stats[k];
-          const highStats = high.stats[k];
+          const lowStats = low.stats?.[k];
+          const highStats = high.stats?.[k];
           
           if (!lowStats || !highStats) return null;
           

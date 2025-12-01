@@ -313,7 +313,24 @@ def iter_historical_states(
         
         try:
             # 加载对齐的数据 (包含价格和注意力)
-            aligned_df = MarketDataService.get_aligned_data(symbol, start=start_date, end=end_date, timeframe=timeframe)
+            # 仅加载 compute_features_vectorized 所需的注意力列
+            att_cols_needed = [
+                'composite_attention_score',
+                'composite_attention_zscore',
+                'feat_att_news_share',
+                'feat_att_google_share',
+                'feat_att_twitter_share',
+                'news_channel_score',
+                'google_trend_zscore',
+                'twitter_volume_zscore',
+                'composite_attention_spike_flag',
+                'news_count',
+                'bullish_attention',
+                'bearish_attention',
+            ]
+            aligned_df = MarketDataService.get_aligned_data(
+                symbol, start=start_date, end=end_date, timeframe=timeframe, attention_columns=att_cols_needed
+            )
             
             if aligned_df.empty:
                 if verbose: logger.warning(f"No data for {symbol}")

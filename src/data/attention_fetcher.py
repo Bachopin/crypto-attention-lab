@@ -188,16 +188,11 @@ def fetch_zec_news(since: Optional[datetime] = None, until: Optional[datetime] =
 
 
 def save_attention_data(news_list):
-    """保存新闻数据到 raw 目录，标准文件名：attention_zec_news.csv"""
-    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not news_list:
-        print("No news to save.")
-        return None
-    df = pd.DataFrame(news_list)
-    filepath = RAW_DATA_DIR / "attention_zec_news.csv"
-    df.to_csv(filepath, index=False)
-    print(f"Saved {len(df)} news items to {filepath}")
-    return filepath
+    """已废弃：不再写入 CSV。本函数现在会抛出错误以避免旧存储被使用。"""
+    raise RuntimeError(
+        "save_attention_data is deprecated and CSV storage is disabled. "
+        "Use database write paths via scripts/fetch_news_data.py (db.save_news)."
+    )
 
 
 if __name__ == "__main__":

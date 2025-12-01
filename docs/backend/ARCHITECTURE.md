@@ -60,7 +60,9 @@ The entry point for all external requests. It handles request validation, routin
 Orchestrates business logic and data retrieval. It acts as a bridge between the API and the Data/Logic layers.
 
 - **`MarketDataService`**: Centralized service for retrieving and aligning price and news data.
-- **`AttentionService`**: Manages the calculation and retrieval of attention features.
+- **`AttentionService`**: Manages the calculation and retrieval of attention features (full & incremental modes).
+- **`FeatureService`** (NEW): Provides cached loading of precomputed features with column whitelisting support, reducing API response latency.
+- **`PrecomputationService`**: Manages state snapshots and event performance caching with configurable cooldowns.
 - **`RealtimePriceUpdater`**: Handles the background synchronization of price data from external exchanges.
 - **`Binance WebSocket Manager`** (`src/data/binance_websocket.py`): Manages realtime kline subscriptions and forwards 1m updates to WebSocket clients.
 

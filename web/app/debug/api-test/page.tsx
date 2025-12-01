@@ -1,14 +1,109 @@
+/* eslint-disable react/display-name */
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { buildApiUrl, getApiBaseUrl } from '@/lib/api'
-import { ChevronDown, ChevronRight, Play, RotateCw, Wifi, WifiOff, Radio, Clock } from 'lucide-react'
-import { RealtimePriceTicker } from '@/components/RealtimePrice'
-import { useWebSocketStatus } from '@/lib/websocket'
+
+// ==================== 安全导入 ====================
+// Debug 页面使用安全导入，确保即使某些模块有问题也能渲染
+
+// UI 组件 - 使用 try/catch 包装，提供回退
+let Card: any, CardContent: any, CardHeader: any, CardTitle: any
+let Button: any, Badge: any
+try {
+  const ui = require('@/components/ui/card')
+  Card = ui.Card
+  CardContent = ui.CardContent
+  CardHeader = ui.CardHeader
+  CardTitle = ui.CardTitle
+} catch {
+  Card = ({ children, className }: any) => <div className={`border rounded-lg ${className || ''}`}>{children}</div>
+  CardContent = ({ children, className }: any) => <div className={`p-4 ${className || ''}`}>{children}</div>
+  CardHeader = ({ children, className }: any) => <div className={`p-4 border-b ${className || ''}`}>{children}</div>
+  CardTitle = ({ children, className }: any) => <h3 className={`font-semibold ${className || ''}`}>{children}</h3>
+}
+
+try {
+  Button = require('@/components/ui/button').Button
+} catch {
+  Button = ({ children, onClick, disabled, className }: any) => (
+    <button onClick={onClick} disabled={disabled} className={`px-3 py-1.5 rounded border ${disabled ? 'opacity-50' : ''} ${className || ''}`}>
+      {children}
+    </button>
+  )
+}
+
+try {
+  Badge = require('@/components/ui/badge').Badge
+} catch {
+  Badge = ({ children, variant, className }: any) => (
+    <span className={`px-2 py-0.5 text-xs rounded ${className || ''}`}>{children}</span>
+  )
+}
+
+// 图标 - 使用安全导入
+let ChevronDown: any, ChevronRight: any, Play: any, RotateCw: any
+let Wifi: any, WifiOff: any, Radio: any, Clock: any
+
+try {
+  const icons = require('lucide-react')
+  ChevronDown = icons.ChevronDown
+  ChevronRight = icons.ChevronRight
+  Play = icons.Play
+  RotateCw = icons.RotateCw
+  Wifi = icons.Wifi
+  WifiOff = icons.WifiOff
+  Radio = icons.Radio
+  Clock = icons.Clock
+} catch {
+  const FallbackIcon = ({ className }: { className?: string }) => <span className={className}>●</span>
+  ChevronDown = () => <span>▼</span>
+  ChevronRight = () => <span>▶</span>
+  Play = FallbackIcon
+  RotateCw = FallbackIcon
+  Wifi = FallbackIcon
+  WifiOff = FallbackIcon
+  Radio = FallbackIcon
+  Clock = FallbackIcon
+}
+
+// API helpers - 安全导入
+let buildApiUrl: (path: string) => string
+let getApiBaseUrl: () => string
+try {
+  const api = require('@/lib/api')
+  buildApiUrl = api.buildApiUrl
+  getApiBaseUrl = api.getApiBaseUrl
+} catch {
+  buildApiUrl = (path: string) => `http://127.0.0.1:8000${path}`
+  getApiBaseUrl = () => 'http://127.0.0.1:8000'
+}
+
+// RealtimePrice 组件 - 安全导入
+let RealtimePriceTicker: any
+let useWebSocketStatus: () => { priceStatus: string; attentionStatus: string }
+try {
+  RealtimePriceTicker = require('@/components/RealtimePrice').RealtimePriceTicker
+} catch {
+  RealtimePriceTicker = ({ symbol }: { symbol: string }) => (
+    <span className="text-muted-foreground text-sm">价格组件不可用</span>
+  )
+}
+
+try {
+  useWebSocketStatus = require('@/lib/websocket').useWebSocketStatus
+} catch {
+  useWebSocketStatus = () => ({ priceStatus: 'unavailable', attentionStatus: 'unavailable' })
+}
+
+// 安全的 RealtimePriceTicker 包装组件
+function SafeRealtimePriceTicker({ symbol }: { symbol: string }) {
+  try {
+    return <RealtimePriceTicker symbol={symbol} size="sm" showChange={false} />
+  } catch (e) {
+    return <span className="text-muted-foreground text-xs">加载失败</span>
+  }
+}
 
 interface ApiRequestConfig {
   key: string
@@ -331,7 +426,7 @@ export default function ApiTestPage() {
                               variant="ghost"
                               size="sm"
                               className="h-6 w-6 p-0"
-                              onClick={(e) => {
+                              onClick={(e: React.MouseEvent) => {
                                 e.stopPropagation()
                                 runSingleTest(config)
                               }}
@@ -379,30 +474,77 @@ export default function ApiTestPage() {
 /**
  * 实时更新测试区域
  * 测试 WebSocket 连接和自动刷新功能
+ * 使用 try/catch 包装确保组件始终能渲染
  */
 function RealtimeUpdateTestSection() {
-  const { priceStatus, attentionStatus } = useWebSocketStatus()
+  // 安全调用 hook
+  let priceStatus = 'unavailable'
+  let attentionStatus = 'unavailable'
+  try {
+    const wsStatus = useWebSocketStatus()
+    priceStatus = wsStatus.priceStatus
+    attentionStatus = wsStatus.attentionStatus
+  } catch (e) {
+    console.warn('[Debug] WebSocket status hook failed:', e)
+  }
+
   const [restTestResults, setRestTestResults] = useState<{
     lastUpdate: Date | null
     countdown: number
     isUpdating: boolean
   }>({ lastUpdate: null, countdown: 0, isUpdating: false })
+  const [precompStatus, setPrecompStatus] = useState<any>(null)
+  const [sectionError, setSectionError] = useState<string | null>(null)
   
   // 模拟 10 分钟倒计时（与实际 PRICE_UPDATE_INTERVAL 一致）
   useEffect(() => {
-    const interval = setInterval(() => {
-      setRestTestResults(prev => {
-        if (prev.countdown <= 0) {
-          return { ...prev, countdown: 600, lastUpdate: new Date(), isUpdating: false }
+    try {
+      const interval = setInterval(() => {
+        setRestTestResults(prev => {
+          if (prev.countdown <= 0) {
+            return { ...prev, countdown: 600, lastUpdate: new Date(), isUpdating: false }
+          }
+          return { ...prev, countdown: prev.countdown - 1 }
+        })
+      }, 1000)
+      
+      // 初始化
+      setRestTestResults({ lastUpdate: new Date(), countdown: 600, isUpdating: false })
+      
+      return () => clearInterval(interval)
+    } catch (e) {
+      setSectionError(`Timer error: ${e}`)
+    }
+  }, [])
+
+  // 拉取预计算状态（用于 Debug 面板显示更新时间）
+  useEffect(() => {
+    let mounted = true
+    async function fetchStatus() {
+      try {
+        const url = buildApiUrl('/api/precomputation/status?symbol=ZEC')
+        const resp = await fetch(url)
+        if (!mounted) return
+        if (resp.ok) {
+          const json = await resp.json()
+          setPrecompStatus(json)
+        } else {
+          setPrecompStatus({ error: `Status ${resp.status}` })
         }
-        return { ...prev, countdown: prev.countdown - 1 }
-      })
-    }, 1000)
-    
-    // 初始化
-    setRestTestResults({ lastUpdate: new Date(), countdown: 600, isUpdating: false })
-    
-    return () => clearInterval(interval)
+      } catch (err) {
+        if (mounted) {
+          setPrecompStatus({ error: (err as Error).message })
+        }
+      }
+    }
+
+    fetchStatus()
+    // 定期刷新（每 60s）
+    const t = setInterval(fetchStatus, 60000)
+    return () => {
+      mounted = false
+      clearInterval(t)
+    }
   }, [])
 
   const getStatusColor = (status: string) => {
@@ -415,11 +557,26 @@ function RealtimeUpdateTestSection() {
   }
 
   const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'connected': return <Wifi className="w-4 h-4" />
-      case 'connecting': return <Radio className="w-4 h-4 animate-pulse" />
-      default: return <WifiOff className="w-4 h-4" />
+    try {
+      switch (status) {
+        case 'connected': return <Wifi className="w-4 h-4" />
+        case 'connecting': return <Radio className="w-4 h-4 animate-pulse" />
+        default: return <WifiOff className="w-4 h-4" />
+      }
+    } catch {
+      return <span>●</span>
     }
+  }
+
+  // 如果整个区域有错误，显示简化版本
+  if (sectionError) {
+    return (
+      <Card className="border-yellow-500/30 bg-yellow-500/5">
+        <CardContent className="py-4">
+          <p className="text-sm text-yellow-500">实时更新测试区域加载失败: {sectionError}</p>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -464,7 +621,7 @@ function RealtimeUpdateTestSection() {
             {REALTIME_TEST_SYMBOLS.map(symbol => (
               <div key={symbol} className="p-3 bg-muted/30 rounded-md">
                 <p className="text-xs font-medium text-muted-foreground mb-1">{symbol}/USDT</p>
-                <RealtimePriceTicker symbol={symbol} size="sm" showChange={false} />
+                <SafeRealtimePriceTicker symbol={symbol} />
               </div>
             ))}
           </div>
@@ -525,6 +682,30 @@ function RealtimeUpdateTestSection() {
           <p className="text-xs text-muted-foreground">
             💡 多标的采用<strong>错峰更新</strong>策略：间隔 = (10min × 0.8) / 标的数量
           </p>
+        </div>
+
+        {/* 预计算状态展示 */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">预计算状态</h4>
+          <div className="p-3 bg-muted/30 rounded-md text-xs">
+            {precompStatus ? (
+              precompStatus.error ? (
+                <p className="text-red-500">{precompStatus.error}</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  <div>Symbol: <strong>{precompStatus.symbol}</strong></div>
+                  <div>Price last update: <code className="font-mono">{precompStatus.price_last_update ?? 'N/A'}</code></div>
+                  <div>Attention latest datetime: <code className="font-mono">{precompStatus.attention_latest_datetime ?? 'N/A'}</code></div>
+                  <div>Event performance updated at: <code className="font-mono">{precompStatus.event_performance_updated_at ?? 'N/A'}</code></div>
+                  <div>Latest snapshot (1d): <code className="font-mono">{precompStatus.latest_state_snapshot_1d ?? 'N/A'}</code></div>
+                  <div>Latest snapshot (4h): <code className="font-mono">{precompStatus.latest_state_snapshot_4h ?? 'N/A'}</code></div>
+                  <div>News total count (cached): <strong>{precompStatus.news_total_count ?? 'N/A'}</strong></div>
+                </div>
+              )
+            ) : (
+              <p className="text-muted-foreground">正在加载预计算状态...</p>
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>

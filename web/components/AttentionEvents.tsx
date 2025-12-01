@@ -4,12 +4,12 @@ import React, { useEffect, useState } from 'react'
 import type { AttentionEvent } from '@/lib/api'
 import { fetchAttentionEventPerformance, type EventPerformanceTable } from '@/lib/api'
 
-export default function AttentionEvents({ events }: { events: AttentionEvent[] }) {
+export default function AttentionEvents({ events, symbol }: { events: AttentionEvent[], symbol: string }) {
   const [perf, setPerf] = useState<EventPerformanceTable | null>(null)
 
   useEffect(() => {
-    fetchAttentionEventPerformance({ symbol: 'ZEC' }).then(setPerf).catch(() => setPerf(null))
-  }, [])
+    fetchAttentionEventPerformance({ symbol }).then(setPerf).catch(() => setPerf(null))
+  }, [symbol])
 
   if (!events || events.length === 0) {
     return (

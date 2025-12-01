@@ -27,41 +27,40 @@ logger = logging.getLogger(__name__)
 # ==================== 后台任务调度 ====================
 
 async def scheduled_news_update():
-    """
-    后台任务：定期更新新闻数据
-    每 30 分钟运行一次
+    """后台任务：定期聚合新闻数据（多源）
+    频率：NEWS_UPDATE_INTERVAL（默认 1 小时）
+    使用 settings 中的可配置间隔，统一管理调度参数。
     """
     from scripts.fetch_news_data import run_news_fetch_pipeline
-    
-    # 启动延迟：等待服务器就绪后再开始
-    logger.info("[Scheduler] News update will start in 30 seconds...")
-    await asyncio.sleep(30)
-    
+    from src.config.settings import NEWS_UPDATE_INTERVAL
+
+    startup_delay = 30  # 避免与价格任务启动拥堵
+    logger.info(f"[Scheduler] News update will start in {startup_delay}s (interval={NEWS_UPDATE_INTERVAL}s)...")
+    await asyncio.sleep(startup_delay)
+
     while True:
         try:
-            logger.info("[Scheduler] Starting news update...")
-            # 在线程池中运行同步函数，避免阻塞事件循环
+            logger.info("[Scheduler] Starting news aggregation cycle...")
             await asyncio.to_thread(run_news_fetch_pipeline, days=1)
-            logger.info("[Scheduler] News update completed. Sleeping for 30 minutes.")
+            logger.info(f"[Scheduler] News aggregation completed. Sleeping {NEWS_UPDATE_INTERVAL}s.")
         except Exception as e:
             logger.error(f"[Scheduler] News update failed: {e}")
-        
-        # 等待 30 分钟
-        await asyncio.sleep(1800)
+        await asyncio.sleep(NEWS_UPDATE_INTERVAL)
 
 
 async def scheduled_price_update():
-    """
-    后台任务：实时价格更新
-    每 5 分钟运行一次（K线最小粒度 15 分钟，5 分钟间隔足够）
+    """后台任务：实时价格与级联注意力更新
+    频率：PRICE_UPDATE_INTERVAL（默认 10 分钟），统一使用 settings 配置。
     """
     from src.data.realtime_price_updater import get_realtime_updater
-    
-    # 启动延迟：等待服务器就绪后再开始，错开新闻更新
-    logger.info("[Scheduler] Price update will start in 10 seconds...")
-    await asyncio.sleep(10)
-    
-    updater = get_realtime_updater(update_interval=300)  # 5 分钟
+    from src.config.settings import PRICE_UPDATE_INTERVAL
+
+    startup_delay = 10
+    logger.info(f"[Scheduler] Price update will start in {startup_delay}s (interval={PRICE_UPDATE_INTERVAL}s)...")
+    await asyncio.sleep(startup_delay)
+
+    # 使用配置间隔（不再硬编码 300 秒）
+    updater = get_realtime_updater(update_interval=PRICE_UPDATE_INTERVAL)
     await updater.run()
 
 
@@ -94,9 +93,10 @@ async def lifespan(app: FastAPI):
     price_task = asyncio.create_task(scheduled_price_update())
     warmup_task = asyncio.create_task(warmup_binance_websocket())
     
-    logger.info("[Scheduler] Background tasks started (with startup delay to ensure server readiness)")
-    logger.info("[Scheduler] Price update starts in 10s, News update starts in 30s")
-    logger.info("[Scheduler] Attention features will be calculated automatically after price updates")
+    from src.config.settings import PRICE_UPDATE_INTERVAL, NEWS_UPDATE_INTERVAL
+    logger.info("[Scheduler] Background tasks started (delayed startup)")
+    logger.info(f"[Scheduler] Price interval={PRICE_UPDATE_INTERVAL}s, News interval={NEWS_UPDATE_INTERVAL}s")
+    logger.info("[Scheduler] Attention features cascade after each price batch (1h cooldown)")
     logger.info("[WebSocket] Real-time WebSocket endpoints available at /ws/price and /ws/attention")
     logger.info("[WebSocket] Binance WebSocket will pre-warm in 2s")
     

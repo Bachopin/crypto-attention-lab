@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清理本地存储 - Crypto Attention Lab</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #3b82f6;
+            margin-top: 0;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button.secondary {
+            background: #6b7280;
+        }
+        button.secondary:hover {
+            background: #4b5563;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+        .status.success {
+            background: #10b981;
+            color: white;
+        }
+        .status.error {
+            background: #ef4444;
+            color: white;
+        }
+        .info {
+            background: #374151;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        pre {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 清理本地存储</h1>
+        <p>如果页面加载出现问题，可以尝试清理浏览器本地存储。</p>
+        
+        <div class="info">
+            <strong>当前存储项数量：</strong> <span id="itemCount">-</span><br>
+            <strong>存储大小（约）：</strong> <span id="storageSize">-</span>
+        </div>
+
+        <div style="margin: 20px 0;">
+            <button onclick="clearLocalStorage()">清理 LocalStorage</button>
+            <button onclick="clearSessionStorage()" class="secondary">清理 SessionStorage</button>
+            <button onclick="clearAllStorage()">清理全部</button>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <details style="margin-top: 20px;">
+            <summary style="cursor: pointer; padding: 10px; background: #374151; border-radius: 4px;">
+                查看存储内容
+            </summary>
+            <pre id="storageContent" style="margin-top: 10px;">...</pre>
+        </details>
+
+        <p style="margin-top: 30px; font-size: 14px; color: #9ca3af;">
+            <a href="/" style="color: #3b82f6;">← 返回首页</a>
+        </p>
+    </div>
+
+    <script>
+        function updateStats() {
+            const itemCount = localStorage.length;
+            let totalSize = 0;
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key) {
+                    const value = localStorage.getItem(key) || '';
+                    totalSize += key.length + value.length;
+                }
+            }
+            
+            document.getElementById('itemCount').textContent = itemCount;
+            document.getElementById('storageSize').textContent = `${(totalSize / 1024).toFixed(2)} KB`;
+            
+            // 显示内容
+            const content = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key) {
+                    const value = localStorage.getItem(key);
+                    content[key] = value;
+                }
+            }
+            document.getElementById('storageContent').textContent = JSON.stringify(content, null, 2);
+        }
+
+        function showStatus(message, isSuccess = true) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = 'status ' + (isSuccess ? 'success' : 'error');
+            statusEl.style.display = 'block';
+            
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 3000);
+        }
+
+        function clearLocalStorage() {
+            try {
+                const count = localStorage.length;
+                localStorage.clear();
+                showStatus(`✓ LocalStorage 已清理（${count} 项）`, true);
+                updateStats();
+            } catch (e) {
+                showStatus('✗ 清理 LocalStorage 失败: ' + e.message, false);
+            }
+        }
+
+        function clearSessionStorage() {
+            try {
+                const count = sessionStorage.length;
+                sessionStorage.clear();
+                showStatus(`✓ SessionStorage 已清理（${count} 项）`, true);
+            } catch (e) {
+                showStatus('✗ 清理 SessionStorage 失败: ' + e.message, false);
+            }
+        }
+
+        function clearAllStorage() {
+            try {
+                const localCount = localStorage.length;
+                const sessionCount = sessionStorage.length;
+                localStorage.clear();
+                sessionStorage.clear();
+                showStatus(`✓ 全部存储已清理（Local: ${localCount}, Session: ${sessionCount}）`, true);
+                updateStats();
+            } catch (e) {
+                showStatus('✗ 清理存储失败: ' + e.message, false);
+            }
+        }
+
+        // 初始化
+        updateStats();
+    </script>
+</body>
+</html>

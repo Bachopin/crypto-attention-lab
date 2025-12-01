@@ -19,10 +19,20 @@ Currently, the API does not require authentication for local development.
 - `15m`: 15-Minute (where supported)
 
 ### Attention Source
-- `legacy`: Original attention metric
-- `composite`: Enhanced composite attention metric (Twitter + News + Google Trends)
+- `legacy`: Original attention metric (news_count 0-100 normalized)
+- `composite`: Enhanced composite attention metric (Twitter + News + Google Trends weighted z-score)
+- `news_channel`: News channel only z-score (weighted_attention rolling z-score)
+- `google_channel`: Google Trends channel only z-score
+- `twitter_channel`: Twitter channel only z-score (placeholder, API pending)
 
 ---
+
+## Stored-First & Caching
+
+- **Stored-first design**: Most endpoints read from precomputed values in the database to minimize CPU and latency.
+- **Column whitelisting**: Some endpoints (e.g., `/api/attention`) support `columns` to return only required fields, reducing payload size and query cost.
+- **Hot cache**: Feature loading uses an in-process cache with TTL controlled by `FEATURE_CACHE_TTL` (seconds). Default: `60`.
+- **Realtime vs custom params**: If you pass custom parameters that do not match cached defaults, endpoints may compute results on-the-fly.
 
 ## Endpoints
 
@@ -70,6 +80,17 @@ Retrieve historical attention metrics for a specific symbol.
 - `symbol` (string, required): The trading pair symbol.
 - `timeframe` (string, optional): Time granularity. Default: `1d`.
 - `limit` (integer, optional): Number of data points to return. Default: `100`.
+- `columns` (string, optional): Comma-separated list of stored attention feature columns to return (e.g., `composite_attention_score,zscore,news_count`). When provided, the API loads precomputed values only for these columns and returns a minimal payload for performance.
+
+**Notes:**
+- The endpoint prefers stored/precomputed values. If `columns` is provided, no on-the-fly calculations are performed.
+- Typical column names include: `composite_attention_score`, `zscore`, `news_count`, `bullish_news_share`, `bearish_news_share`, `is_attention_spike`, etc. Use only what the client needs to minimize IO.
+
+**Examples:**
+- Minimal payload for charting z-scores:
+  `GET /api/attention?symbol=BTC&timeframe=1d&columns=zscore`
+- Multiple fields:
+  `GET /api/attention?symbol=ETH&timeframe=4h&columns=composite_attention_score,news_count,is_attention_spike`
 
 #### Get Global Attention
 `GET /api/attention/global`

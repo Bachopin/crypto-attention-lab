@@ -92,18 +92,26 @@ class AttentionService:
                     # 尝试增量更新（内部会判断是否需要全量）
                     AttentionService.update_attention_features_incremental(symbol, freq='D', save_to_db=True)
                     # 更新后重新读取（禁用 auto_update 避免无限循环）
-                    return AttentionService.get_attention_events(
+                    # 注意：如果更新后仍然没有预计算事件（例如数据本身不足以产生事件），
+                    # 递归调用将返回空或实时计算结果。
+                    # 为了保险起见，我们检查递归调用的结果，如果为空，则回退到实时计算。
+                    updated_events = AttentionService.get_attention_events(
                         symbol, start, end, lookback_days, min_quantile, auto_update=False
                     )
+                    if updated_events:
+                        return updated_events
+                    else:
+                        logger.warning(f"[AutoUpdate] Update finished but no events found/persisted for {symbol}. Falling back to real-time.")
                 except Exception as e:
                     logger.warning(f"[AutoUpdate] Failed to update features for {symbol}: {e}")
                     # 更新失败，回退到实时计算
         
-        # 3. 实时计算（参数非默认值 或 没有预计算数据）
+        # 3. 实时计算（参数非默认值 或 没有预计算数据 或 预计算为空）
         if not use_cache:
             logger.debug(f"Real-time calculation for {symbol} (non-default params: lookback={lookback_days}, quantile={min_quantile})")
         else:
-            logger.debug(f"No precomputed events for {symbol}, calculating in real-time")
+            logger.debug(f"No precomputed events for {symbol} (or update failed), calculating in real-time")
+        
         return detect_attention_spikes(df, lookback_days, min_quantile)
 
     @staticmethod
@@ -157,8 +165,12 @@ class AttentionService:
         end_date = date_range.max()
         
         # 2. Load Auxiliary Data
-        # News
-        news_df = load_news_data(symbol, start=start_date, end=end_date)
+        # News - extend end_date to include all news for the current day's candle
+        # Price datetime is the candle open time (e.g., 2025-12-01 00:00 UTC),
+        # but news can arrive throughout the day until the next candle opens.
+        # We extend to end_date + 1 day to capture all relevant news.
+        news_end_date = end_date + pd.Timedelta(days=1)
+        news_df = load_news_data(symbol, start=start_date, end=news_end_date)
         
         # Google Trends (fetch extra 7 days for rolling window context)
         gt_start = start_date - pd.Timedelta(days=7)
@@ -340,7 +352,9 @@ class AttentionService:
             return None
         
         # 5. 加载新闻数据（仅新数据范围，因为新闻不需要滚动上下文）
-        news_df = load_news_data(symbol, start=new_data_start, end=price_max_dt)
+        # Extend end date by 1 day to capture all news for the current candle
+        news_end_date = price_max_dt + timedelta(days=1)
+        news_df = load_news_data(symbol, start=new_data_start, end=news_end_date)
         
         # 6. 加载 Google Trends（根据 force_google_trends 决定）
         google_trends_df = None

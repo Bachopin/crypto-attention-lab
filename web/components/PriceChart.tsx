@@ -248,52 +248,102 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
   // Memoize event markers
   const eventMarkers = useMemo(() => {
-    if (!showEventMarkers || !events || events.length === 0) return []
+    if (!showEventMarkers || !events || events.length === 0 || !priceData || priceData.length === 0) return []
     
-    return events.map((e) => {
+    const markers: any[] = []
+    
+    // Sort price data by timestamp just in case, though it should be sorted
+    const sortedPriceData = [...priceData].sort((a, b) => a.timestamp - b.timestamp)
+    
+    events.forEach((e) => {
       const dt = new Date(e.datetime)
-      const time = Math.floor(dt.getTime() / 1000) as any
-      let position: 'aboveBar' | 'belowBar' = 'aboveBar'
-      let color = '#f59e0b'
-      let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
-      let text = 'E'
-
-      switch (e.event_type) {
-        case 'high_bullish':
-          position = 'aboveBar'
-          color = '#22c55e'
-          shape = 'arrowUp'
-          text = 'Bull'
+      const eventTime = Math.floor(dt.getTime() / 1000)
+      
+      // Find the candle that corresponds to this event
+      // We look for the latest candle that started before or at the event time
+      // This handles events that happen in the middle of a candle (e.g. 4h or 1d candle)
+      
+      // Find the last candle with timestamp <= eventTime
+      let matchedTime: number | null = null
+      
+      // Optimization: Since events and price are usually sorted, we could optimize.
+      // But for < 1000 items, simple search is fine.
+      // We search from the end because events are usually recent.
+      for (let i = sortedPriceData.length - 1; i >= 0; i--) {
+        const candleTime = Math.floor(sortedPriceData[i].timestamp / 1000)
+        if (candleTime <= eventTime) {
+          // Check if it's "close enough" to be relevant (e.g. within 24h or the implied timeframe)
+          // If the event is way after the last candle, we shouldn't mark it on the last candle.
+          // But here we found a candle BEFORE the event.
+          // We just need to make sure the event isn't too far ahead of this candle (e.g. gap in data).
+          // Let's assume if it's within 1 week it's fine (for daily data with gaps).
+          // Actually, for visualization, snapping to the previous candle is standard.
+          matchedTime = candleTime
           break
-        case 'high_bearish':
-          position = 'belowBar'
-          color = '#ef4444'
-          shape = 'arrowDown'
-          text = 'Bear'
-          break
-        case 'high_weighted_event':
-          position = 'aboveBar'
-          color = '#3b82f6'
-          shape = 'circle'
-          text = 'Wt'
-          break
-        case 'attention_spike':
-          position = 'aboveBar'
-          color = '#f59e0b'
-          shape = 'circle'
-          text = 'Spike'
-          break
-        case 'event_intensity':
-          position = 'aboveBar'
-          color = '#eab308'
-          shape = 'circle'
-          text = 'Evt'
-          break
+        }
       }
+      
+      if (matchedTime) {
+        let position: 'aboveBar' | 'belowBar' = 'aboveBar'
+        let color = '#f59e0b'
+        let shape: 'arrowUp' | 'arrowDown' | 'circle' = 'circle'
+        let text = 'E'
 
-      return { time, position, color, shape, text } as any
+        switch (e.event_type) {
+          case 'high_bullish':
+            position = 'aboveBar'
+            color = '#22c55e'
+            shape = 'arrowUp'
+            text = 'Bull'
+            break
+          case 'high_bearish':
+            position = 'belowBar'
+            color = '#ef4444'
+            shape = 'arrowDown'
+            text = 'Bear'
+            break
+          case 'high_weighted_event':
+            position = 'aboveBar'
+            color = '#3b82f6'
+            shape = 'circle'
+            text = 'Wt'
+            break
+          case 'attention_spike':
+            position = 'aboveBar'
+            color = '#f59e0b'
+            shape = 'circle'
+            text = 'Spike'
+            break
+          case 'event_intensity':
+            position = 'aboveBar'
+            color = '#eab308'
+            shape = 'circle'
+            text = 'Evt'
+            break
+        }
+
+        markers.push({ time: matchedTime, position, color, shape, text })
+      }
     })
-  }, [events, showEventMarkers])
+    
+    // Deduplicate markers at the same time (lightweight-charts doesn't like duplicates)
+    // If multiple events map to the same candle, we might want to show just one or combine them.
+    // For now, just take the last one (or first one).
+    // Better: Filter duplicates.
+    // const uniqueMarkers = new Map()
+    // markers.forEach(m => {
+    //   // If we already have a marker at this time, maybe prioritize 'Spike' or 'Bull/Bear'?
+    //   // For simplicity, just overwrite.
+    //   uniqueMarkers.set(m.time, m)
+    // })
+    
+    // const finalMarkers = Array.from(uniqueMarkers.values()).sort((a: any, b: any) => a.time - b.time)
+    
+    // Allow multiple markers (lightweight-charts supports array sorted by time)
+    const finalMarkers = markers.sort((a: any, b: any) => a.time - b.time)
+    console.log(`[PriceChart] Generated ${finalMarkers.length} markers from ${events.length} events (matched ${markers.length} raw)`)
+    return finalMarkers
+  }, [events, showEventMarkers, priceData])
 
   // Update data & markers
   useEffect(() => {
@@ -306,6 +356,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
       // Set event markers
       if (candlestickSeriesRef.current) {
+        console.log(`[PriceChart] Setting ${eventMarkers.length} markers`)
         candlestickSeriesRef.current.setMarkers(eventMarkers)
       }
 
@@ -319,7 +370,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
   }, [candleData, volumeData, eventMarkers])
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" style={{ height }}>
       {/* Controls - hidden when hideControls is true */}
       {!hideControls && (
         <div className="flex items-center gap-2 mb-2">
@@ -377,7 +428,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
           <span className="text-sm">No price data available</span>
         </div>
       ) : (
-        <div ref={chartContainerRef} className="w-full" />
+        <div ref={chartContainerRef} className="w-full h-full" />
       )}
     </div>
   )

@@ -63,7 +63,8 @@ class MarketDataService:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         timeframe: str = '1d',
-        fill_method: str = 'ffill'
+        fill_method: str = 'ffill',
+        attention_columns: Optional[List[str]] = None,
     ) -> pd.DataFrame:
         """
         获取已对齐的价格和注意力数据。
@@ -101,7 +102,24 @@ class MarketDataService:
             return pd.DataFrame()
 
         # 2. 加载注意力数据 (目前主要是日线)
-        attention_df = load_attention_data(attention_symbol, start, end)
+        # 优先使用预存特征读取服务的列白名单能力
+        try:
+            from src.services.feature_service import FeatureService
+            # timeframe 映射：价格的 '1d' 对应注意力的 'D'；'4h' 对应 '4H'
+            tf_map = {'1d': 'D', '4h': '4H'}
+            att_tf = tf_map.get(timeframe.lower(), 'D')
+            attention_df = FeatureService.load_precomputed_features(
+                attention_symbol,
+                start=start,
+                end=end,
+                timeframe=att_tf,
+                columns=attention_columns,
+                fillna_zero=False,
+                use_cache=True,
+            )
+        except Exception:
+            # 回退到旧方法（拉取完整列）
+            attention_df = load_attention_data(attention_symbol, start, end)
         
         # 3. 预处理与索引设置
         # 确保 price_df 有 datetime 索引

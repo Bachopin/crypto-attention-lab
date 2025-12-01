@@ -111,6 +111,70 @@ export default function SettingsTab({ onUpdate }: { onUpdate: () => void }) {
 
       <Separator />
 
+      {/* Chart & Analysis Preferences */}
+      <section className="space-y-4">
+        <h2 className="text-2xl font-bold">Chart & Analysis Preferences</h2>
+        
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Show Event Markers */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Chart Event Markers</CardTitle>
+              <CardDescription>
+                Show attention spike events on price charts by default.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center space-x-2">
+                <RadioGroup 
+                  value={settings.showEventMarkers ? "show" : "hide"} 
+                  onValueChange={(val) => updateSettings({ showEventMarkers: val === "show" })}
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="show" id="events-show" />
+                    <Label htmlFor="events-show">Show Events</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="hide" id="events-hide" />
+                    <Label htmlFor="events-hide">Hide Events</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Event Detection Sensitivity */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Event Detection Sensitivity</CardTitle>
+              <CardDescription>
+                Quantile threshold for detecting attention spikes (0.8 - 0.99). Higher means fewer, stronger events.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-4">
+                <Label htmlFor="event-quantile" className="w-24">Quantile</Label>
+                <Input 
+                  id="event-quantile" 
+                  type="number" 
+                  min={0.8} 
+                  max={0.99}
+                  step={0.01}
+                  value={settings.eventDetectionQuantile}
+                  onChange={(e) => updateSettings({ eventDetectionQuantile: parseFloat(e.target.value) || 0.9 })}
+                  className="w-32"
+                />
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Default: 0.9 (Top 10% attention days).
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <Separator />
+
       {/* System Tools */}
       <section className="space-y-4">
         <h2 className="text-2xl font-bold">System Tools</h2>

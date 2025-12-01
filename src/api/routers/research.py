@@ -151,26 +151,67 @@ def get_state_snapshots_batch(
     批量获取多个 symbol 的状态快照
     """
     try:
-        # 批量计算
-        snapshots = compute_state_snapshots_batch(
-            symbols=params.symbols,
-            as_of=None,
-            timeframe=params.timeframe.value,
-            window_days=params.window_days,
-        )
-        
-        # 转换结果
+        # 尝试优先使用预计算缓存（仅在使用默认 window_days 时）
         result_snapshots = {}
         success_count = 0
         failed_count = 0
-        
-        for symbol, snapshot in snapshots.items():
-            if snapshot is not None:
-                result_snapshots[symbol] = snapshot.to_dict()
-                success_count += 1
-            else:
-                result_snapshots[symbol] = None
-                failed_count += 1
+
+        use_cache = (params.window_days == DEFAULT_SNAPSHOT_WINDOW)
+
+        # 如果可使用缓存，按 symbol 尝试读取缓存快照；对未命中的 symbol 再批量计算
+        if use_cache:
+            from datetime import datetime, timezone
+            as_of = datetime.now(timezone.utc)
+            missing: list[str] = []
+
+            for symbol in params.symbols:
+                try:
+                    cached = PrecomputationService.get_cached_state_snapshot(
+                        symbol=symbol,
+                        as_of=as_of,
+                        timeframe=params.timeframe.value,
+                    )
+                    if cached:
+                        result_snapshots[symbol] = cached
+                        success_count += 1
+                    else:
+                        # 标记为需实时计算
+                        missing.append(symbol)
+                except Exception:
+                    # 读取缓存失败，退回到实时计算
+                    missing.append(symbol)
+
+            # 对未命中的 symbol 执行原有的批量计算（仅针对缺失项）
+            if missing:
+                computed = compute_state_snapshots_batch(
+                    symbols=missing,
+                    as_of=None,
+                    timeframe=params.timeframe.value,
+                    window_days=params.window_days,
+                )
+                for symbol, snapshot in computed.items():
+                    if snapshot is not None:
+                        result_snapshots[symbol] = snapshot.to_dict()
+                        success_count += 1
+                    else:
+                        result_snapshots[symbol] = None
+                        failed_count += 1
+        else:
+            # 批量计算（不使用缓存）
+            snapshots = compute_state_snapshots_batch(
+                symbols=params.symbols,
+                as_of=None,
+                timeframe=params.timeframe.value,
+                window_days=params.window_days,
+            )
+
+            for symbol, snapshot in snapshots.items():
+                if snapshot is not None:
+                    result_snapshots[symbol] = snapshot.to_dict()
+                    success_count += 1
+                else:
+                    result_snapshots[symbol] = None
+                    failed_count += 1
         
         return {
             "snapshots": result_snapshots,
@@ -387,16 +428,20 @@ def get_state_scenarios(
                 }
             }
         
-        similar_states = find_similar_states(
-            target=target,
-            candidate_symbols=candidate_symbols,
-            timeframe=timeframe.value,
-            window_days=window_days,
-            top_k=top_k,
-            max_history_days=max_history_days,
-            include_same_symbol=True,
-            verbose=False,
-        )
+        try:
+            similar_states = find_similar_states(
+                target=target,
+                candidate_symbols=candidate_symbols,
+                timeframe=timeframe.value,
+                window_days=window_days,
+                top_k=top_k,
+                max_history_days=max_history_days,
+                include_same_symbol=True,
+                verbose=False,
+            )
+        except Exception as e:
+            logger.error(f"Error finding similar states for {symbol}: {e}", exc_info=True)
+            similar_states = []
         
         if not similar_states:
             return {
@@ -476,16 +521,20 @@ def get_state_scenarios_custom(
             )
         
         # Step 2: 查找相似状态
-        similar_states = find_similar_states(
-            target=target,
-            candidate_symbols=candidate_symbols,
-            timeframe=params.timeframe.value,
-            window_days=params.window_days,
-            top_k=params.top_k,
-            max_history_days=params.max_history_days,
-            include_same_symbol=True,
-            verbose=False,
-        )
+        try:
+            similar_states = find_similar_states(
+                target=target,
+                candidate_symbols=candidate_symbols,
+                timeframe=params.timeframe.value,
+                window_days=params.window_days,
+                top_k=params.top_k,
+                max_history_days=params.max_history_days,
+                include_same_symbol=True,
+                verbose=False,
+            )
+        except Exception as e:
+            logger.error(f"Error finding similar states (custom) for {params.symbol}: {e}", exc_info=True)
+            similar_states = []
         
         if not similar_states:
             return {

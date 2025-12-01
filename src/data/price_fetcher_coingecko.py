@@ -48,14 +48,26 @@ def fetch_and_save_price_coingecko(coin_id='zcash', vs_currency='usd', days=365,
     grouped = grouped[['timestamp', 'open', 'high', 'low', 'close', 'volume', 'date']]
     grouped = grouped.rename(columns={'date': 'datetime'})
 
-    # 保存为与原来相同命名的文件，以便 dashboard 能直接使用
-    if not filename:
-        filename = f"price_ZECUSDT_1d.csv"
-
-    filepath = RAW_DATA_DIR / filename
-    grouped.to_csv(filepath, index=False)
-
-    return str(filepath)
+    # 保存到数据库
+    from src.data.db_storage import get_db
+    
+    # 转换 symbol 格式 (zcash -> ZEC)
+    # 这里简单映射，实际可能需要更复杂的映射或传入 symbol 参数
+    symbol_map = {
+        'zcash': 'ZEC',
+        'bitcoin': 'BTC',
+        'ethereum': 'ETH'
+    }
+    symbol = symbol_map.get(coin_id, coin_id.upper())
+    
+    records = grouped.to_dict('records')
+    try:
+        db = get_db()
+        db.save_prices(symbol, '1d', records)
+        print(f"Saved {len(records)} price records for {symbol} to database")
+        return f"db:{symbol}:1d"
+    except Exception as e:
+        raise RuntimeError(f"Failed to save prices to database: {e}")
 
 
 if __name__ == '__main__':

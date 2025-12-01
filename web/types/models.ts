@@ -98,7 +98,9 @@ export interface TopCoin {
 
 export interface TopCoinsResponse {
   coins: TopCoin[];
+  count: number;
   updated_at: string;
+  fallback?: boolean;
 }
 
 // --- Backtest Types ---

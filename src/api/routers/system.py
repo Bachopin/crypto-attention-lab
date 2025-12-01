@@ -9,6 +9,8 @@ from src.database.models import Symbol, get_session
 from src.data.db_storage import get_db, load_price_data
 from src.data.realtime_price_updater import get_realtime_updater, RealtimePriceUpdater
 from src.services.attention_service import AttentionService
+from src.services.precomputation_service import PrecomputationService
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,13 @@ async def enable_auto_update(
         # 触发初始数据更新和 attention 计算
         updater = get_realtime_updater()
         initialized = []
+        
+        # 触发后台新闻抓取任务（异步执行，不阻塞响应）
+        # 抓取过去 90 天的新闻，确保新代币有历史新闻数据
+        # 注意：run_news_fetch_pipeline 会自动刷新活跃代币列表
+        from scripts.fetch_news_data import run_news_fetch_pipeline
+        asyncio.create_task(asyncio.to_thread(run_news_fetch_pipeline, days=90))
+        logger.info(f"[Enable] Triggered background news fetch (90 days) for new symbols")
         
         for symbol_name in enabled:
             try:
@@ -441,4 +450,77 @@ async def update_data(
         
     except Exception as e:
         logger.error(f"[Update] Failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/precomputation/status", tags=["System"])
+def get_precomputation_status(
+    symbol: Optional[str] = Query(None, description="标的符号，如 ZEC"),
+):
+    """
+    获取某个 symbol 的预计算相关状态（用于 Debug 页面展示）
+
+    返回字段（示例）：
+    - symbol
+    - price_last_update
+    - attention_latest_datetime
+    - event_performance_updated_at
+    - latest_state_snapshot_1d (as_of)
+    - latest_state_snapshot_4h (as_of)
+    - news_total_count (cached)
+    """
+    try:
+        if not symbol:
+            raise HTTPException(status_code=400, detail="symbol 参数必需")
+
+        sym = symbol.upper()
+        session = get_session()
+        try:
+            s = session.query(Symbol).filter_by(symbol=sym).first()
+            if not s:
+                raise HTTPException(status_code=404, detail=f"Symbol {sym} not found")
+
+            price_last_update = s.last_price_update.isoformat() if s.last_price_update else None
+            event_perf_updated_at = s.event_performance_updated_at.isoformat() if getattr(s, 'event_performance_updated_at', None) else None
+        finally:
+            session.close()
+
+        db = get_db()
+        # Attention latest datetime
+        try:
+            attention_latest = db.get_latest_attention_datetime(sym, timeframe='D')
+            attention_latest_iso = attention_latest.isoformat() if attention_latest else None
+        except Exception:
+            attention_latest_iso = None
+
+        # Latest cached state snapshot as_of for 1d/4h
+        now = datetime.now(timezone.utc)
+        try:
+            snap_1d = PrecomputationService.get_cached_state_snapshot(sym, as_of=now, timeframe='1d')
+            snap_4h = PrecomputationService.get_cached_state_snapshot(sym, as_of=now, timeframe='4h')
+            latest_snapshot_1d = snap_1d.get('as_of') if snap_1d else None
+            latest_snapshot_4h = snap_4h.get('as_of') if snap_4h else None
+        except Exception:
+            latest_snapshot_1d = None
+            latest_snapshot_4h = None
+
+        # News total count (cached)
+        try:
+            news_total = db.get_news_total_count()
+        except Exception:
+            news_total = None
+
+        return {
+            'symbol': sym,
+            'price_last_update': price_last_update,
+            'attention_latest_datetime': attention_latest_iso,
+            'event_performance_updated_at': event_perf_updated_at,
+            'latest_state_snapshot_1d': latest_snapshot_1d,
+            'latest_state_snapshot_4h': latest_snapshot_4h,
+            'news_total_count': news_total,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_precomputation_status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

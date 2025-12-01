@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 # 数据库模式标志
 USE_DATABASE = True  # 设为 False 将回退到 CSV 模式
-DISABLE_CSV_FALLBACK = os.getenv("DISABLE_CSV_FALLBACK", "false").lower() == "true"
+# 强制禁用 CSV 回退，确保 100% 使用数据库
+DISABLE_CSV_FALLBACK = True 
 
 # 缓存的符号名称映射（从数据库加载）
 _SYMBOL_NAME_CACHE: Dict[str, List[str]] = {}
@@ -1654,55 +1655,24 @@ def load_price_data(
 ) -> Tuple[pd.DataFrame, bool]:
     """
     加载价格数据（兼容旧接口）
-    数据库为唯一真实来源；仅当显式关闭数据库模式时才读取 CSV。
+    数据库为唯一真实来源。
     """
-    if USE_DATABASE:
-        try:
-            db = get_db()
-            # 标准化 symbol 格式
-            if symbol.endswith('USDT') and '/' not in symbol:
-                base = symbol[:-4]
-            elif '/' in symbol:
-                base = symbol.split('/')[0]
-            else:
-                # 已经是基础资产名（如 'HYPE', 'BTC'）
-                base = symbol.upper()
+    try:
+        db = get_db()
+        # 标准化 symbol 格式
+        if symbol.endswith('USDT') and '/' not in symbol:
+            base = symbol[:-4]
+        elif '/' in symbol:
+            base = symbol.split('/')[0]
+        else:
+            # 已经是基础资产名（如 'HYPE', 'BTC'）
+            base = symbol.upper()
 
-            df = db.get_prices(base, timeframe, start, end)
-            return df, False
-        except Exception as e:
-            logger.error(f"Database price query failed: {e}")
-            return pd.DataFrame(), False
-
-    if DISABLE_CSV_FALLBACK:
-        logger.info("CSV price fallback disabled; returning empty frame")
+        df = db.get_prices(base, timeframe, start, end)
+        return df, False
+    except Exception as e:
+        logger.error(f"Database price query failed: {e}")
         return pd.DataFrame(), False
-
-    price_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}.csv"
-    fallback_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}_fallback.csv"
-
-    is_fallback = False
-
-    if price_file.exists():
-        df = pd.read_csv(price_file)
-    elif fallback_file.exists():
-        df = pd.read_csv(fallback_file)
-        is_fallback = True
-    else:
-        logger.warning(f"Price data not found for {symbol} {timeframe}")
-        return pd.DataFrame(), True
-
-    if 'datetime' in df.columns:
-        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-
-    if start is not None:
-        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
-        df = df[df['datetime'] >= start_ts]
-    if end is not None:
-        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
-        df = df[df['datetime'] <= end_ts]
-
-    return df, is_fallback
 
 
 def load_attention_data(
@@ -1712,59 +1682,15 @@ def load_attention_data(
 ) -> pd.DataFrame:
     """
     加载注意力特征数据（兼容旧接口）
-    数据默认仅使用数据库，CSV 仅在显式关闭数据库模式时启用。
+    数据库为唯一真实来源。
     """
-    if USE_DATABASE:
-        try:
-            db = get_db()
-            df = db.get_attention_features(symbol, start, end)
-            return df
-        except Exception as e:
-            logger.error(f"Database attention query failed: {e}")
-            return pd.DataFrame()
-
-    if DISABLE_CSV_FALLBACK:
-        logger.info("CSV attention fallback disabled; returning empty frame")
+    try:
+        db = get_db()
+        df = db.get_attention_features(symbol, start, end)
+        return df
+    except Exception as e:
+        logger.error(f"Database attention query failed: {e}")
         return pd.DataFrame()
-
-    symbol_lower = symbol.lower()
-    attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
-
-    if not attention_file.exists():
-        logger.warning(f"Attention features not found for {symbol}")
-        return pd.DataFrame()
-
-    df = pd.read_csv(attention_file)
-
-    if 'datetime' in df.columns:
-        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-
-    if start is not None:
-        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
-        df = df[df['datetime'] >= start_ts]
-    if end is not None:
-        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
-        df = df[df['datetime'] <= end_ts]
-
-    required_cols = [
-        'news_channel_score',
-        'google_trend_value',
-        'google_trend_zscore',
-        'google_trend_change_7d',
-        'google_trend_change_30d',
-        'twitter_volume',
-        'twitter_volume_zscore',
-        'twitter_volume_change_7d',
-        'composite_attention_score',
-        'composite_attention_zscore',
-        'composite_attention_spike_flag',
-    ]
-    for col in required_cols:
-        if col not in df.columns:
-            default = 0.0 if not col.endswith('_flag') else 0
-            df[col] = default
-
-    return df
 
 
 def load_news_data(
@@ -1777,103 +1703,54 @@ def load_news_data(
     加载新闻数据（兼容旧接口）
     支持多币种查询（传入逗号分隔的 symbols）
     传入 "ALL" 或空字符串则返回所有新闻
+    数据库为唯一真实来源。
     """
-    if USE_DATABASE:
-        try:
-            db = get_db()
-            if not symbol or symbol.upper() == "ALL":
-                symbols = None
-            else:
-                symbols = [s.strip() for s in symbol.split(',')]
+    try:
+        db = get_db()
+        if not symbol or symbol.upper() == "ALL":
+            symbols = None
+        else:
+            symbols = [s.strip() for s in symbol.split(',')]
 
-            df = db.get_news(symbols, start, end, limit)
-            return df
-        except Exception as e:
-            logger.error(f"Database news query failed: {e}")
-            return pd.DataFrame()
-
-    if DISABLE_CSV_FALLBACK:
-        logger.info("CSV news fallback disabled; returning empty frame")
+        df = db.get_news(symbols, start, end, limit)
+        return df
+    except Exception as e:
+        logger.error(f"Database news query failed: {e}")
         return pd.DataFrame()
-
-    symbol_lower = symbol.lower() if symbol else "all"
-    news_file = RAW_DATA_DIR / f"attention_{symbol_lower}_news.csv"
-    mock_file = RAW_DATA_DIR / f"attention_{symbol_lower}_mock.csv"
-
-    if news_file.exists():
-        df = pd.read_csv(news_file)
-    elif mock_file.exists():
-        df = pd.read_csv(mock_file)
-    else:
-        logger.warning(f"News data not found for {symbol}")
-        return pd.DataFrame()
-
-    if 'datetime' in df.columns:
-        df['datetime'] = pd.to_datetime(df['datetime'], utc=True, errors='coerce')
-
-    if start is not None:
-        start_ts = pd.Timestamp(start, tz='UTC') if not hasattr(start, 'tz') else start
-        df = df[df['datetime'] >= start_ts]
-    if end is not None:
-        end_ts = pd.Timestamp(end, tz='UTC') if not hasattr(end, 'tz') else end
-        df = df[df['datetime'] <= end_ts]
-
-    if limit:
-        df = df.head(limit)
-
-    return df
 
 
 def ensure_price_data_exists(symbol: str, timeframe: str) -> bool:
     """
     确保价格数据存在（数据库优先模式）
     """
-    if USE_DATABASE:
-        # 仅检查数据库，不再自动获取CSV
+    try:
         db = get_db()
         base_symbol = symbol[:-4] if symbol.endswith('USDT') else symbol.split('/')[0]
         df = db.get_prices(base_symbol, timeframe)
         return not df.empty
-    
-    # CSV fallback模式（仅当 USE_DATABASE=False 时）
-    price_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}.csv"
-    fallback_file = RAW_DATA_DIR / f"price_{symbol}_{timeframe}_fallback.csv"
-    return price_file.exists() or fallback_file.exists()
+    except Exception:
+        return False
 
 
 def ensure_attention_data_exists(symbol: str) -> bool:
     """
     确保注意力数据存在（数据库优先模式）
     """
-    if USE_DATABASE:
-        # 仅检查数据库，不再自动生成CSV
+    try:
         db = get_db()
         df = db.get_attention_features(symbol)
         return not df.empty
-    
-    # CSV fallback模式（仅当 USE_DATABASE=False 时）
-    symbol_lower = symbol.lower()
-    attention_file = PROCESSED_DATA_DIR / f"attention_features_{symbol_lower}.csv"
-    return attention_file.exists()
+    except Exception:
+        return False
 
 
 def get_available_symbols() -> List[str]:
     """获取所有可用币种列表"""
-    if USE_DATABASE:
-        try:
-            db = get_db()
-            return db.get_all_symbols()
-        except:
-            pass
-    
-    # CSV fallback：扫描文件
-    symbols = set()
-    for f in RAW_DATA_DIR.glob("price_*_1d.csv"):
-        name = f.stem.replace("price_", "").replace("_1d", "")
-        if name.endswith("USDT"):
-            symbols.add(name[:-4])
-    
-    return sorted(list(symbols))
+    try:
+        db = get_db()
+        return db.get_all_symbols()
+    except Exception:
+        return []
 
 
 # ==================== Convenience Wrappers ====================
@@ -1884,8 +1761,10 @@ def save_price_data(symbol: str, timeframe: str, price_records: List[dict]) -> i
     保存价格数据的便捷包装器
     Returns: 保存的记录数
     """
-    if USE_DATABASE:
+    try:
         db = get_db()
         db.save_prices(symbol, timeframe, price_records)
         return len(price_records)
-    return 0
+    except Exception as e:
+        logger.error(f"Failed to save price data: {e}")
+        return 0

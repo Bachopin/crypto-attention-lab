@@ -157,6 +157,9 @@ def calculate_composite_attention(
             'bearish_attention': 0.0,
         })
         rolling_window = _get_rolling_window(freq)
+        # 无新闻数据时，初始化必需的列
+        grouped['attention_score'] = 0.0
+        grouped['news_channel_score'] = 0.0
     else:
         cfg = get_symbol_attention_config(symbol)
         node_lookup = get_node_weight_lookup(symbol)

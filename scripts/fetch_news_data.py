@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from src.data.db_storage import get_db, USE_DATABASE
 from src.config.settings import TRACKED_SYMBOLS
 from src.features.news_features import source_weight, sentiment_score, relevance_flag, extract_tags
+from src.database.models import get_session, Symbol
 
 # 加载 .env 文件
 load_dotenv()
@@ -27,18 +28,52 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 配置
-DATA_DIR = Path(__file__).parent.parent / "data" / "raw"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+# 缓存活跃代币列表，避免频繁查询数据库
+ACTIVE_SYMBOLS_CACHE = []
 
-# 扩展的符号列表用于检测
-EXTENDED_SYMBOLS = [
-    "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOGE", "DOT", "TRX",
-    "MATIC", "LTC", "SHIB", "UNI", "ATOM", "LINK", "XMR", "ETC", "BCH", "FIL",
-    "NEAR", "ALGO", "APT", "QNT", "VET", "ICP", "HBAR", "EGLD", "SAND", "MANA",
-    "ZEC", "DASH", "EOS", "XTZ", "AAVE", "THETA", "AXS", "FTM", "GRT", "MKR",
-    "OP", "ARB", "SUI", "PEPE", "RNDR", "INJ", "LDO", "CRV", "SNX", "COMP"
-]
+def refresh_active_symbols():
+    """从数据库刷新活跃代币列表"""
+    global ACTIVE_SYMBOLS_CACHE
+    try:
+        session = get_session()
+        # 获取所有启用了自动更新或曾经更新过的代币
+        symbols = session.query(Symbol.symbol).filter(
+            (Symbol.auto_update_price == True) | (Symbol.last_price_update.isnot(None))
+        ).all()
+        
+        # 提取 symbol 字符串并去重
+        db_symbols = [s[0].upper() for s in symbols]
+        
+        # 合并配置中的 TRACKED_SYMBOLS (格式如 ZEC/USDT -> ZEC)
+        config_symbols = [s.split('/')[0].upper() for s in TRACKED_SYMBOLS]
+        
+        # 合并 EXTENDED_SYMBOLS
+        extended = [
+            "BTC", "ETH", "SOL", "BNB", "XRP", "ADA", "AVAX", "DOGE", "DOT", "TRX",
+            "MATIC", "LTC", "SHIB", "UNI", "ATOM", "LINK", "XMR", "ETC", "BCH", "FIL",
+            "NEAR", "ALGO", "APT", "QNT", "VET", "ICP", "HBAR", "EGLD", "SAND", "MANA",
+            "ZEC", "DASH", "EOS", "XTZ", "AAVE", "THETA", "AXS", "FTM", "GRT", "MKR",
+            "OP", "ARB", "SUI", "PEPE", "RNDR", "INJ", "LDO", "CRV", "SNX", "COMP",
+            "HYPE" # Explicitly add HYPE just in case, though DB should cover it
+        ]
+        
+        # 合并所有来源并去重
+        all_symbols = set(db_symbols + config_symbols + extended)
+        ACTIVE_SYMBOLS_CACHE = sorted(list(all_symbols))
+        
+        logger.info(f"Refreshed active symbols cache: {len(ACTIVE_SYMBOLS_CACHE)} symbols")
+        # logger.debug(f"Active symbols: {ACTIVE_SYMBOLS_CACHE}")
+        
+        session.close()
+    except Exception as e:
+        logger.error(f"Failed to refresh active symbols: {e}")
+        # Fallback to basic list if DB fails
+        ACTIVE_SYMBOLS_CACHE = config_symbols + extended
+
+# 初始化缓存
+refresh_active_symbols()
+
+# 配置（移除 CSV 本地存储，全面使用数据库）
 
 
 def fetch_cryptocompare_news(days: int = 90) -> List[Dict]:
@@ -391,19 +426,22 @@ def detect_symbols(text: str) -> str:
     found = set()
     text_lower = text.lower()
     
-    # 1. Check TRACKED_SYMBOLS
-    for sym_pair in TRACKED_SYMBOLS:
-        # TRACKED_SYMBOLS 格式如 "ZEC/USDT"
-        base = sym_pair.split('/')[0]
-        if base.lower() in text_lower:
-            found.add(base)
-            
-    # 2. Check EXTENDED_SYMBOLS
-    for sym in EXTENDED_SYMBOLS:
-        # Simple word boundary check to avoid partial matches (e.g. "is" matching "S" if S was a symbol)
-        # For now, just check if the symbol is in the text, but maybe be careful with short ones.
-        # Most crypto symbols are 3+ chars.
-        if sym.lower() in text_lower:
+    # 使用缓存的活跃代币列表
+    # 如果缓存为空（异常情况），尝试重新刷新
+    if not ACTIVE_SYMBOLS_CACHE:
+        refresh_active_symbols()
+        
+    for sym in ACTIVE_SYMBOLS_CACHE:
+        # 简单的单词边界检查，避免部分匹配（例如 "is" 匹配 "S"）
+        # 这里做一个简单的优化：检查 symbol 是否在文本中
+        # 对于短 symbol (<=3 chars)，可能需要更严格的边界检查，这里暂且简化
+        sym_lower = sym.lower()
+        
+        # 简单包含检查
+        if sym_lower in text_lower:
+            # 进一步验证：如果是短词，确保前后有分隔符（或者是开头/结尾）
+            # 这里简单起见，假设 3 字符以上的比较安全，或者常见的短词如 ETH, BTC
+            # 对于非常短的如 "AI", "S" 等可能需要正则，但目前列表大多是 3+ 字符
             found.add(sym)
             
     return ','.join(sorted(list(found))) if found else ''
@@ -424,19 +462,18 @@ def save_news_data(df: pd.DataFrame):
     # 自动检测相关币种
     df['symbols'] = df.apply(lambda row: detect_symbols(str(row['title']) + " " + str(row.get('body', ''))), axis=1)
     
-    # 保存到数据库（主存储）
-    if USE_DATABASE:
-        try:
-            db = get_db()
-            records = df.to_dict('records')
-            db.save_news(records)
-            logger.info(f"✅ Saved {len(records)} news items to database")
-        except Exception as e:
-            logger.error(f"Failed to save to database: {e}")
-            # 数据库失败时才回退到 CSV
-            filepath = DATA_DIR / "attention_zec_news.csv"
-            df.to_csv(filepath, index=False)
-            logger.warning(f"⚠️ Fallback: Saved to {filepath.name}")
+    # 保存到数据库（唯一存储）
+    try:
+        if not USE_DATABASE:
+            raise RuntimeError("Database storage disabled but required (CSV fallback removed)")
+        db = get_db()
+        records = df.to_dict('records')
+        db.save_news(records)
+        logger.info(f"✅ Saved {len(records)} news items to database")
+    except Exception as e:
+        # 不再写入 CSV，直接抛出错误确保显式失败
+        logger.error(f"Failed to save news to database: {e}")
+        raise
     
     # 统计
     latest = pd.to_datetime(df["datetime"]).max()
@@ -450,6 +487,9 @@ def run_news_fetch_pipeline(days: int = 1):
     运行完整的新闻获取流程（供外部调用）
     默认只获取最近 1 天的数据，用于定期更新
     """
+    # 每次运行前刷新活跃代币列表，确保包含新添加的代币
+    refresh_active_symbols()
+    
     logger.info("="*60)
     logger.info(f"Starting scheduled news aggregation (last {days} days)...")
     logger.info("="*60)

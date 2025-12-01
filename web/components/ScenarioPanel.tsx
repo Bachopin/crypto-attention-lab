@@ -252,26 +252,30 @@ export default function ScenarioPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<StateScenarioResponse | null>(null);
-  const [autoLoad, setAutoLoad] = useState(true);
 
   const loadScenarios = useCallback(async () => {
     if (!symbol) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchStateScenarios({
-        symbol,
-        timeframe,
-        window_days: windowDays,
-        top_k: topK,
-        max_history_days: 365,
-      });
+      const res = await Promise.race([
+        fetchStateScenarios({
+          symbol,
+          timeframe,
+          window_days: windowDays,
+          top_k: topK,
+          max_history_days: 365,
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时，请稍后重试')), 60000))
+      ]) as StateScenarioResponse;
       setData(res);
     } catch (e: any) {
-      // 更友好的错误提示
+      console.error('[ScenarioPanel] Error loading scenarios:', e);
       const msg = e?.message || '情景分析失败';
       if (msg.includes('No data available')) {
         setError(`代币 ${symbol} 暂无数据。请等待数据同步完成，或检查该代币是否在 Binance 上存在。`);
+      } else if (msg.includes('超时')) {
+        setError('请求超时，数据量较大正在计算中，请稍后重试或减少 topK 参数。');
       } else {
         setError(msg);
       }
@@ -280,18 +284,10 @@ export default function ScenarioPanel({
     }
   }, [symbol, timeframe, windowDays, topK]);
 
-  // 自动加载
-  useEffect(() => {
-    if (autoLoad) {
-      loadScenarios();
-      setAutoLoad(false); // 只自动加载一次
-    }
-  }, [autoLoad, loadScenarios]);
-
-  // symbol 变化时重新加载
+  // 当任何关键参数变化时重新加载
   useEffect(() => {
     loadScenarios();
-  }, [symbol, loadScenarios]);
+  }, [loadScenarios]);
 
   if (compact) {
     return (

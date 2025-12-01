@@ -42,17 +42,14 @@ logger = logging.getLogger(__name__)
 
 
 def compute_rolling_returns(prices: pd.Series, windows: List[int] = [1, 7, 30, 60]) -> Dict[str, pd.Series]:
-    """计算滚动收益率"""
-    results = {}
-    log_ret = np.log(prices / prices.shift(1))
+    """计算滚动收益率
     
-    for w in windows:
-        if w == 1:
-            results[f'return_{w}d'] = log_ret  # 日收益
-        else:
-            results[f'return_{w}d'] = log_ret.rolling(window=w).sum()  # 累计对数收益
-    
-    return results
+    与 src/features/precomputed_fields.py 保持一致，使用 pct_change
+    """
+    return {
+        f'return_{w}d': prices.pct_change(w)
+        for w in windows
+    }
 
 
 def compute_rolling_volatility(prices: pd.Series, windows: List[int] = [7, 30, 60]) -> Dict[str, pd.Series]:
@@ -61,7 +58,7 @@ def compute_rolling_volatility(prices: pd.Series, windows: List[int] = [7, 30, 6
     log_ret = np.log(prices / prices.shift(1))
     
     for w in windows:
-        results[f'volatility_{w}d'] = log_ret.rolling(window=w).std() * np.sqrt(252)  # 年化
+        results[f'volatility_{w}d'] = log_ret.rolling(window=w).std() * np.sqrt(365)  # 年化（加密货币 24/7 交易）
     
     return results
 
@@ -90,24 +87,27 @@ def compute_high_low(high: pd.Series, low: pd.Series, windows: List[int] = [30, 
     return results
 
 
-def compute_state_features(df: pd.DataFrame, windows: List[int] = [7, 30, 60]) -> Dict[str, pd.Series]:
-    """计算 State Features (规范化特征)"""
+def compute_state_features(df: pd.DataFrame, windows: List[int] = [7, 30]) -> Dict[str, pd.Series]:
+    """计算 State Features (规范化特征)
+    
+    与 src/features/precomputed_fields.py 保持一致
+    """
     results = {}
     
-    # 收益率 z-score
-    log_ret = np.log(df['close'] / df['close'].shift(1))
+    # 收益率 z-score: 当日收益率相对于过去 window 天的 z-score
+    ret_1d = df['close'].pct_change(1)
     for w in windows:
-        win_ret = log_ret.rolling(window=w).sum()
-        hist_mean = win_ret.rolling(window=w*2).mean()
-        hist_std = win_ret.rolling(window=w*2).std()
-        results[f'feat_ret_zscore_{w}d'] = (win_ret - hist_mean) / hist_std
+        mean = ret_1d.rolling(w).mean()
+        std = ret_1d.rolling(w).std()
+        results[f'feat_ret_zscore_{w}d'] = (ret_1d - mean) / std.replace(0, np.nan)
     
-    # 波动率 z-score
+    # 波动率 z-score: 7日波动率相对于过去 window 天的 z-score
+    log_ret = np.log(df['close'] / df['close'].shift(1))
+    vol_7d = log_ret.rolling(7).std() * np.sqrt(365)
     for w in windows:
-        vol = log_ret.rolling(window=w).std()
-        hist_mean = vol.rolling(window=w*2).mean()
-        hist_std = vol.rolling(window=w*2).std()
-        results[f'feat_vol_zscore_{w}d'] = (vol - hist_mean) / hist_std
+        mean = vol_7d.rolling(w).mean()
+        std = vol_7d.rolling(w).std()
+        results[f'feat_vol_zscore_{w}d'] = (vol_7d - mean) / std.replace(0, np.nan)
     
     # 注意力趋势 (7 天斜率)
     if 'composite_attention_score' in df.columns:
@@ -161,35 +161,20 @@ def compute_forward_returns(prices: pd.Series, lookaheads: List[int] = [3, 7, 30
 
 
 def compute_max_drawdown(prices: pd.Series, windows: List[int] = [7, 30]) -> Dict[str, pd.Series]:
-    """计算前瞻最大回撤"""
+    """计算滚动最大回撤（向后看）
+    
+    与 src/features/precomputed_fields.py 保持一致
+    返回负数（回撤是负的）
+    """
     results = {}
     
+    def max_dd(s, window):
+        rolling_max = s.rolling(window, min_periods=1).max()
+        drawdown = (s - rolling_max) / rolling_max
+        return drawdown.rolling(window).min()
+    
     for w in windows:
-        # 计算未来 w 天窗口内的最大回撤
-        mdd_list = []
-        for i in range(len(prices)):
-            if i + w >= len(prices):
-                mdd_list.append(np.nan)
-                continue
-            
-            future_slice = prices.iloc[i:i+w+1]
-            if len(future_slice) < 2:
-                mdd_list.append(np.nan)
-                continue
-            
-            # 从当前价格开始计算最大回撤
-            start_price = future_slice.iloc[0]
-            running_max = start_price
-            max_dd = 0.0
-            
-            for p in future_slice.iloc[1:]:
-                running_max = max(running_max, p)
-                dd = (running_max - p) / running_max if running_max > 0 else 0
-                max_dd = max(max_dd, dd)
-            
-            mdd_list.append(max_dd)
-        
-        results[f'max_drawdown_{w}d'] = pd.Series(mdd_list, index=prices.index)
+        results[f'max_drawdown_{w}d'] = max_dd(prices, w)
     
     return results
 
