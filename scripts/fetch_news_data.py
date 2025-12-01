@@ -359,8 +359,10 @@ def fetch_newsapi_news(days: int = 30) -> List[Dict]:
 def fetch_rss_feeds() -> List[Dict]:
     """
     RSS 聚合 - 免费无限制，作为补充数据源
+    支持中英文新闻源
     """
     feeds = [
+        # 英文源
         "https://www.coindesk.com/arc/outboundfeeds/rss/",
         "https://cryptoslate.com/feed/",
         "https://cointelegraph.com/rss",
@@ -369,12 +371,14 @@ def fetch_rss_feeds() -> List[Dict]:
         "https://news.bitcoin.com/feed",
         "https://thedefiant.io/api/feed",
         "https://blockworks.co/feed",
-        # 新增源
         "https://u.today/rss.php",
         "https://www.newsbtc.com/feed/",
         "https://beincrypto.com/feed/",
         "https://dailyhodl.com/feed/",
         "https://coingape.com/feed/",
+        # 中文源
+        "https://rss.panewslab.com/zh/gtimg/rss",  # PANews 中文
+        "https://www.odaily.news/v1/openapi/odailyrss",  # Odaily 中文
     ]
     
     news_list = []
@@ -384,6 +388,9 @@ def fetch_rss_feeds() -> List[Dict]:
         try:
             logger.info(f"[RSS] Fetching {feed_url}...")
             feed = feedparser.parse(feed_url)
+            
+            # 判断是否为中文源
+            is_chinese = any(cn_domain in feed_url for cn_domain in ['panewslab.com/zh', 'odaily.news'])
             
             for entry in feed.entries[:50]:  # 每个源最多 50 条
                 title = entry.get("title", "")
@@ -406,13 +413,16 @@ def fetch_rss_feeds() -> List[Dict]:
                 
                 source = feed.feed.get("title", feed_url.split("/")[2])
                 
+                # 检测语言
+                language = "zh" if is_chinese else "en"
+                
                 news_list.append({
                     "timestamp": int(dt.timestamp() * 1000),
                     "datetime": dt.isoformat(),
                     "title": title,
                     "source": source,
                     "url": link,
-                    "language": "en",
+                    "language": language,
                 })
             
             # logger.info(f"[RSS] {source}: {len([n for n in news_list if source in n['source']])} relevant articles")
