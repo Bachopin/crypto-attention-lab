@@ -11,11 +11,11 @@ from src.config.attention_channels import (
 from src.features.node_factor_utils import get_source_level_multiplier
 
 KEYWORD_TAGS = {
-    "listing": ["listing", "list on", "added to", "listed"],
-    "hack": ["hack", "exploit", "breach"],
-    "upgrade": ["upgrade", "update", "hard fork", "fork", "release"],
-    "partnership": ["partnership", "partner", "collaboration"],
-    "regulation": ["regulation", "sec", "lawsuit", "fine"],
+    "listing": ["listing", "list on", "added to", "listed", "上币", "上线", "登陆", "交易所"],
+    "hack": ["hack", "exploit", "breach", "黑客", "攻击", "漏洞", "被盗"],
+    "upgrade": ["upgrade", "update", "hard fork", "fork", "release", "升级", "更新", "硬分叉", "分叉", "主网"],
+    "partnership": ["partnership", "partner", "collaboration", "合作", "伙伴", "联手"],
+    "regulation": ["regulation", "sec", "lawsuit", "fine", "监管", "政策", "诉讼", "罚款", "证监会"],
 }
 
 # 英文正面词

@@ -137,8 +137,32 @@ class MarketDataService:
                 attention_df.set_index('datetime', inplace=True)
 
         # 4. 数据对齐 (Left Join 以价格数据为基准)
-        # 这样保证了 K 线结构的完整性，不会因为缺少注意力数据而丢弃 K 线
-        merged_df = price_df.join(attention_df, how='left', rsuffix='_att')
+        # 对于日线数据，价格和注意力的时间戳可能不完全对齐（时区差异导致小时不同）
+        # 例如：价格 16:00 UTC，注意力 00:00 UTC（同一交易日）
+        # 解决方案：对日线数据按 UTC 日期进行 merge，而非精确时间戳 join
+        if timeframe.lower() == '1d' and not attention_df.empty:
+            # 提取日期用于对齐
+            price_df = price_df.reset_index()
+            price_df['_merge_date'] = price_df['datetime'].dt.date
+            
+            attention_df = attention_df.reset_index()
+            attention_df['_merge_date'] = attention_df['datetime'].dt.date
+            # 重命名 attention 的 datetime 列避免冲突
+            attention_df = attention_df.rename(columns={'datetime': 'datetime_att'})
+            
+            # 按日期 merge
+            merged_df = price_df.merge(
+                attention_df.drop(columns=['datetime_att'], errors='ignore'),
+                on='_merge_date',
+                how='left',
+                suffixes=('', '_att')
+            )
+            # 删除辅助列并恢复索引
+            merged_df = merged_df.drop(columns=['_merge_date'], errors='ignore')
+            merged_df = merged_df.set_index('datetime')
+        else:
+            # 其他 timeframe 或无注意力数据时，使用原有逻辑
+            merged_df = price_df.join(attention_df, how='left', rsuffix='_att')
 
         # 5. 缺失值处理
         # 注意力数据可能在周末或某些时段缺失，或者因为 timeframe 不一致(如4h价格 vs 1d注意力)

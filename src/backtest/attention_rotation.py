@@ -68,10 +68,22 @@ def run_attention_rotation_backtest(
         
         # 对齐：只保留有价格和 Attention 的日期
         # 这里我们主要需要 Attention 来做决策，价格来计算收益
-        # 简单起见，我们分别存储，但在计算时要注意对齐
+        # 注意：价格数据时间戳是 16:00:00（Binance日线收盘），注意力是 00:00:00
+        # 因此需要使用日期进行对齐，而非完整时间戳
         
-        price_map[sym] = p_df["close"]
-        attention_map[sym] = a_df[att_col]
+        # 提取日期作为索引，以便后续对齐
+        p_df["_date"] = p_df.index.normalize()
+        a_df["_date"] = a_df.index.normalize()
+        
+        # 使用日期索引存储
+        price_series = p_df.set_index("_date")["close"]
+        price_series = price_series[~price_series.index.duplicated(keep='last')]
+        
+        attention_series = a_df.set_index("_date")[att_col]
+        attention_series = attention_series[~attention_series.index.duplicated(keep='last')]
+        
+        price_map[sym] = price_series
+        attention_map[sym] = attention_series
         valid_symbols.append(sym)
         
     if not valid_symbols:

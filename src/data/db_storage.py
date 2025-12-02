@@ -12,6 +12,7 @@ import logging
 from sqlalchemy import and_, or_, inspect, text, func
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
+from src.utils.datetime_utils import ensure_utc_column, to_utc
 from src.config.attention_channels import DEFAULT_SOURCE_LANGUAGE
 from src.database.models import (
     Symbol, News, Price, AttentionFeature, NewsStats,
@@ -718,7 +719,7 @@ class DatabaseStorage:
             if not results:
                 return pd.DataFrame()
             
-            return pd.DataFrame([{
+            df = pd.DataFrame([{
                 'timestamp': p.timestamp,
                 'datetime': p.datetime,
                 'open': p.open,
@@ -726,7 +727,13 @@ class DatabaseStorage:
                 'low': p.low,
                 'close': p.close,
                 'volume': p.volume,
+                'timeframe': timeframe,
             } for p in results])
+            
+            # 统一转换为 UTC 时区（PostgreSQL 可能返回服务器本地时区）
+            ensure_utc_column(df, 'datetime')
+            
+            return df
         finally:
             session.close()
     
@@ -1016,7 +1023,7 @@ class DatabaseStorage:
                 return pd.DataFrame()
             
             # 返回完整的注意力特征，包含预计算字段
-            return pd.DataFrame([{
+            df = pd.DataFrame([{
                 # 基础字段
                 'datetime': f.datetime,
                 'timeframe': f.timeframe,
@@ -1081,6 +1088,11 @@ class DatabaseStorage:
                 'max_drawdown_7d': f.max_drawdown_7d,
                 'max_drawdown_30d': f.max_drawdown_30d,
             } for f in results])
+            
+            # 统一转换为 UTC 时区（PostgreSQL 可能返回服务器本地时区）
+            ensure_utc_column(df, 'datetime')
+            
+            return df
         finally:
             session.close()
 
