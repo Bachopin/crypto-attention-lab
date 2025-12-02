@@ -158,10 +158,12 @@ function MajorAssetModuleComponent({
           end: dateRange.end,
         }),
         // 为 events 添加超时和错误处理
+        // 注意：不传 start/end 参数，让事件覆盖完整的价格数据历史范围
+        // 前端会根据图表可视范围自动筛选显示的事件
         fetchAttentionEvents({
           symbol,
-          start: dateRange.start,
-          end: dateRange.end,
+          // start: dateRange.start,  // 移除：避免过滤掉早期的中文新闻事件
+          // end: dateRange.end,      // 移除：让后端返回所有历史事件
           lookback_days: 30,
           min_quantile: settings.eventDetectionQuantile, // Use setting
         }).catch(err => {
@@ -239,11 +241,25 @@ function MajorAssetModuleComponent({
   }, [loadData, symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile])
 
   // 自动刷新：每 5 分钟静默更新数据（与后端价格更新频率同步）
+  // 创建一个稳定的刷新引用，避免频繁重建 interval
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
   useEffect(() => {
-    const interval = setInterval(() => {
+    // 清除旧的 interval
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current)
+    }
+    
+    // 创建新的 interval，使用最新的 loadData
+    refreshIntervalRef.current = setInterval(() => {
       loadData(false) // 静默更新，不显示 loading
     }, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+    
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+      }
+    }
   }, [loadData])
 
   // 处理图表范围同步 - 使用 useCallback 保持引用稳定

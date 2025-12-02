@@ -55,6 +55,7 @@ class ConnectionManager:
         self._binance_subscriptions: Set[str] = set()
         self._lock = asyncio.Lock()
         self._binance_init_failed = False  # 标记 Binance 初始化是否失败
+        self._binance_init_started = False  # 防止重复初始化任务
     
     async def connect(self, websocket: WebSocket):
         """接受新连接"""
@@ -145,44 +146,86 @@ class ConnectionManager:
         确保 Binance WebSocket 已订阅该交易对
         
         优雅降级：如果 Binance WS 不可用，仅记录警告，不阻塞客户端连接
+        
+        策略：
+        - 第一次初始化时，在后台异步启动 Binance 连接，不阻塞客户端
+        - 不等待初始化完成，立即返回
         """
         # 如果之前初始化失败，跳过重试（避免重复错误日志）
         if self._binance_init_failed:
             return
-            
-        async with self._lock:
-            if self.binance_ws is None:
+        
+        # 第一次初始化：创建并后台启动 Binance WebSocket
+        if self.binance_ws is None and not self._binance_init_started:
+            self._binance_init_started = True
+            # 在后台启动初始化任务，不阻塞当前客户端连接
+            asyncio.create_task(self._initialize_binance_async())
+            return
+        
+        # 等待初始化完成（如果仍在进行中）
+        if self.binance_ws is None:
+            # 初始化仍在进行中，等待不超过 2 秒
+            try:
+                await asyncio.wait_for(self._wait_for_binance_init(), timeout=2.0)
+            except asyncio.TimeoutError:
+                logger.warning("[WS] Binance initialization timeout, proceeding without real-time data")
+                return
+        
+        # 订阅交易对
+        if self.binance_ws is not None:
+            await self._subscribe_trading_pair(symbol)
+    
+    async def _initialize_binance_async(self):
+        """异步初始化 Binance WebSocket，不阻塞客户端连接"""
+        try:
+            async with self._lock:
+                if self.binance_ws is not None:
+                    return  # 已初始化
+                
                 self.binance_ws = _get_binance_ws_manager()
                 if self.binance_ws is None:
                     self._binance_init_failed = True
                     logger.warning("[WS] Binance WebSocket not available, real-time price push disabled")
                     return
-                    
-                # 启动 Binance WS（如果还没运行）
-                try:
-                    if not self.binance_ws.is_running:
-                        await self.binance_ws.start()
-                except Exception as e:
-                    logger.error(f"[WS] Failed to start Binance WebSocket: {e}")
-                    self._binance_init_failed = True
-                    return
             
-            # 订阅交易对（使用 1m K 线）
-            trading_pair = f"{symbol}USDT"
-            if trading_pair not in self._binance_subscriptions:
-                self._binance_subscriptions.add(trading_pair)
-                
-                # 注册回调 - 使用默认参数捕获当前 symbol 值
-                async def on_kline(data: dict, sym: str = symbol):
-                    logger.debug(f"[WS] Received kline for {sym}: close={data.get('close')}")
-                    await self._on_binance_kline(sym, data)
-                
-                try:
-                    await self.binance_ws.subscribe(trading_pair, "1m", on_kline)
-                    logger.info(f"[WS] Binance subscription added for {trading_pair}")
-                except Exception as e:
-                    logger.error(f"[WS] Failed to subscribe to {trading_pair}: {e}")
-                    self._binance_subscriptions.discard(trading_pair)
+            # 启动 Binance WS（在 lock 外执行，防止阻塞）
+            try:
+                if not self.binance_ws.is_running:
+                    await self.binance_ws.start()
+                    logger.info("[WS] Binance WebSocket started successfully")
+            except Exception as e:
+                logger.error(f"[WS] Failed to start Binance WebSocket: {e}")
+                async with self._lock:
+                    self._binance_init_failed = True
+                    self.binance_ws = None
+        except Exception as e:
+            logger.error(f"[WS] Error in Binance initialization: {e}")
+            self._binance_init_failed = True
+    
+    async def _wait_for_binance_init(self):
+        """等待 Binance 初始化完成"""
+        for _ in range(20):  # 最多等待 2 秒（20 × 100ms）
+            if self.binance_ws is not None or self._binance_init_failed:
+                return
+            await asyncio.sleep(0.1)
+    
+    async def _subscribe_trading_pair(self, symbol: str):
+        """订阅单个交易对"""
+        trading_pair = f"{symbol}USDT"
+        if trading_pair not in self._binance_subscriptions:
+            self._binance_subscriptions.add(trading_pair)
+            
+            # 注册回调 - 使用默认参数捕获当前 symbol 值
+            async def on_kline(data: dict, sym: str = symbol):
+                logger.debug(f"[WS] Received kline for {sym}: close={data.get('close')}")
+                await self._on_binance_kline(sym, data)
+            
+            try:
+                await self.binance_ws.subscribe(trading_pair, "1m", on_kline)
+                logger.info(f"[WS] Binance subscription added for {trading_pair}")
+            except Exception as e:
+                logger.error(f"[WS] Failed to subscribe to {trading_pair}: {e}")
+                self._binance_subscriptions.discard(trading_pair)
     
     async def _on_binance_kline(self, symbol: str, data: dict):
         """处理 Binance K 线数据，广播给订阅者"""
@@ -252,8 +295,22 @@ async def websocket_price_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # 接收客户端消息
-            data = await websocket.receive_json()
+            try:
+                # 添加接收超时，防止僵尸连接堆积（90 秒无数据则断开）
+                data = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=90.0
+                )
+            except asyncio.TimeoutError:
+                # 发送 ping 让客户端响应
+                try:
+                    await websocket.send_json({"type": "ping"})
+                    logger.debug("[WS] Sent ping to inactive client")
+                    continue
+                except Exception as e:
+                    logger.warning(f"[WS] Failed to send ping, disconnecting: {e}")
+                    break
+            
             action = data.get("action", "")
             
             if action == "subscribe":

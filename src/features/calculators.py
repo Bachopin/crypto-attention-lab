@@ -238,10 +238,18 @@ def calculate_composite_attention(
                 gt, 'google_trend_value', grouped['datetime']
             )
         else:
-            # Ensure datetime type for merge
+            # For daily frequency, match by DATE (not full datetime timestamp)
+            # because GoogleTrend may store midnight in local timezone (00:00+08:00)
+            # while Price/AttentionFeature stores UTC midnight (08:00+08:00)
             if 'datetime' in gt.columns:
                 gt['datetime'] = pd.to_datetime(gt['datetime'], utc=True)
-                grouped = grouped.merge(gt[['datetime', 'google_trend_value']], on='datetime', how='left')
+                # Build a date-to-value mapping (take last value for each date if duplicates)
+                gt['_date'] = gt['datetime'].dt.date
+                gt_lookup = gt.drop_duplicates(subset=['_date'], keep='last').set_index('_date')['google_trend_value']
+                
+                # Map values by date
+                grouped_dates = pd.to_datetime(grouped['datetime'], utc=True).dt.date
+                grouped['google_trend_value'] = grouped_dates.map(gt_lookup)
             else:
                 # Fallback if no datetime col (unlikely if coming from fetcher)
                 pass
@@ -264,9 +272,15 @@ def calculate_composite_attention(
                 tw, 'twitter_volume', grouped['datetime']
             )
         else:
+            # For daily frequency, match by DATE (not full datetime timestamp)
+            # Same issue as Google Trends - timezone offset mismatch
             if 'datetime' in tw.columns:
                 tw['datetime'] = pd.to_datetime(tw['datetime'], utc=True)
-                grouped = grouped.merge(tw[['datetime', 'twitter_volume']], on='datetime', how='left')
+                tw['_date'] = tw['datetime'].dt.date
+                tw_lookup = tw.drop_duplicates(subset=['_date'], keep='last').set_index('_date')['twitter_volume']
+                
+                grouped_dates = pd.to_datetime(grouped['datetime'], utc=True).dt.date
+                grouped['twitter_volume'] = grouped_dates.map(tw_lookup)
 
     grouped['twitter_volume'] = grouped.get('twitter_volume', pd.Series(index=grouped.index)).fillna(0.0)
     grouped['twitter_volume_zscore'] = compute_rolling_zscore(grouped['twitter_volume'], window=rolling_window)

@@ -40,38 +40,63 @@ def _normalize_split_method(split_method: str, split_quantiles: Optional[List[fl
     return method
 
 
-def _compute_quantile_bins(series: pd.Series, split_method: str, split_quantiles: Optional[List[float]]) -> Tuple[np.ndarray, List[str]]:
+def _compute_regime_labels(series: pd.Series, split_method: str, split_quantiles: Optional[List[float]]) -> Tuple[pd.Series, List[str]]:
+    """
+    使用 qcut 按排名分组，确保每组样本数大致相等。
+    返回 (regime_labels_series, label_names)
+    """
     if split_quantiles:
         qs = sorted({float(q) for q in split_quantiles})
         if qs[0] > 0.0:
             qs.insert(0, 0.0)
         if qs[-1] < 1.0:
             qs.append(1.0)
+        n_bins = len(qs) - 1
+        labels = [f"q{i + 1}" for i in range(n_bins)]
     elif split_method == "tercile":
-        qs = [0.0, 1 / 3, 2 / 3, 1.0]
+        # Tercile: 3 bins (q1, q2, q3)
+        n_bins = 3
+        qs = [0.0, 1/3, 2/3, 1.0]
+        labels = ["q1", "q2", "q3"]
     elif split_method == "quartile":
+        # Quartile: 4 bins (q1, q2, q3, q4)
+        n_bins = 4
         qs = [0.0, 0.25, 0.5, 0.75, 1.0]
+        labels = ["q1", "q2", "q3", "q4"]
     else:
         raise ValueError("split_quantiles must be provided when split_method='custom'")
 
-    if len(qs) < 2:
-        raise ValueError("split_quantiles must define at least two cut points")
-
-    quantiles = series.quantile(qs).to_numpy()
-    # Ensure strictly increasing to avoid duplicates causing cut errors
-    quantiles = np.unique(quantiles)
-    if len(quantiles) < 2:
-        raise ValueError("Insufficient variance in attention series to compute bins")
-
-    n_bins = len(quantiles) - 1
-    if n_bins == 3:
-        labels = ["low", "mid", "high"]
-    elif n_bins == 4:
-        labels = ["q1", "q2", "q3", "q4"]
-    else:
-        labels = [f"q{i + 1}" for i in range(n_bins)]
-
-    return quantiles, labels
+    # 使用 qcut 按排名分组，duplicates='drop' 处理重复值
+    try:
+        regime_series = pd.qcut(series, q=n_bins, labels=labels, duplicates='drop')
+        # 检查实际生成的分组数
+        actual_bins = regime_series.nunique()
+        if actual_bins < n_bins:
+            # 分组数不足，可能是数据重复值太多
+            # 使用排名强制分组
+            ranks = series.rank(method='first')
+            regime_series = pd.qcut(ranks, q=n_bins, labels=labels, duplicates='drop')
+    except ValueError:
+        # qcut 失败时，使用排名强制分组
+        ranks = series.rank(method='first')
+        try:
+            regime_series = pd.qcut(ranks, q=n_bins, labels=labels, duplicates='drop')
+        except ValueError:
+            # 仍然失败，退化为二分
+            regime_series = pd.qcut(ranks, q=2, labels=["q1", "q2"], duplicates='drop')
+            labels = ["q1", "q2"]
+    
+    # 获取每个分组的分位数范围
+    quantile_ranges = {}
+    for label in labels:
+        mask = regime_series == label
+        if mask.any():
+            vals = series[mask]
+            quantile_ranges[label] = [float(vals.min()), float(vals.max())]
+        else:
+            quantile_ranges[label] = [None, None]
+    
+    return regime_series, labels, quantile_ranges
 
 
 def _max_drawdown_from_returns(returns: pd.Series) -> float:
@@ -175,9 +200,10 @@ def analyze_attention_regimes(
             }
             continue
 
-        # Compute bins
+        # Compute regime labels using qcut (rank-based equal-frequency binning)
         try:
-            bin_edges, labels = _compute_quantile_bins(df[attention_col], method, split_quantiles)
+            regime_series, labels, quantile_ranges = _compute_regime_labels(df[attention_col], method, split_quantiles)
+            df["regime"] = regime_series
         except Exception as e:
             results[symbol] = {
                 "meta": {"error": f"failed to compute quantiles: {e}"},
@@ -185,9 +211,6 @@ def analyze_attention_regimes(
             }
             continue
 
-        # Assign regimes
-        # Use pandas.cut with include_lowest=True
-        df["regime"] = pd.cut(df[attention_col], bins=bin_edges, labels=labels, include_lowest=True)
         df = df.dropna(subset=["regime"])  # drop where binning failed
 
         # Precompute future returns for all k
@@ -202,13 +225,45 @@ def analyze_attention_regimes(
         # Assemble stats by regime
         regime_list = []
         
-        # We want to iterate through labels to maintain order (low -> high)
-        for i, lab in enumerate(labels):
+        # First, add "extreme" regime (top 5%) as special entry
+        extreme_quantile = 0.95
+        extreme_threshold = df[attention_col].quantile(extreme_quantile)
+        extreme_mask = df[attention_col] >= extreme_threshold
+        extreme_subset = df[extreme_mask]
+        
+        if not extreme_subset.empty:
+            extreme_stats = {}
+            for k in sanitized_lookahead:
+                r = future_returns[k].loc[extreme_subset.index].dropna()
+                if r.empty:
+                    extreme_stats[str(k)] = {
+                        "avg_return": None,
+                        "std_return": None,
+                        "pos_ratio": None,
+                        "sample_count": 0
+                    }
+                else:
+                    extreme_stats[str(k)] = {
+                        "avg_return": float(r.mean()),
+                        "std_return": float(r.std(ddof=1)) if len(r) > 1 else 0.0,
+                        "pos_ratio": float((r > 0).mean()),
+                        "sample_count": int(len(r)),
+                    }
+            
+            regime_list.append({
+                "name": "extreme",
+                "quantile_range": [float(extreme_threshold), float(df[attention_col].max())],
+                "stats": extreme_stats,
+                "is_extreme": True,
+                "description": f"Top 5% (≥{extreme_threshold:.2f})"
+            })
+        
+        # Then iterate through normal labels to maintain order (low -> high)
+        for lab in labels:
             subset = df[df["regime"] == lab]
             
-            # Determine quantile range for this bin
-            # bin_edges has length len(labels) + 1
-            q_range = [float(bin_edges[i]), float(bin_edges[i+1])]
+            # Get quantile range for this bin from precomputed ranges
+            q_range = quantile_ranges.get(lab, [None, None])
             
             stats_by_k = {}
             

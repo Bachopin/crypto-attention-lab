@@ -103,6 +103,7 @@ interface CacheEntry<T> {
 // 简单的内存缓存，TTL 5分钟（价格数据变化不频繁，延长缓存减少请求）
 const requestCache = new Map<string, CacheEntry<any>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 50; // 限制缓存条数，防止无限增长
 
 function getCacheKey(endpoint: string, params: Record<string, any>): string {
   return `${endpoint}:${JSON.stringify(params)}`;
@@ -120,18 +121,51 @@ function getFromCache<T>(key: string): T | null {
   return null;
 }
 
-function setToCache<T>(key: string, data: T): void {
-  // 限制缓存大小，防止内存泄漏
-  if (requestCache.size > 100) {
-    const firstKey = requestCache.keys().next().value;
-    if (firstKey) requestCache.delete(firstKey);
+function cleanExpiredCache(): void {
+  const now = Date.now();
+  const keysToDelete: string[] = [];
+  
+  for (const [key, entry] of requestCache.entries()) {
+    if (now - entry.timestamp > CACHE_TTL) {
+      keysToDelete.push(key);
+    }
   }
+  
+  keysToDelete.forEach(key => requestCache.delete(key));
+}
+
+function setToCache<T>(key: string, data: T): void {
+  // 主动清理过期缓存
+  cleanExpiredCache();
+  
+  // 如果仍然超过限制，删除最旧的条目（LRU策略）
+  if (requestCache.size >= MAX_CACHE_SIZE) {
+    let oldestKey: string | null = null;
+    let oldestTime = Date.now();
+    
+    for (const [k, entry] of requestCache.entries()) {
+      if (entry.timestamp < oldestTime) {
+        oldestTime = entry.timestamp;
+        oldestKey = k;
+      }
+    }
+    
+    if (oldestKey) {
+      requestCache.delete(oldestKey);
+    }
+  }
+  
   requestCache.set(key, { data, timestamp: Date.now() });
 }
 
 // 清除所有缓存（用于强制刷新）
 export function clearApiCache(): void {
   requestCache.clear();
+}
+
+// 获取缓存大小（用于调试）
+export function getCacheSize(): number {
+  return requestCache.size;
 }
 
 // ==================== Helper Functions ====================
@@ -290,7 +324,8 @@ export async function fetchPrice(params: FetchPriceParams = {}): Promise<Candle[
     end,
   };
 
-  return fetchAPI<Candle[]>('/api/price', apiParams);
+  // 禁用缓存：时间范围参数经常变化
+  return fetchAPI<Candle[]>('/api/price', apiParams, false);
 }
 
 /**
@@ -312,7 +347,8 @@ export async function fetchAttention(params: FetchAttentionParams = {}): Promise
     end,
   };
 
-  return fetchAPI<AttentionPoint[]>('/api/attention', apiParams);
+  // 禁用缓存：时间范围参数经常变化
+  return fetchAPI<AttentionPoint[]>('/api/attention', apiParams, false);
 }
 
 /**
@@ -337,13 +373,15 @@ export async function fetchNews(params: FetchNewsParams = {}): Promise<NewsItem[
     before,
     source,
   };
-  return fetchAPI<NewsItem[]>('/api/news', apiParams);
+  // 禁用缓存：时间范围和其他参数经常变化
+  return fetchAPI<NewsItem[]>('/api/news', apiParams, false);
 }
 
 export async function fetchNewsCount(params: FetchNewsParams = {}): Promise<{ total: number }> {
   const { symbol = 'ALL', start, end, before, source } = params;
   const apiParams = { symbol, start, end, before, source };
-  return fetchAPI<{ total: number }>('/api/news/count', apiParams);
+  // 禁用缓存：时间范围参数经常变化
+  return fetchAPI<{ total: number }>('/api/news/count', apiParams, false);
 }
 
 /**
@@ -358,7 +396,8 @@ export async function fetchNewsTrend(params: {
 } = {}): Promise<NewsTrendPoint[]> {
   const { symbol = 'ALL', start, end, interval = '1d' } = params;
   const apiParams = { symbol, start, end, interval };
-  return fetchAPI<NewsTrendPoint[]>('/api/news/trend', apiParams);
+  // 禁用缓存：时间范围和间隔参数经常变化
+  return fetchAPI<NewsTrendPoint[]>('/api/news/trend', apiParams, false);
 }
 
 /**
@@ -390,7 +429,8 @@ export async function fetchTopCoins(limit: number = 100): Promise<TopCoinsRespon
 export async function fetchAttentionEvents(params: { symbol?: string; start?: string; end?: string; lookback_days?: number; min_quantile?: number } = {}): Promise<AttentionEvent[]> {
   const { symbol = 'ZEC', start, end, lookback_days = 30, min_quantile = 0.8 } = params;
   const apiParams = { symbol, start, end, lookback_days, min_quantile };
-  return fetchAPI<AttentionEvent[]>('/api/attention-events', apiParams);
+  // 禁用缓存，因为此端点经常用于特定时间范围查询，缓存会导致不准确的结果
+  return fetchAPI<AttentionEvent[]>('/api/attention-events', apiParams, false);
 }
 
 export async function runBasicAttentionBacktest(params: { symbol?: string; lookback_days?: number; attention_quantile?: number; max_daily_return?: number; holding_days?: number; stop_loss_pct?: number | null; take_profit_pct?: number | null; max_holding_days?: number | null; position_size?: number; attention_source?: 'legacy' | 'composite'; attention_condition?: AttentionCondition | null; start?: string; end?: string } = {}): Promise<BacktestResult> {
@@ -447,7 +487,8 @@ export async function runMultiSymbolBacktest(params: {
 
 export async function fetchAttentionEventPerformance(params: { symbol?: string; lookahead_days?: string } = {}): Promise<EventPerformanceTable> {
   const { symbol = 'ZEC', lookahead_days = '1,3,5,10' } = params
-  return fetchAPI<EventPerformanceTable>('/api/attention-events/performance', { symbol, lookahead_days })
+  // 禁用缓存：symbol 参数变化时需要新的性能数据
+  return fetchAPI<EventPerformanceTable>('/api/attention-events/performance', { symbol, lookahead_days }, false)
 }
 
 /**
@@ -502,13 +543,10 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
       fetchNews({ symbol, start: yesterday.toISOString() }),
     ]);
 
-    console.log('[Summary Stats] Price data points:', priceData.length);
-    console.log('[Summary Stats] Latest price data points:', latestPriceData.length);
-    console.log('[Summary Stats] Attention data points:', attentionData.length);
-    console.log('[Summary Stats] News data points:', newsData.length);
+    // 数据已加载，计算统计信息
 
     if (priceData.length === 0) {
-      console.warn('[Summary Stats] No price data available');
+      // 没有价格数据
       throw new Error('No price data available');
     }
 
@@ -581,10 +619,10 @@ export async function fetchSummaryStats(symbol: string = 'ZEC'): Promise<Summary
       volatility_30d,
     };
 
-    console.log('[Summary Stats] Calculated:', stats);
+    // 统计信息计算完成
     return stats;
   } catch (error) {
-    console.error('Failed to calculate summary stats:', error);
+    // 计算失败，返回默认值
     // Return default values on error
     return {
       current_price: 0,

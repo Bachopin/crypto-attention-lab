@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { attentionService } from '@/lib/services';
-import { useAsyncCallback } from '@/lib/hooks';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -28,6 +27,9 @@ interface RegimeStats {
 interface Regime {
   name: string;
   stats: Record<string, RegimeStats>;
+  is_extreme?: boolean;
+  description?: string;
+  quantile_range?: [number, number];
 }
 
 interface SymbolResult {
@@ -47,20 +49,31 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
   const [lookaheadDaysInput, setLookaheadDaysInput] = useState('7,30');
   const [attentionSource, setAttentionSource] = useState<AttentionSource>('composite');
   const [splitMethod, setSplitMethod] = useState<SplitMethod>('tercile');
+  
+  // 手动状态管理
+  const [data, setData] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
   // Sync symbolsInput when defaultSymbols changes
   React.useEffect(() => {
     setSymbolsInput(defaultSymbols.join(','));
   }, [defaultSymbols]);
 
-  // 使用 useAsyncCallback 替代手动状态管理
-  const { execute: runAnalysis, data, loading, error } = useAsyncCallback(
-    async () => {
-      const symbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-      const lookahead_days = lookaheadDaysInput.split(',').map(s => Number(s.trim())).filter(v => !isNaN(v) && v > 0);
-      
-      if (!symbols.length) throw new Error('请提供至少一个 symbol');
-      
+  // 使用 useCallback 并传入所有依赖项，确保参数变化时函数更新
+  const runAnalysis = useCallback(async () => {
+    const symbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const lookahead_days = lookaheadDaysInput.split(',').map(s => Number(s.trim())).filter(v => !isNaN(v) && v > 0);
+    
+    if (!symbols.length) {
+      setError(new Error('请提供至少一个 symbol'));
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
       const result = await attentionService.getAttentionRegimeAnalysis(symbols, {
         lookaheadDays: lookahead_days,
         attentionSource,
@@ -68,14 +81,18 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
       });
       
       // 转换格式以匹配组件期望
-      return {
+      setData({
         results: result.results as unknown as Record<string, SymbolResult>,
         meta: {
           lookahead_days: result.meta.lookaheadDays,
         },
-      } as AnalysisResult;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setLoading(false);
     }
-  );
+  }, [symbolsInput, lookaheadDaysInput, attentionSource, splitMethod]);
 
   const generateAnalysisReport = (regimes: Regime[], lookaheadDays: number[]) => {
     if (!regimes || regimes.length < 2) return null;
@@ -277,23 +294,89 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
                   </tr>
                 </thead>
                 <tbody>
-                  {symRes.regimes && symRes.regimes.map((regime: Regime) => {
+                  {symRes.regimes && symRes.regimes.map((regime: Regime, idx: number) => {
                     const firstStatKey = Object.keys(regime.stats)[0];
                     const sampleCount = firstStatKey ? regime.stats[firstStatKey].sample_count : 0;
+                    const isExtreme = regime.is_extreme;
+                    const totalRegimes = symRes.regimes.filter(r => !r.is_extreme).length;
+                    
+                    // 生成解释性描述
+                    const getRegimeDescription = () => {
+                      if (isExtreme) {
+                        return "🔥 极端高热度 (Top 5%)：市场关注度最高的时刻，通常伴随重大事件";
+                      }
+                      
+                      // 根据分组方法和位置生成描述
+                      const normalRegimes = symRes.regimes.filter(r => !r.is_extreme);
+                      const regimeIdx = normalRegimes.findIndex(r => r.name === regime.name);
+                      
+                      if (totalRegimes === 3) {
+                        // Tercile
+                        if (regimeIdx === 0) return "🧊 低热度区间：市场关注较少，波动通常较小";
+                        if (regimeIdx === 1) return "📊 中热度区间：市场关注度适中，常态水平";
+                        if (regimeIdx === 2) return "🔥 高热度区间：市场关注较高，波动可能增大";
+                      } else if (totalRegimes === 4) {
+                        // Quartile
+                        if (regimeIdx === 0) return "🧊 最低热度 (0-25%)：市场极度冷淡，通常是震荡期";
+                        if (regimeIdx === 1) return "❄️ 较低热度 (25-50%)：市场关注度偏低";
+                        if (regimeIdx === 2) return "🌡️ 较高热度 (50-75%)：市场关注度升温";
+                        if (regimeIdx === 3) return "🔥 最高热度 (75-100%)：市场高度关注，需警惕追高风险";
+                      }
+                      
+                      return "";
+                    };
+                    
+                    const description = getRegimeDescription();
+                    const rangeText = regime.quantile_range 
+                      ? `[${regime.quantile_range[0]?.toFixed(2) ?? '-'}, ${regime.quantile_range[1]?.toFixed(2) ?? '-'}]`
+                      : '';
                     
                     return (
-                      <tr key={regime.name} className="border-t border-border/40">
-                        <td className="py-1 font-medium">{regime.name}</td>
-                        <td className="py-1 text-right">{sampleCount}</td>
+                      <tr 
+                        key={regime.name} 
+                        className={`border-t border-border/40 ${isExtreme ? 'bg-orange-500/10 dark:bg-orange-500/20' : ''}`}
+                      >
+                        <td className="py-1.5">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${isExtreme ? 'text-orange-600 dark:text-orange-400' : ''}`}>
+                                {regime.description || regime.name}
+                              </span>
+                              {rangeText && (
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  {rangeText}
+                                </span>
+                              )}
+                            </div>
+                            {description && (
+                              <span className="text-[10px] text-muted-foreground mt-0.5">
+                                {description}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-1.5 text-right align-top">{sampleCount}</td>
                         {data.meta.lookahead_days.map(k => {
                           const stats = regime.stats[String(k)];
-                          const v = stats?.avg_return != null ? (stats.avg_return * 100).toFixed(2) + '%' : '-';
-                          return <td key={`avg-${k}`} className="py-1 text-right">{v}</td>;
+                          const avgReturn = stats?.avg_return;
+                          const v = avgReturn != null ? (avgReturn * 100).toFixed(2) + '%' : '-';
+                          const colorClass = avgReturn != null 
+                            ? avgReturn > 0.01 ? 'text-green-600 dark:text-green-400' 
+                            : avgReturn < -0.01 ? 'text-red-600 dark:text-red-400' 
+                            : ''
+                            : '';
+                          return <td key={`avg-${k}`} className={`py-1.5 text-right align-top ${colorClass}`}>{v}</td>;
                         })}
                         {data.meta.lookahead_days.map(k => {
                           const stats = regime.stats[String(k)];
-                          const v = stats?.pos_ratio != null ? (stats.pos_ratio * 100).toFixed(1) + '%' : '-';
-                          return <td key={`pos-${k}`} className="py-1 text-right">{v}</td>;
+                          const posRatio = stats?.pos_ratio;
+                          const v = posRatio != null ? (posRatio * 100).toFixed(1) + '%' : '-';
+                          const colorClass = posRatio != null
+                            ? posRatio > 0.55 ? 'text-green-600 dark:text-green-400'
+                            : posRatio < 0.45 ? 'text-red-600 dark:text-red-400'
+                            : ''
+                            : '';
+                          return <td key={`pos-${k}`} className={`py-1.5 text-right align-top ${colorClass}`}>{v}</td>;
                         })}
                       </tr>
                     );

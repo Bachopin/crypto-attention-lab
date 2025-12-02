@@ -61,10 +61,10 @@ export class DashboardService {
           return []; 
         }),
         // 对于事件，我们希望覆盖当前 K 线区间内的所有事件：
-        // - Attention 图 & Price 图的时间范围，已经由 price/attention 数据决定并在图表内部 fitContent
-        // - 这里使用 lookback_days 来近似 K 线区间长度，而不是强行从第一根 K 线时间截断
-        //   这样可以保证当前可见 K 线上的所有事件标注都能被拿到
-        fetchAttentionEvents({ symbol }).catch(e => { 
+        // - 使用与价格数据相同的 startDate，确保事件时间范围与 K 线完全匹配
+        // - 这样可以保证当前可见 K 线上的所有事件标注都能被拿到（包括早期的中文新闻事件）
+        // - 不传 end 参数，让后端返回从 startDate 到现在的所有事件
+        fetchAttentionEvents({ symbol, start: startDate }).catch(e => { 
           console.warn('[DashboardService] Events fetch failed', e); 
           return []; 
         }),

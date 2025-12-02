@@ -22,6 +22,8 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
     const chartRef = useRef<IChartApi | null>(null)
     const lineSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
     const isDisposedRef = useRef(false)
+    // 用于防止循环：标记是否是程序内部设置的 range
+    const isSettingRangeRef = useRef(false)
     
     // 使用 ref 存储回调，避免图表重建
     const onVisibleRangeChangeRef = useRef(onVisibleRangeChange)
@@ -50,8 +52,11 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         if (isDisposedRef.current) return
         if (chartRef.current && range) {
           try {
+            isSettingRangeRef.current = true
             chartRef.current.timeScale().setVisibleRange(range)
+            setTimeout(() => { isSettingRangeRef.current = false }, 0)
           } catch (err) {
+            isSettingRangeRef.current = false
             console.warn('[AttentionChart] Failed to set visible range:', err)
           }
         }
@@ -126,6 +131,9 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
 
       // Subscribe to visible range changes - 使用 ref 避免重建
       chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        // 如果是程序内部设置的 range，跳过广播避免循环
+        if (isSettingRangeRef.current) return
+        
         const visibleRange = chart.timeScale().getVisibleRange()
         if (onVisibleRangeChangeRef.current) {
           onVisibleRangeChangeRef.current(visibleRange)
@@ -148,7 +156,7 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         if (entries.length === 0 || !entries[0].contentRect) return
         if (chartRef.current && chartContainerRef.current) {
           const newWidth = chartContainerRef.current.clientWidth
-          console.log(`[AttentionChart] Resize: width=${newWidth}`)
+          // 窗口尺寸已更新
           if (newWidth <= 0) return
           chartRef.current.applyOptions({ width: newWidth })
           // Force fit content on resize
@@ -204,10 +212,9 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
         validData.forEach(d => uniqueDataMap.set(d.time, d));
         const uniqueData = Array.from(uniqueDataMap.values()).sort((a: any, b: any) => a.time - b.time);
 
-        console.log(`[AttentionChart] Setting data: ${uniqueData.length} points (original: ${attentionChartData.length})`)
+        // 图表数据已更新
         if (uniqueData.length > 0) {
-          console.log(`[AttentionChart] Data range: ${uniqueData[0].time} - ${uniqueData[uniqueData.length-1].time}`)
-          console.log(`[AttentionChart] Value range: ${Math.min(...uniqueData.map(d => d.value))} - ${Math.max(...uniqueData.map(d => d.value))}`)
+          // 数据范围和值范围已设置
         }
 
         lineSeriesRef.current.setData(uniqueData)
@@ -218,7 +225,7 @@ const AttentionChart = forwardRef<AttentionChartRef, AttentionChartProps>(
           setTimeout(() => {
             if (chartRef.current) {
               try {
-                console.log('[AttentionChart] Fitting content...')
+                // 适配内容
                 chartRef.current.timeScale().fitContent()
               } catch (e) {
                 console.warn('[AttentionChart] fitContent failed', e)

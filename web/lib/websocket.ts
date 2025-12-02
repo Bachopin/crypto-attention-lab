@@ -30,10 +30,12 @@ function getWebSocketBaseUrl(): string {
   // 客户端：检测是否在本地开发环境
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const isSecure = window.location.protocol === 'https:';
+    const protocol = isSecure ? 'wss:' : 'ws:';
     
     // 本地开发环境直接连接 8000 端口
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // 本地环境总是 ws（不使用 TLS）
       return `ws://${hostname}:8000`;
     }
     
@@ -47,7 +49,7 @@ function getWebSocketBaseUrl(): string {
     }
     
     // 其他环境：尝试使用相同主机但 8000 端口
-    // 注意：如果是在 Codespaces 但没有 -3000 后缀，这可能会失败
+    // 注意：生产环境应该通过 NEXT_PUBLIC_WS_URL 环境变量指定
     return `${protocol}//${hostname}:8000`;
   }
   
@@ -59,11 +61,11 @@ const WS_BASE_URL = getWebSocketBaseUrl();
 
 // 配置
 const WS_CONFIG = {
-  maxReconnectAttempts: 20,        // 增加重连次数
-  initialReconnectDelay: 500,      // 缩短初始延迟
-  maxReconnectDelay: 10000,        // 缩短最大延迟（10秒）
-  pingInterval: 30000,
-  connectionTimeout: 5000,
+  maxReconnectAttempts: 15,        // 最多 15 次重连（约 10-15 分钟）
+  initialReconnectDelay: 200,      // 缩短初始延迟到 200ms
+  maxReconnectDelay: 30000,        // 增加最大延迟到 30 秒
+  pingInterval: 15000,             // 心跳间隔减半（15 秒）
+  connectionTimeout: 8000,         // 连接超时 8 秒
 };
 
 // ==================== Types ====================
@@ -143,16 +145,22 @@ class WebSocketManager {
       return;
     }
 
+    // 重置手动断开标志，允许重新连接
+    this._isManualDisconnect = false;
     this.setStatus('connecting');
     
     try {
       this.ws = new WebSocket(this.url);
+      
+      // 设置连接超时
+      this.setConnectionTimeout();
 
       this.ws.onopen = () => {
         console.log('[WebSocket] Connected to', this.url);
+        this.clearConnectionTimeout();  // 连接成功，清除超时定时器
         this.setStatus('connected');
         this.reconnectAttempts = 0;
-        this.reconnectDelay = 1000;
+        this.reconnectDelay = WS_CONFIG.initialReconnectDelay;  // 重置延迟
 
         // 重新订阅之前的 symbols
         if (this.subscribedSymbols.size > 0) {
@@ -177,20 +185,28 @@ class WebSocketManager {
 
       this.ws.onclose = (event) => {
         console.log('[WebSocket] Disconnected:', event.code, event.reason);
+        this.clearConnectionTimeout();
         this.setStatus('disconnected');
         this.stopPing();
-        this.attemptReconnect();
+        // 只有在不是手动断开时才尝试重连
+        if (!this._isManualDisconnect) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (event) => {
         // WebSocket error events usually don't contain detailed error messages for security reasons
-        console.warn(`[WebSocket] Connection error to ${this.url}. Retrying...`);
+        console.warn(`[WebSocket] Connection error to ${this.url}. Code: ${event instanceof CloseEvent ? event.code : 'unknown'}.`);
+        this.clearConnectionTimeout();
         this.setStatus('error');
       };
     } catch (e) {
       console.error('[WebSocket] Connection failed:', e);
+      this.clearConnectionTimeout();
       this.setStatus('error');
-      this.attemptReconnect();
+      if (!this._isManualDisconnect) {
+        this.attemptReconnect();
+      }
     }
   }
 
@@ -219,31 +235,52 @@ class WebSocketManager {
     }
   }
 
+  private setConnectionTimeout(): void {
+    this.clearConnectionTimeout();
+    this.connectionTimeout = setTimeout(() => {
+      console.error('[WebSocket] Connection timeout after', WS_CONFIG.connectionTimeout, 'ms');
+      if (this.ws) {
+        // 强制关闭，触发 onclose 处理重连
+        this.ws.close(1000, 'Connection timeout');
+        this.ws = null;
+      }
+      this.setStatus('error');
+      this.attemptReconnect();
+    }, WS_CONFIG.connectionTimeout);
+  }
+
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[WebSocket] Max reconnect attempts reached, will retry on user interaction');
-      // 重置状态，允许用户交互时重新尝试
+      console.error(`[WebSocket] Max reconnect attempts reached (${this.maxReconnectAttempts}), will wait for user interaction or manual trigger`);
+      // 只重置计数器，不重置延迟，保留较长的延迟以减轻服务器压力
       this.reconnectAttempts = 0;
-      this.reconnectDelay = WS_CONFIG.initialReconnectDelay;
       return;
     }
 
     this.reconnectAttempts++;
-    console.log(`[WebSocket] Reconnecting in ${this.reconnectDelay}ms (attempt ${this.reconnectAttempts})`);
+    const nextDelay = this.reconnectDelay;
+    console.log(`[WebSocket] Reconnecting in ${nextDelay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
 
     setTimeout(() => {
-      this.connect();
-    }, this.reconnectDelay);
+      if (!this._isManualDisconnect) {  // 再次检查手动断开标志
+        this.connect();
+      }
+    }, nextDelay);
 
-    // 指数退避，但使用较小的倍数
-    this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, WS_CONFIG.maxReconnectDelay);
+    // 指数退避：2 倍增长（更激进的重连）
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, WS_CONFIG.maxReconnectDelay);
   }
 
   private startPing(): void {
     this.stopPing();
     this.pingInterval = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.send({ action: 'ping' });
+        try {
+          this.send({ action: 'ping' });
+        } catch (e) {
+          console.warn('[WebSocket] Failed to send ping:', e);
+          this.stopPing();
+        }
       } else {
         this.stopPing();
       }

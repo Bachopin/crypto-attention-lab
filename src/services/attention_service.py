@@ -57,7 +57,47 @@ class AttentionService:
         Returns:
             List of AttentionEvent objects.
         """
-        # 1. Load Data (IO)
+        # 1. 判断是否可以使用预计算缓存（仅当参数等于默认值时）
+        use_cache = (lookback_days == DEFAULT_LOOKBACK_DAYS and min_quantile == DEFAULT_MIN_QUANTILE)
+        
+        # 2. 如果使用缓存，加载完整的数据集（忽略 start/end 参数）
+        # 这样可以确保读取到所有预计算的事件，然后在返回前根据 start/end 筛选
+        if use_cache:
+            df_full = load_attention_data(symbol, start=None, end=None)
+            if not df_full.empty and 'detected_events' in df_full.columns:
+                # Ensure datetime is present and valid
+                if 'datetime' in df_full.columns:
+                    df_full = df_full.dropna(subset=['datetime'])
+                
+                # 尝试从预计算字段读取
+                precomputed_events: List[AttentionEvent] = []
+                has_precomputed = False
+                
+                for _, row in df_full.iterrows():
+                    events_json = row.get('detected_events')
+                    if events_json:
+                        has_precomputed = True
+                        dt = pd.to_datetime(row['datetime'])
+                        precomputed_events.extend(events_from_json(dt, events_json))
+                
+                if has_precomputed:
+                    # 根据 start/end 筛选事件
+                    if start or end:
+                        filtered_events = []
+                        for event in precomputed_events:
+                            event_time = pd.to_datetime(event.datetime)
+                            if start and event_time < start:
+                                continue
+                            if end and event_time > end:
+                                continue
+                            filtered_events.append(event)
+                        logger.debug(f"Using precomputed events for {symbol}: {len(filtered_events)}/{len(precomputed_events)} events (filtered by time range)")
+                        return filtered_events
+                    else:
+                        logger.debug(f"Using precomputed events for {symbol}: {len(precomputed_events)} events")
+                        return precomputed_events
+        
+        # 3. 实时计算或缓存不可用时，加载指定时间范围的数据
         df = load_attention_data(symbol, start, end)
         if df.empty:
             return []
@@ -66,47 +106,54 @@ class AttentionService:
         if 'datetime' in df.columns:
             df = df.dropna(subset=['datetime'])
         
-        # 2. 判断是否可以使用预计算缓存（仅当参数等于默认值时）
-        use_cache = (lookback_days == DEFAULT_LOOKBACK_DAYS and min_quantile == DEFAULT_MIN_QUANTILE)
+        # 4. 如果使用缓存但没有预计算数据，检查数据完整性并尝试自动更新
+        if use_cache and auto_update and not df.empty:
+            # 检查特征数据是否与价格数据长度匹配
+            try:
+                # 获取价格数据长度
+                price_data = load_price_data(symbol, timeframe='1d')
+                if isinstance(price_data, tuple):
+                    price_df, _ = price_data
+                else:
+                    price_df = price_data
+                
+                if price_df is not None and not price_df.empty:
+                    price_count = len(price_df)
+                    feature_count = len(df)
+                    coverage = feature_count / price_count if price_count > 0 else 0
+                    
+                    # 如果覆盖率 < 90%，触发全量更新
+                    if coverage < 0.9:
+                        logger.info(f"[AutoUpdate] {symbol} feature coverage {coverage*100:.1f}% < 90% ({feature_count}/{price_count}), triggering full update...")
+                        try:
+                            # 覆盖率不足，使用全量更新确保数据完整
+                            AttentionService.update_attention_features(symbol, freq='D', save_to_db=True)
+                            # 更新后重新读取（禁用 auto_update 避免无限循环）
+                            updated_events = AttentionService.get_attention_events(
+                                symbol, start, end, lookback_days, min_quantile, auto_update=False
+                            )
+                            if updated_events:
+                                return updated_events
+                            else:
+                                logger.warning(f"[AutoUpdate] Update finished but no events found for {symbol}. Falling back to real-time.")
+                        except Exception as e:
+                            logger.warning(f"[AutoUpdate] Failed to update features for {symbol}: {e}")
+                    elif 'detected_events' not in df.columns or df['detected_events'].notna().sum() == 0:
+                        # 覆盖率足够，但没有预计算事件字段或全部为空
+                        logger.info(f"[AutoUpdate] {symbol} has no precomputed events (coverage={coverage*100:.1f}%), triggering update...")
+                        try:
+                            AttentionService.update_attention_features_incremental(symbol, freq='D', save_to_db=True)
+                            updated_events = AttentionService.get_attention_events(
+                                symbol, start, end, lookback_days, min_quantile, auto_update=False
+                            )
+                            if updated_events:
+                                return updated_events
+                        except Exception as e:
+                            logger.warning(f"[AutoUpdate] Failed to update features for {symbol}: {e}")
+            except Exception as check_err:
+                logger.warning(f"[AutoUpdate] Failed to check data coverage for {symbol}: {check_err}")
         
-        if use_cache and 'detected_events' in df.columns:
-            # 尝试从预计算字段读取
-            precomputed_events: List[AttentionEvent] = []
-            has_precomputed = False
-            
-            for _, row in df.iterrows():
-                events_json = row.get('detected_events')
-                if events_json:
-                    has_precomputed = True
-                    dt = pd.to_datetime(row['datetime'])
-                    precomputed_events.extend(events_from_json(dt, events_json))
-            
-            if has_precomputed:
-                logger.debug(f"Using precomputed events for {symbol}: {len(precomputed_events)} events")
-                return precomputed_events
-            
-            # 没有预计算事件但有注意力数据，且 auto_update=True，触发更新
-            if auto_update and not df.empty:
-                logger.info(f"[AutoUpdate] No precomputed events for {symbol}, triggering feature update...")
-                try:
-                    # 尝试增量更新（内部会判断是否需要全量）
-                    AttentionService.update_attention_features_incremental(symbol, freq='D', save_to_db=True)
-                    # 更新后重新读取（禁用 auto_update 避免无限循环）
-                    # 注意：如果更新后仍然没有预计算事件（例如数据本身不足以产生事件），
-                    # 递归调用将返回空或实时计算结果。
-                    # 为了保险起见，我们检查递归调用的结果，如果为空，则回退到实时计算。
-                    updated_events = AttentionService.get_attention_events(
-                        symbol, start, end, lookback_days, min_quantile, auto_update=False
-                    )
-                    if updated_events:
-                        return updated_events
-                    else:
-                        logger.warning(f"[AutoUpdate] Update finished but no events found/persisted for {symbol}. Falling back to real-time.")
-                except Exception as e:
-                    logger.warning(f"[AutoUpdate] Failed to update features for {symbol}: {e}")
-                    # 更新失败，回退到实时计算
-        
-        # 3. 实时计算（参数非默认值 或 没有预计算数据 或 预计算为空）
+        # 5. 实时计算（参数非默认值 或 没有预计算数据 或 预计算为空）
         if not use_cache:
             logger.debug(f"Real-time calculation for {symbol} (non-default params: lookback={lookback_days}, quantile={min_quantile})")
         else:
@@ -224,6 +271,9 @@ class AttentionService:
                 logger.info(f"Added precomputed fields for {symbol}")
         except Exception as precomp_err:
             logger.warning(f"Failed to compute precomputed fields for {symbol}: {precomp_err}")
+            # Ensure datetime column exists (may be stuck as index if exception occurred mid-process)
+            if 'datetime' not in result_df.columns and result_df.index.name == 'datetime':
+                result_df = result_df.reset_index()
             
         # 4. Persist Results
         if USE_DATABASE and save_to_db:

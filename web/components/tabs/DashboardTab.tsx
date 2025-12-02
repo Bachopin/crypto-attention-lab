@@ -92,24 +92,6 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   const events = useMemo(() => secondaryData.data?.events ?? [], [secondaryData.data?.events]);
   const overviewPriceData = useMemo(() => overviewData.data ?? [], [overviewData.data]);
 
-  // Debug logging
-  console.log(`[DashboardTab] Render: symbol=${symbol}, timeframe=${timeframe}`);
-  console.log(`[DashboardTab] Critical Data: loading=${criticalData.loading}, hasPrice=${priceData.length > 0}`);
-  if (priceData.length > 0) {
-    console.log(`[DashboardTab] Price Range: ${priceData[0].datetime} to ${priceData[priceData.length - 1].datetime}`);
-  }
-  
-  console.log(`[DashboardTab] Secondary Data: loading=${secondaryData.loading}`);
-  console.log(`[DashboardTab] Attention Data: length=${attentionData.length}`);
-  if (attentionData.length > 0) {
-    console.log(`[DashboardTab] First Attention Point:`, attentionData[0]);
-    console.log(`[DashboardTab] Last Attention Point:`, attentionData[attentionData.length - 1]);
-  }
-  console.log(`[DashboardTab] Events: length=${events.length}`);
-  if (events.length > 0) {
-    console.log(`[DashboardTab] First Event:`, events[0]);
-  }
-
   const isLoading = criticalData.loading && !priceData.length;
   const isUpdating = criticalData.loading && priceData.length > 0;
   const error = criticalData.error;

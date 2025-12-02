@@ -104,6 +104,15 @@ def recompute_attention_for_symbol(
         
         logger.info(f"  生成了 {len(result_df)} 条注意力记录")
         
+        # 检测事件（使用默认参数）
+        logger.info(f"  检测注意力事件...")
+        from src.features.event_detectors import detect_events_per_row
+        result_df = detect_events_per_row(result_df, lookback_days=30, min_quantile=0.8)
+        
+        # 统计事件数量
+        events_with_data = result_df['detected_events'].notna().sum() if 'detected_events' in result_df.columns else 0
+        logger.info(f"  检测到 {events_with_data} 个时间点有事件")
+        
         # 转换为记录列表格式并保存
         logger.info(f"  保存到数据库...")
         attention_records = result_df.to_dict('records')

@@ -182,7 +182,7 @@ export default function BacktestPanel() {
       const key = `${PRESET_PREFIX}${targetName}`;
       const raw = window.localStorage.getItem(key);
       if (!raw) {
-        console.log('No preset found for', key);
+        // 预设未找到
         setInfoMessage('当前没有已保存的本地配置，可先调整参数后点击保存。');
         return;
       }

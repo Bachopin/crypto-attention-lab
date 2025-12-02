@@ -44,6 +44,8 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
     const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
     const isDisposedRef = useRef(false)
+    // 用于防止循环：标记是否是程序内部设置的 range
+    const isSettingRangeRef = useRef(false)
 
     // 数据是否为空
     const hasData = priceData && priceData.length > 0
@@ -53,8 +55,12 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
         if (isDisposedRef.current) return
         if (chartRef.current && range) {
           try {
+            isSettingRangeRef.current = true
             chartRef.current.timeScale().setVisibleRange(range)
+            // 使用 setTimeout 重置标志，确保在事件触发后
+            setTimeout(() => { isSettingRangeRef.current = false }, 0)
           } catch (err) {
+            isSettingRangeRef.current = false
             console.warn('[PriceChart] Failed to set visible range:', err)
           }
         }
@@ -143,11 +149,14 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
     // Subscribe to visible range changes - 使用 ref 避免重建
     chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      // 如果是程序内部设置的 range，跳过广播避免循环
+      if (isSettingRangeRef.current) return
+      
       const visibleRange = chart.timeScale().getVisibleRange()
       if (onVisibleRangeChangeRef.current) {
         onVisibleRangeChangeRef.current(visibleRange)
       }
-      // 广播到全局以便其他图表同步
+      // 广播到全局以便其他图表同步（不包括自己）
       try {
         window.dispatchEvent(new CustomEvent('charts:setVisibleRange', { detail: visibleRange }))
       } catch {}
@@ -191,9 +200,14 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
       const range = ce.detail as Range<Time>
       try {
         if (!isDisposedRef.current && chartRef.current && range) {
+          // 标记为程序设置，避免触发循环
+          isSettingRangeRef.current = true
           chartRef.current.timeScale().setVisibleRange(range)
+          setTimeout(() => { isSettingRangeRef.current = false }, 0)
         }
-      } catch {}
+      } catch {
+        isSettingRangeRef.current = false
+      }
     }
     window.addEventListener('charts:setVisibleRange', handleGlobalRange as EventListener)
     isDisposedRef.current = false
@@ -341,7 +355,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     
     // Allow multiple markers (lightweight-charts supports array sorted by time)
     const finalMarkers = markers.sort((a: any, b: any) => a.time - b.time)
-    console.log(`[PriceChart] Generated ${finalMarkers.length} markers from ${events.length} events (matched ${markers.length} raw)`)
+    // 标记已生成
     return finalMarkers
   }, [events, showEventMarkers, priceData])
 
@@ -356,7 +370,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
 
       // Set event markers
       if (candlestickSeriesRef.current) {
-        console.log(`[PriceChart] Setting ${eventMarkers.length} markers`)
+        // 事件标记已设置
         candlestickSeriesRef.current.setMarkers(eventMarkers)
       }
 
