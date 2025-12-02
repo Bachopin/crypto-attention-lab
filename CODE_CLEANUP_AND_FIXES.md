@@ -3,6 +3,10 @@
 ## 概述
 本次更新包括三个主要部分：WebSocket 连接修复、API 缓存问题解决以及代码清理。
 
+⚠️ **详细文档**：请参考 [前端优化文档](docs/frontend/OPTIMIZATION.md) 获取完整技术细节。
+
+---
+
 ## 1. WebSocket 连接修复
 
 ### 问题
