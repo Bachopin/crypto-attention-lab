@@ -10,13 +10,23 @@ import { SymbolNewsHeatTable } from '@/components/news/SymbolNewsHeatTable'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useTabData } from '@/components/TabDataProvider'
 
+// 轻量级新闻类型：只包含统计所需字段，大幅减少内存占用
+interface CompactNewsItem {
+  datetime: string;
+  source: string;
+  language?: string;
+  symbols?: string;
+  source_weight?: number;
+  sentiment_score?: number;
+}
+
 export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   const { state, setNewsRadar, getNewsRadar, setNewsRange, setNewsSymbolFilter } = useTabData();
   
   // --- Radar State (从 context 恢复) ---
   const [newsRange, setNewsRangeLocal] = useState<'24h' | '7d' | '14d' | '30d'>(state.newsRange);
   const [newsSymbolFilter, setNewsSymbolFilterLocal] = useState<string>(state.newsSymbolFilter);
-  const [radarNews, setRadarNews] = useState<NewsItem[]>([]);
+  const [radarNews, setRadarNews] = useState<CompactNewsItem[]>([]);
   const [radarLoading, setRadarLoading] = useState(false);
   
   // 首次加载标记
@@ -35,8 +45,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
   // --- Fetch Radar Data (带缓存) ---
   const fetchRadarData = useCallback(async (forceRefresh = false) => {
     // 检查缓存（除非强制刷新）
+    // 注意：这里缓存的是完整的 30 天数据，不依赖具体 Range
     if (!forceRefresh) {
-      const cached = getNewsRadar(newsRange);
+      const cached = getNewsRadar('30d'); // 总是使用 30d 作为缓存 key
       if (cached && cached.length > 0) {
         setRadarNews(cached);
         initialLoadDone.current = true;
@@ -51,36 +62,39 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
     
     try {
       const now = new Date();
-      let start = new Date();
-      if (newsRange === '24h') {
-        start.setHours(now.getHours() - 24);
-      } else if (newsRange === '7d') {
-        start.setDate(now.getDate() - 7);
-        start.setHours(0, 0, 0, 0); // Align to start of day for cleaner charts
-      } else if (newsRange === '14d') {
-        start.setDate(now.getDate() - 14);
-        start.setHours(0, 0, 0, 0); // Align to start of day
-      } else if (newsRange === '30d') {
-        start.setDate(now.getDate() - 30);
-        start.setHours(0, 0, 0, 0); // Align to start of day
-      }
+      const start = new Date();
+      // 总是获取 30 天数据，由前端过滤器控制显示范围
+      start.setDate(now.getDate() - 30);
+      start.setHours(0, 0, 0, 0);
 
-      // 初始加载限制为 500 条，足够显示雷达图
+      // 获取 30 天内的所有新闻
       const data = await fetchNews({ 
         symbol: 'ALL', 
-        start: start.toISOString(), 
-        limit: 500 
+        start: start.toISOString(),
+        end: now.toISOString()
       });
-      setRadarNews(data);
-      // 存入缓存
-      setNewsRadar(data, newsRange);
+      
+      // 内存优化：只保留统计所需的字段，丢弃新闻内容（title, url等）
+      // 减少约 80% 内存占用
+      const compactData = data.map(item => ({
+        datetime: item.datetime,
+        source: item.source || 'Unknown',
+        language: item.language || 'en', // 默认为英文
+        symbols: item.symbols || '',
+        source_weight: item.source_weight || 1,
+        sentiment_score: item.sentiment_score || 0
+      }));
+      
+      setRadarNews(compactData);
+      // 存入缓存（使用 30d 作为 key）
+      setNewsRadar(compactData, '30d');
       initialLoadDone.current = true;
     } catch (e) {
       console.error("Failed to fetch radar news", e);
     } finally {
       setRadarLoading(false);
     }
-  }, [newsRange, getNewsRadar, setNewsRadar]);
+  }, [getNewsRadar, setNewsRadar]); // 移除 newsRange 依赖
   
   // 首次加载
   useEffect(() => {
@@ -94,6 +108,14 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
     }, 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchRadarData]);
+  
+  // 组件卸载时清理（防止内存泄漏）
+  useEffect(() => {
+    return () => {
+      // 组件卸载时不需要清理，因为数据在 Provider 中管理
+      // 这里只是确保定时器被清理（已在上面的 useEffect 中处理）
+    };
+  }, []);
   
   // 同步 range 和 filter 到 context
   const handleRangeChange = (v: '24h' | '7d' | '14d' | '30d') => {
@@ -231,6 +253,51 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
     }
   }
 
+  // 基于 Range 在前端再过滤一次，确保所有面板联动刷新
+  const radarNewsFiltered = useMemo(() => {
+    if (!radarNews || radarNews.length === 0) return [];
+    
+    const now = new Date();
+    let start = new Date(now);
+    
+    if (newsRange === '24h') {
+      start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    } else if (newsRange === '7d') {
+      start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      start.setHours(0, 0, 0, 0);
+    } else if (newsRange === '14d') {
+      start = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      start.setHours(0, 0, 0, 0);
+    } else if (newsRange === '30d') {
+      start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      start.setHours(0, 0, 0, 0);
+    }
+    
+    const startTs = start.getTime();
+    const endTs = now.getTime();
+    
+    const filtered = radarNews.filter(n => {
+      if (!n.datetime) return false;
+      const t = new Date(n.datetime).getTime();
+      return !isNaN(t) && t >= startTs && t <= endTs;
+    });
+    
+    // 采样分析：检查过滤前后的时间范围
+    const allDates = radarNews
+      .filter(n => n.datetime)
+      .map(n => new Date(n.datetime).getTime())
+      .filter(t => !isNaN(t))
+      .sort((a, b) => a - b);
+    
+    const filteredDates = filtered
+      .filter(n => n.datetime)
+      .map(n => new Date(n.datetime).getTime())
+      .filter(t => !isNaN(t))
+      .sort((a, b) => a - b);
+    
+    return filtered;
+  }, [radarNews, newsRange]);
+
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
@@ -272,9 +339,9 @@ export default function NewsTab({ news: initialNews }: { news: NewsItem[] }) {
                  更新中...
                </div>
              )}
-             <NewsSummaryCharts news={radarNews} timeRange={newsRange} />
+             <NewsSummaryCharts news={radarNewsFiltered} timeRange={newsRange} />
              <SymbolNewsHeatTable 
-                news={radarNews} 
+                news={radarNewsFiltered} 
                 selectedSymbol={newsSymbolFilter} 
                 onSymbolSelect={handleSymbolFilterChange} 
              />

@@ -19,8 +19,11 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from '@/components/ui/badge';
 
+// 轻量级新闻类型：用于统计
+type CompactNewsItem = Pick<NewsItem, 'datetime' | 'source' | 'language' | 'symbols' | 'source_weight' | 'sentiment_score'>;
+
 interface SymbolNewsHeatTableProps {
-  news: NewsItem[];
+  news: CompactNewsItem[];
   onSymbolSelect: (symbol: string) => void;
   selectedSymbol: string;
 }

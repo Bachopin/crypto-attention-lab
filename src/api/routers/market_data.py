@@ -120,10 +120,19 @@ def get_news_data(
         if df.empty:
             return []
         
-        # 转换为 API 响应格式
+        # 转换为 API 响应格式（确保数值字段无 NaN/Inf）
         result = []
         for _, row in df.iterrows():
             dt = pd.to_datetime(row['datetime'])
+            # 安全转换数值，避免 NaN 导致 JSON 编码错误
+            def _num(val, default=0.0):
+                try:
+                    v = float(val)
+                    if pd.isna(v) or v == float('inf') or v == float('-inf'):
+                        return float(default)
+                    return v
+                except Exception:
+                    return float(default)
             
             result.append({
                 "datetime": dt.isoformat() if pd.notna(dt) else None,
@@ -131,8 +140,8 @@ def get_news_data(
                 "title": str(row.get('title', '')),
                 "url": str(row.get('url', '')),
                 "relevance": str(row.get('relevance', '')),
-                "source_weight": float(row.get('source_weight', 0) or 0),
-                "sentiment_score": float(row.get('sentiment_score', 0) or 0),
+                "source_weight": _num(row.get('source_weight', 0), 0),
+                "sentiment_score": _num(row.get('sentiment_score', 0), 0),
                 "tags": str(row.get('tags', '')),
                 "symbols": str(row.get('symbols', '')),
                 "language": str(row.get('language', '')),

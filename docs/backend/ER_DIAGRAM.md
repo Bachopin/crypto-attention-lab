@@ -8,8 +8,6 @@
 erDiagram
     SYMBOLS ||--o{ PRICES : contains
     SYMBOLS ||--o{ ATTENTION_FEATURES : contains
-    SYMBOLS ||--o{ GOOGLE_TRENDS : contains
-    SYMBOLS ||--o{ TWITTER_VOLUMES : contains
     SYMBOLS ||--o{ STATE_SNAPSHOTS : contains
 
     ATTENTION_FEATURES }o--o{ STATE_SNAPSHOTS : contextual   
@@ -87,22 +85,7 @@ erDiagram
         UNIQUE symbol_id+datetime+timeframe
     }
 
-    GOOGLE_TRENDS {
-        int id PK
-        int symbol_id FK -> SYMBOLS.id
-        datetime datetime INDEX
-        float trend_value
-        string keyword_set
-        UNIQUE symbol_id+datetime
-    }
-
-    TWITTER_VOLUMES {
-        int id PK
-        int symbol_id FK -> SYMBOLS.id
-        datetime datetime INDEX
-        float tweet_count
-        UNIQUE symbol_id+datetime
-    }
+    %% 旧表 GOOGLE_TRENDS / TWITTER_VOLUMES 已移除，相关字段并入 ATTENTION_FEATURES
 
     STATE_SNAPSHOTS {
         int id PK

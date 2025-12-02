@@ -12,8 +12,9 @@ import logging
 from sqlalchemy import and_, or_, inspect, text, func
 
 from src.config.settings import RAW_DATA_DIR, PROCESSED_DATA_DIR, DATA_DIR, NEWS_DATABASE_URL
+from src.config.attention_channels import DEFAULT_SOURCE_LANGUAGE
 from src.database.models import (
-    Symbol, News, Price, AttentionFeature, GoogleTrend, TwitterVolume, NewsStats,
+    Symbol, News, Price, AttentionFeature, NewsStats,
     init_database, get_session, get_engine, IS_POSTGRESQL
 )
 
@@ -436,13 +437,19 @@ class DatabaseStorage:
                 # 本地去重（防止本次 batch 内重复）
                 existing_urls.add(record['url'])
                 
+                # 获取 language，如果缺失则从配置中推断
+                language = record.get('language')
+                if not language:
+                    source = record.get('source', '')
+                    language = DEFAULT_SOURCE_LANGUAGE.get(source, 'en')  # 默认英文
+                
                 news = News(
                     timestamp=record.get('timestamp', 0),
                     datetime=pd.to_datetime(record['datetime'], utc=True),
                     title=record['title'],
                     source=record['source'],
                     url=record['url'],
-                    language=record.get('language'),
+                    language=language,
                     platform=record.get('platform'),
                     author=record.get('author'),
                     node=record.get('node'),
@@ -1112,213 +1119,15 @@ class DatabaseStorage:
         finally:
             session.close()
 
-    def save_google_trends(self, symbol: str, trends: List[dict]) -> None:
-        """Persist Google Trends rows to the relational store."""
+    # 旧接口移除：Google Trends 独立表已废弃，数据已整合进 attention_features
+    # 保留占位，避免外部误用
+    # def save_google_trends(...): pass
+    # def get_google_trends(...): pass
 
-        if not trends:
-            return
-
-        session = get_session(self.engine)
-        try:
-            norm = symbol.upper()
-            if norm.endswith('USDT'):
-                norm = norm[:-4]
-            if '/' in norm:
-                norm = norm.split('/')[0]
-            sym = self.get_or_create_symbol(session, norm)
-
-            for record in trends:
-                dt = record.get('datetime')
-                if dt is None:
-                    continue
-                dt = pd.to_datetime(dt, utc=True, errors='coerce')
-                if pd.isna(dt):
-                    continue
-
-                value = record.get('value', record.get('trend_value', 0.0))
-                try:
-                    value = float(value or 0.0)
-                except (TypeError, ValueError):
-                    value = 0.0
-
-                keyword_set = record.get('keyword_set')
-
-                existing = session.query(GoogleTrend).filter(
-                    and_(
-                        GoogleTrend.symbol_id == sym.id,
-                        GoogleTrend.datetime == dt,
-                    )
-                ).first()
-
-                if existing:
-                    existing.trend_value = value
-                    if keyword_set:
-                        existing.keyword_set = keyword_set
-                else:
-                    gt = GoogleTrend(
-                        symbol_id=sym.id,
-                        datetime=dt,
-                        trend_value=value,
-                        keyword_set=keyword_set,
-                    )
-                    session.add(gt)
-
-            session.commit()
-        except Exception as exc:
-            session.rollback()
-            logger.error("Failed to save Google Trends rows for %s: %s", symbol, exc)
-            raise
-        finally:
-            session.close()
-
-    def get_google_trends(
-        self,
-        symbol: str,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None,
-    ) -> pd.DataFrame:
-        """Load cached Google Trends rows for a symbol."""
-
-        session = get_session(self.engine)
-        try:
-            norm = (symbol or '').upper()
-            if norm.endswith('USDT'):
-                norm = norm[:-4]
-            if '/' in norm:
-                norm = norm.split('/')[0]
-
-            sym = session.query(Symbol).filter_by(symbol=norm).first()
-            if not sym:
-                return pd.DataFrame()
-
-            query = session.query(GoogleTrend).filter(GoogleTrend.symbol_id == sym.id)
-            if start:
-                start_ts = start if isinstance(start, pd.Timestamp) else pd.Timestamp(start)
-                if start_ts.tz is None:
-                    start_ts = start_ts.tz_localize('UTC')
-                query = query.filter(GoogleTrend.datetime >= start_ts)
-            if end:
-                end_ts = end if isinstance(end, pd.Timestamp) else pd.Timestamp(end)
-                if end_ts.tz is None:
-                    end_ts = end_ts.tz_localize('UTC')
-                query = query.filter(GoogleTrend.datetime <= end_ts)
-
-            query = query.order_by(GoogleTrend.datetime)
-            rows = query.all()
-            if not rows:
-                return pd.DataFrame()
-
-            return pd.DataFrame([
-                {
-                    'datetime': row.datetime,
-                    'value': row.trend_value,
-                    'keyword_set': row.keyword_set,
-                }
-                for row in rows
-            ])
-        finally:
-            session.close()
-
-    def save_twitter_volume(self, symbol: str, volumes: List[dict]) -> None:
-        """Persist Twitter Volume rows to the relational store."""
-
-        if not volumes:
-            return
-
-        session = get_session(self.engine)
-        try:
-            norm = symbol.upper()
-            if norm.endswith('USDT'):
-                norm = norm[:-4]
-            if '/' in norm:
-                norm = norm.split('/')[0]
-            sym = self.get_or_create_symbol(session, norm)
-
-            for record in volumes:
-                dt = record.get('datetime')
-                if dt is None:
-                    continue
-                dt = pd.to_datetime(dt, utc=True, errors='coerce')
-                if pd.isna(dt):
-                    continue
-
-                value = record.get('value', record.get('tweet_count', 0.0))
-                try:
-                    value = float(value or 0.0)
-                except (TypeError, ValueError):
-                    value = 0.0
-
-                existing = session.query(TwitterVolume).filter(
-                    and_(
-                        TwitterVolume.symbol_id == sym.id,
-                        TwitterVolume.datetime == dt,
-                    )
-                ).first()
-
-                if existing:
-                    existing.tweet_count = value
-                else:
-                    tv = TwitterVolume(
-                        symbol_id=sym.id,
-                        datetime=dt,
-                        tweet_count=value,
-                    )
-                    session.add(tv)
-
-            session.commit()
-        except Exception as exc:
-            session.rollback()
-            logger.error("Failed to save Twitter Volume rows for %s: %s", symbol, exc)
-            raise
-        finally:
-            session.close()
-
-    def get_twitter_volume(
-        self,
-        symbol: str,
-        start: Optional[datetime] = None,
-        end: Optional[datetime] = None,
-    ) -> pd.DataFrame:
-        """Load cached Twitter Volume rows for a symbol."""
-
-        session = get_session(self.engine)
-        try:
-            norm = (symbol or '').upper()
-            if norm.endswith('USDT'):
-                norm = norm[:-4]
-            if '/' in norm:
-                norm = norm.split('/')[0]
-
-            sym = session.query(Symbol).filter_by(symbol=norm).first()
-            if not sym:
-                return pd.DataFrame()
-
-            query = session.query(TwitterVolume).filter(TwitterVolume.symbol_id == sym.id)
-            if start:
-                start_ts = start if isinstance(start, pd.Timestamp) else pd.Timestamp(start)
-                if start_ts.tz is None:
-                    start_ts = start_ts.tz_localize('UTC')
-                query = query.filter(TwitterVolume.datetime >= start_ts)
-            if end:
-                end_ts = end if isinstance(end, pd.Timestamp) else pd.Timestamp(end)
-                if end_ts.tz is None:
-                    end_ts = end_ts.tz_localize('UTC')
-                query = query.filter(TwitterVolume.datetime <= end_ts)
-
-            query = query.order_by(TwitterVolume.datetime)
-            rows = query.all()
-            if not rows:
-                return pd.DataFrame()
-
-            return pd.DataFrame([
-                {
-                    'datetime': row.datetime,
-                    'value': row.tweet_count,
-                }
-                for row in rows
-            ])
-        finally:
-            session.close()
+    # 旧接口移除：Twitter Volumes 独立表已废弃，数据已整合进 attention_features
+    # 保留占位，避免外部误用
+    # def save_twitter_volume(...): pass
+    # def get_twitter_volume(...): pass
     
     def get_all_symbols(self, active_only: bool = True) -> List[str]:
         """获取所有币种列表"""

@@ -192,94 +192,76 @@ def get_google_trends_series(
     end: pd.Timestamp,
     force_refresh: bool = False,
 ) -> pd.DataFrame:
-    """Return cached trends and fetch missing ranges if necessary.
-    
-    获取策略：
-    1. 新代币/首次获取：按价格日线范围获取完整历史数据
-    2. 增量更新：只填补缺失日期，如果缓存已有今天/昨天的数据就 SKIP API
-    
-    这样实现：
-    - 新代币首次调用：缓存为空 → 全量获取 start ~ end
-    - 后续增量调用：缓存已有数据 → 只获取 (latest_cached+1) ~ today
-    - 频繁调用（如每2分钟）：如果今天已有数据 → 直接 SKIP
-    """
+    """增量获取 Google Trends 日度序列（使用 attention_features 作为缓存来源）
 
+    逻辑：
+    1. 如果 force_refresh=True：忽略缓存，直接全量抓取 start~end
+    2. 否则：查询 attention_features 已有的 google_trend_value 范围
+       - 若缓存为空：全量抓取 start~end
+       - 若缓存已覆盖 end（最后一天存在）：直接返回缓存对应列
+       - 否则：仅抓取 (latest_cached+1) ~ end 缺失区间，再与已有数据合并
+
+    返回格式：DataFrame[datetime, value]
+    """
+    symbol = symbol.upper()
     cfg = get_symbol_attention_config(symbol)
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
-    today = _normalize_datetime(pd.Timestamp.now(tz="UTC"))
-    yesterday = today - pd.Timedelta(days=1)
 
-    db_rows = pd.DataFrame()
-    db_handle = None
-    
-    # Always try to get DB handle
-    try:
-        db_handle = get_db()
-    except Exception as exc:
-        logger.warning("Failed to init DB handle for google trends: %s", exc)
-        db_handle = None
-
-    if not force_refresh and db_handle:
+    existing_df = pd.DataFrame()
+    if USE_DATABASE and not force_refresh:
         try:
-            db_rows = _ensure_datetime_column(db_handle.get_google_trends(symbol, start, end))
-        except Exception as exc:
-            logger.warning("Failed to load Google Trends rows from DB for %s: %s", symbol, exc)
+            db = get_db()
+            existing_df = db.get_attention_features(symbol, start=start, end=end, timeframe='D')
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Failed to load existing attention_features for %s: %s", symbol, e)
+            existing_df = pd.DataFrame()
 
-    fetched = pd.DataFrame()
-    
-    if db_rows.empty:
-        # ========== 场景1：新代币，首次全量获取 ==========
-        logger.info(
-            "Google Trends: no cache for %s, fetching full history %s → %s",
-            symbol, start.date(), end.date()
-        )
-        fetched = fetch_google_trends_for_symbol(symbol, start, end, geo=cfg.google_geo)
-        
+    # 标准化已有数据
+    if not existing_df.empty and 'datetime' in existing_df.columns:
+        existing_df['datetime'] = pd.to_datetime(existing_df['datetime'], utc=True).dt.normalize()
+        existing_df = existing_df.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
+
+    # 判定是否需要增量抓取
+    need_fetch = True
+    fetch_start = start
+    if force_refresh:
+        need_fetch = True
+    elif existing_df.empty:
+        need_fetch = True
     else:
-        # ========== 场景2：已有缓存，判断是否需要增量更新 ==========
-        latest_cached = db_rows["datetime"].max()
-        
-        if latest_cached >= yesterday:
-            # 缓存足够新鲜（昨天或今天已有数据），SKIP API 调用
-            logger.debug(
-                "Google Trends cache is fresh for %s (latest: %s), skipping API",
-                symbol, latest_cached.date()
-            )
+        latest_cached = existing_df['datetime'].max()
+        if latest_cached >= end:  # 已覆盖所需范围
+            need_fetch = False
         else:
-            # 缓存过时，增量获取：从 (latest_cached + 1天) 到 today
             fetch_start = latest_cached + pd.Timedelta(days=1)
-            fetch_end = today
-            
-            if fetch_start <= fetch_end:
-                logger.info(
-                    "Google Trends: incremental fetch for %s, %s → %s",
-                    symbol, fetch_start.date(), fetch_end.date()
-                )
-                fetched = fetch_google_trends_for_symbol(
-                    symbol, fetch_start, fetch_end, geo=cfg.google_geo
-                )
-    
-    # 保存新获取的数据到数据库
-    if not fetched.empty and db_handle:
-        try:
-            db_handle.save_google_trends(symbol, fetched.to_dict("records"))
-            logger.info("Google Trends: saved %d new records for %s", len(fetched), symbol)
-        except Exception as exc:
-            logger.warning("Failed to persist Google Trends rows for %s: %s", symbol, exc)
+            # 如果增量区间起点超过 end 说明已覆盖
+            if fetch_start > end:
+                need_fetch = False
 
-    # Merge fetched data with existing DB data (if any)
-    dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]
-    if not dfs_to_merge:
-        return pd.DataFrame()
-    
-    merged = pd.concat(dfs_to_merge, ignore_index=True)
+    fetched_df = pd.DataFrame()
+    if need_fetch:
+        fetched_df = fetch_google_trends_for_symbol(symbol, fetch_start, end, geo=cfg.google_geo)
+        if not fetched_df.empty:
+            fetched_df = _ensure_datetime_column(fetched_df)
+            fetched_df = fetched_df.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
 
-    merged = (
-        merged
-        .drop_duplicates(subset=["datetime"], keep="last")
-        .sort_values("datetime")
-    )
+    # 合并：以已有数据优先（避免覆盖历史经过校验的值）
+    if existing_df.empty:
+        combined = fetched_df
+    elif fetched_df.empty:
+        combined = existing_df[['datetime', 'google_trend_value']].rename(columns={'google_trend_value': 'value'})
+    else:
+        # 统一列名后 concat 并去重
+        ex = existing_df[['datetime', 'google_trend_value']].rename(columns={'google_trend_value': 'value'})
+        new = fetched_df[['datetime', 'value']] if 'value' in fetched_df.columns else fetched_df[['datetime']].assign(value=fetched_df.get('value'))
+        combined = pd.concat([ex, new], ignore_index=True)
+        combined = combined.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
 
-    mask = (merged["datetime"] >= start) & (merged["datetime"] <= end)
-    return merged.loc[mask].copy()
+    if combined.empty:
+        return pd.DataFrame(columns=['datetime', 'value'])
+
+    # 只截取所需区间
+    mask = (combined['datetime'] >= start) & (combined['datetime'] <= end)
+    out = combined.loc[mask].copy()
+    return out[['datetime', 'value']].reset_index(drop=True)

@@ -19,8 +19,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { NewsItem, NewsTrendPoint, fetchNewsTrend } from '@/lib/api';
 import { format, parseISO, subDays, subHours } from 'date-fns';
 
+// 轻量级新闻类型：用于统计
+ type CompactNewsItem = Pick<NewsItem, 'datetime' | 'source' | 'language' | 'symbols' | 'source_weight' | 'sentiment_score'>;
+
 interface NewsSummaryChartsProps {
-  news: NewsItem[];
+  news: CompactNewsItem[];
   timeRange: '24h' | '7d' | '14d' | '30d';
 }
 
@@ -39,6 +42,31 @@ const LANGUAGE_MAP: Record<string, string> = {
   'vi': 'Vietnamese',
   'unknown': 'Unknown'
 };
+
+// 中文新闻源列表
+const CHINESE_SOURCES = new Set([
+  'panews', 'pazhou', 'odaily', 'jinse', 'blockbeats', 
+  '8btc', 'chaincatcher', 'marsbit', 'foresightnews'
+]);
+
+// 根据来源推断语言（当数据库缺失语言字段时）
+function inferLanguageFromSource(source?: string, language?: string): string {
+  // 如果已有有效语言字段，直接返回
+  if (language && language !== 'None' && language !== '') {
+    return language.toLowerCase();
+  }
+  
+  // 根据来源推断
+  if (source) {
+    const sourceLower = source.toLowerCase();
+    if (CHINESE_SOURCES.has(sourceLower)) {
+      return 'zh';
+    }
+  }
+  
+  // 默认为英文（大部分新闻源是英文）
+  return 'en';
+}
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
@@ -119,12 +147,15 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
   const languageData = useMemo(() => {
     const counts = new Map<string, number>();
     news.forEach(item => {
-      let lang = item.language || 'Unknown';
-      if (lang === 'None' || !lang) lang = 'Unknown';
-      lang = lang.toLowerCase();
+      // 使用智能推断：优先使用数据库字段，缺失时根据来源推断
+      const inferredLang = inferLanguageFromSource(item.source, item.language);
       
       // Map code to name
-      const name = LANGUAGE_MAP[lang] || (lang.length === 2 ? lang.toUpperCase() : lang.charAt(0).toUpperCase() + lang.slice(1));
+      const name = LANGUAGE_MAP[inferredLang] || (
+        inferredLang.length === 2 
+          ? inferredLang.toUpperCase() 
+          : inferredLang.charAt(0).toUpperCase() + inferredLang.slice(1)
+      );
       
       counts.set(name, (counts.get(name) || 0) + 1);
     });
@@ -156,7 +187,7 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
                 No data available
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={timeData}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                   <XAxis dataKey="time" fontSize={12} tickLine={false} axisLine={false} />
@@ -190,7 +221,7 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={sourceData} layout="vertical" margin={{ left: 40 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} horizontal={false} />
                 <XAxis type="number" hide />
@@ -214,7 +245,7 @@ export function NewsSummaryCharts({ news, timeRange }: NewsSummaryChartsProps) {
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
                   data={languageData}

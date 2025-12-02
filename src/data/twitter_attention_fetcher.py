@@ -252,124 +252,92 @@ def get_twitter_volume_series(
     start: pd.Timestamp,
     end: pd.Timestamp,
     granularity: str = "day",
+    force_refresh: bool = False,
 ) -> pd.DataFrame:
+    """增量获取 Twitter 讨论量（使用 attention_features 作为缓存来源并支持降级策略）
+
+    策略：
+    1. 非 force_refresh 情况下，先查询 attention_features 已有 twitter_volume 范围
+       - 缓存为空：抓取 start~end
+       - 缓存已覆盖 end：直接返回缓存
+       - 否则：仅抓取缺失区间 (latest_cached+1) ~ end
+    2. 缺失区间获取顺序：仅 Twitter API；若不可用则返回空
+    3. 不再使用旧独立 twitter_volumes 表
+
+    返回格式：DataFrame[datetime, tweet_count]
     """
-    获取 Twitter 讨论量数据（智能降级策略）
-    
-    获取策略（与 Google Trends 保持一致）：
-    1. 新代币/首次获取：按价格日线范围获取完整历史数据
-    2. 增量更新：只填补缺失日期，如果缓存已有今天/昨天的数据就 SKIP API
-    
-    尝试顺序：
-    1. 数据库缓存
-    2. Twitter API（如果配置了 Bearer Token）
-    3. CoinGecko followers 数据 + 智能估算
-    4. 高质量 mock 数据（兜底）
-    """
+    symbol = symbol.upper()
     start = _normalize_datetime(start)
     end = _normalize_datetime(end)
-    today = _normalize_datetime(pd.Timestamp.now(tz="UTC"))
-    yesterday = today - pd.Timedelta(days=1)
     cfg = get_symbol_attention_config(symbol)
 
-    db_rows = pd.DataFrame()
-    db_handle = None
-    
-    # Always try to get DB handle
-    try:
-        db_handle = get_db()
-    except Exception as exc:
-        logger.warning("Failed to init DB handle for twitter volume: %s", exc)
-        db_handle = None
-
-    if db_handle:
+    existing_df = pd.DataFrame()
+    if USE_DATABASE and not force_refresh:
         try:
-            db_rows = db_handle.get_twitter_volume(symbol, start, end)
-            if not db_rows.empty:
-                # Rename 'value' to 'tweet_count' to match internal logic
-                db_rows = db_rows.rename(columns={'value': 'tweet_count'})
-                db_rows["datetime"] = pd.to_datetime(db_rows["datetime"], utc=True).dt.normalize()
-        except Exception as exc:
-            logger.warning("Failed to load Twitter Volume rows from DB for %s: %s", symbol, exc)
+            db = get_db()
+            existing_df = db.get_attention_features(symbol, start=start, end=end, timeframe='D')
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("Failed to load existing attention_features for %s: %s", symbol, e)
+            existing_df = pd.DataFrame()
 
-    fetched = pd.DataFrame()
-    
-    if db_rows.empty:
-        # ========== 场景1：新代币，首次全量获取 ==========
-        logger.info(
-            "Twitter volume: no cache for %s, fetching full history %s → %s",
-            symbol, start.date(), end.date()
-        )
-        fetched = _fetch_twitter_data(symbol, cfg, start, end, granularity)
-        
+    if not existing_df.empty and 'datetime' in existing_df.columns:
+        existing_df['datetime'] = pd.to_datetime(existing_df['datetime'], utc=True).dt.normalize()
+        existing_df = existing_df.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
+
+    need_fetch = True
+    fetch_start = start
+    if force_refresh:
+        need_fetch = True
+    elif existing_df.empty:
+        need_fetch = True
     else:
-        # ========== 场景2：已有缓存，判断是否需要增量更新 ==========
-        latest_cached = db_rows["datetime"].max()
-        
-        if latest_cached >= yesterday:
-            # 缓存足够新鲜（昨天或今天已有数据），SKIP API 调用
-            logger.debug(
-                "Twitter volume cache is fresh for %s (latest: %s), skipping fetch",
-                symbol, latest_cached.date()
-            )
+        latest_cached = existing_df['datetime'].max()
+        if latest_cached >= end:
+            need_fetch = False
         else:
-            # 缓存过时，增量获取：从 (latest_cached + 1天) 到 today
             fetch_start = latest_cached + pd.Timedelta(days=1)
-            fetch_end = today
-            
-            if fetch_start <= fetch_end:
-                logger.info(
-                    "Twitter volume: incremental fetch for %s, %s → %s",
-                    symbol, fetch_start.date(), fetch_end.date()
-                )
-                fetched = _fetch_twitter_data(symbol, cfg, fetch_start, fetch_end, granularity)
-    
-    # 保存新获取的数据到数据库
-    if not fetched.empty and db_handle:
-        try:
-            db_handle.save_twitter_volume(symbol, fetched.to_dict("records"))
-            logger.info("Twitter volume: saved %d new records for %s", len(fetched), symbol)
-        except Exception as exc:
-            logger.warning("Failed to persist Twitter Volume rows for %s: %s", symbol, exc)
-    
-    # Merge fetched data with existing DB data (if any)
-    dfs_to_merge = [df for df in (db_rows, fetched) if not df.empty]
-    if not dfs_to_merge:
-        return pd.DataFrame()
-    
-    merged = pd.concat(dfs_to_merge, ignore_index=True)
-    merged = merged.drop_duplicates(subset=["datetime"], keep="last").sort_values("datetime")
+            if fetch_start > end:
+                need_fetch = False
 
-    mask = (merged["datetime"] >= start) & (merged["datetime"] <= end)
-    return merged.loc[mask].copy()
+    fetched_df = pd.DataFrame()
+    if need_fetch:
+        # 仅对缺失区间执行 API 获取；API 不可用则返回空
+        interval_start = fetch_start
+        interval_end = end
+        api_df = _request_counts(cfg.twitter_query, interval_start, interval_end + pd.Timedelta(days=1), granularity)
+        if not api_df.empty:
+            fetched_df = api_df
+            logger.info("Twitter API fetched %d rows for %s", len(fetched_df), symbol)
+        else:
+            fetched_df = pd.DataFrame()
+            logger.info("Twitter API not available; twitter_volume will be treated as 0 for %s", symbol)
 
+        if not fetched_df.empty:
+            fetched_df['datetime'] = pd.to_datetime(fetched_df['datetime'], utc=True).dt.normalize()
+            fetched_df = fetched_df.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
 
-def _fetch_twitter_data(
-    symbol: str,
-    cfg,
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    granularity: str = "day",
-) -> pd.DataFrame:
-    """
-    实际获取 Twitter 数据的内部函数
-    
-    策略：
-    1. 尝试 Twitter API（如果配置了 Bearer Token）
-    2. 如果 API 不可用，返回空 DataFrame（特征值计算会将其视为 0）
-    
-    注意：不再使用 mock 数据，避免误导分析结果
-    """
-    # 方法 A：尝试 Twitter API
-    fetched = _request_counts(cfg.twitter_query, start, end + pd.Timedelta(days=1), granularity)
-    
-    if fetched.empty:
-        logger.info(f"Twitter API not available for {symbol}, returning empty data (will be treated as 0)")
-        # 不再生成 mock 数据，返回空 DataFrame
-        # 特征值计算模块会正确处理空数据，将 twitter_volume 设为 0
-        return pd.DataFrame()
+    # 合并已有与新抓取数据
+    if existing_df.empty:
+        combined = fetched_df
+        if 'tweet_count' not in combined.columns and 'twitter_volume' in combined.columns:
+            combined = combined.rename(columns={'twitter_volume': 'tweet_count'})
+    elif fetched_df.empty:
+        combined = existing_df[['datetime', 'twitter_volume']].rename(columns={'twitter_volume': 'tweet_count'})
     else:
-        logger.info(f"Successfully fetched Twitter data via API for {symbol}")
-    
-    return fetched
+        ex = existing_df[['datetime', 'twitter_volume']].rename(columns={'twitter_volume': 'tweet_count'})
+        new = fetched_df[['datetime', 'tweet_count']] if 'tweet_count' in fetched_df.columns else fetched_df[['datetime']].assign(tweet_count=fetched_df.get('tweet_count', 0))
+        combined = pd.concat([ex, new], ignore_index=True)
+        combined = combined.drop_duplicates(subset=['datetime'], keep='last').sort_values('datetime')
+
+    if combined.empty:
+        return pd.DataFrame(columns=['datetime', 'tweet_count'])
+
+    mask = (combined['datetime'] >= start) & (combined['datetime'] <= end)
+    out = combined.loc[mask].copy()
+    return out[['datetime', 'tweet_count']].reset_index(drop=True)
+
+
+def _fetch_twitter_data(*args, **kwargs):  # 保留占位避免外部误用旧接口
+    logger.debug("_fetch_twitter_data legacy interface is deprecated; logic moved into get_twitter_volume_series")
+    return pd.DataFrame()
 

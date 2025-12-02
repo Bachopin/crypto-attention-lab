@@ -20,7 +20,7 @@ from typing import Dict, List, Optional
 
 LANGUAGE_WEIGHTS: Dict[str, float] = {
     "en": 1.0,
-    "zh": 0.85,
+    "zh": 1.0,
     "es": 0.7,
     "ko": 0.75,
     "jp": 0.75,
@@ -30,34 +30,166 @@ LANGUAGE_WEIGHTS: Dict[str, float] = {
 }
 
 SOURCE_BASE_WEIGHTS: Dict[str, float] = {
-    # English tier
+    # English tier (顶级新闻源)
     "CoinDesk": 1.0,
+    "coindesk": 1.0,
     "Cointelegraph": 0.95,
+    "cointelegraph": 0.95,
     "The Block": 0.92,
-    "Decrypt": 0.85,
-    "Bloomberg Crypto": 0.8,
-    "NewsAPI": 0.75,
-    # Chinese tier
-    "金色财经": 0.85,
-    "巴比特": 0.83,
-    "链捕手": 0.8,
-    "星球日报": 0.78,
+    "Decrypt": 0.88,
+    "Bloomberg Crypto": 0.85,
+    "BeInCrypto": 0.85,
+    "NewsAPI": 0.80,
+    
+    # Chinese tier (中文顶级新闻源 - 权重与英文相当)
+    "PANews": 1.0,           # 主要中文源，权重等同 CoinDesk
+    "PANews News": 1.0,
+    "金色财经": 0.95,         # 权重等同 Cointelegraph
+    "Odaily": 0.92,          # 权重等同 The Block
+    "星球日报": 0.92,
+    "巴比特": 0.88,           # 权重等同 Decrypt
+    "链捕手": 0.85,           # 权重等同 BeInCrypto
+    
+    # English mid-tier (中级英文源)
+    "cryptopolitan": 0.75,
+    "bitcoinist": 0.75,
+    "newsbtc": 0.75,
+    "bitcoin.com": 0.75,
+    "ambcrypto": 0.72,
+    "cryptonews": 0.72,
+    "cryptopotato": 0.70,
+    "coinotag": 0.70,
+    "bitcoinworld": 0.68,
+    "thecryptobasic": 0.68,
+    "utoday": 0.65,
+    
     # Aggregators / misc
-    "CryptoPanic": 0.8,
-    "CryptoCompare": 0.7,
+    "CryptoPanic": 0.80,
+    "CryptoCompare": 0.70,
     "CryptoSlate": 0.65,
+    "Biztoc.com": 0.65,
+    "coinpaper": 0.60,
     "RSS": 0.55,
-    "Unknown": 0.5,
+    "Unknown": 0.50,
 }
 
 DEFAULT_SOURCE_LANGUAGE: Dict[str, str] = {
+    # English sources - Top tier
     "CoinDesk": "en",
+    "coindesk": "en",
     "Cointelegraph": "en",
+    "cointelegraph": "en",
+    "Cointelegraph.com News": "en",
     "The Block": "en",
+    "Decrypt": "en",
+    "decrypt": "en",
+    "BeInCrypto": "en",
+    "NewsAPI": "en",
+    
+    # English sources - Mid tier
+    "cryptopolitan": "en",
+    "bitcoinist": "en",
+    "Bitcoinist": "en",
+    "newsbtc": "en",
+    "NewsBTC": "en",
+    "newsBTC": "en",
+    "bitcoin.com": "en",
+    "Bitcoin News": "en",
+    "Bitcoin Magazine": "en",
+    "ambcrypto": "en",
+    "Ambcrypto.com": "en",
+    "cryptonews": "en",
+    "Cryptonews": "en",
+    "cryptopotato": "en",
+    "coinotag": "en",
+    "bitcoinworld": "en",
+    "thecryptobasic": "en",
+    "utoday": "en",
+    
+    # Aggregators & Platforms
+    "Biztoc.com": "en",
+    "coinpaper": "en",
+    "CryptoSlate": "en",
+    "CryptoPanic": "en",
+    "CryptoCompare": "en",
+    "Crypto Briefing": "en",
+    "ZyCrypto": "en",
+    "zycrypto": "en",
+    
+    # Social & Forums
+    "bitcoinsistemi": "en",
+    "bitdegree": "en",
+    "bitzo": "en",
+    "blockworks": "en",
+    "Blockworks: News and insights about digital assets.": "en",
+    "coinpaprika": "en",
+    "coinquora": "en",
+    "cointurken": "en",
+    "cryptocoinnews": "en",
+    "cryptocompare": "en",
+    "cryptodaily": "en",
+    "cryptointelligence": "en",
+    "cryptonewsz": "en",
+    "Cryptocynews.com": "en",
+    "ethereumfoundation": "en",
+    "finbold": "en",
+    "forbes": "en",
+    "Forbes": "en",
+    "huobi": "en",
+    "invezz": "en",
+    "krakenblog": "en",
+    "bitfinexblog": "en",
+    "seekingalpha": "en",
+    "themerkle": "en",
+    "timestabloid": "en",
+    "trustnodes": "en",
+    
+    # Media & Press
+    "bloomberg_crypto_": "en",
+    "Bloomberg Crypto": "en",
+    "Bloomberg": "en",
+    "financialtimes_crypto_": "en",
+    "The Wall Street Journal": "en",
+    "TheStreet": "en",
+    "investing_comcryptonews": "en",
+    "investing_comcryptoopinionandanalysis": "en",
+    "Coinjournal.net": "en",
+    "Coinspeaker": "en",
+    "Coingape": "en",
+    "GlobeNewswire": "en",
+    "PR Newswire UK": "en",
+    "Dlnews.com": "en",
+    "pymnts.com": "en",
+    "Thefly.com": "en",
+    "Paymentsdive.com": "en",
+    "Finextra": "en",
+    
+    # Misc English
+    "U.Today - IT, AI and Fintech Daily News for You Today": "en",
+    "The Daily Hodl": "en",
+    "The Defiant": "en",
+    "Slashdot.org": "en",
+    "TechRadar": "en",
+    "Yahoo Entertainment": "en",
+    "Wolfram.com": "en",
+    "Pypi.org": "en",
+    
+    # Chinese sources
+    "PANews": "zh",
+    "PANews News": "zh",
+    "Odaily": "zh",
     "金色财经": "zh",
     "巴比特": "zh",
     "链捕手": "zh",
     "星球日报": "zh",
+    "Cointelegraph中文": "zh",
+    "Telegram: 区块律动 BlockBeats": "zh",
+    "Telegram: Foresight News": "zh",
+    "Telegram: 链捕手": "zh",
+    "区块律动": "zh",
+    "Foresight News": "zh",
+    "深潮 TechFlow": "zh",
+    "吴说区块链": "zh",
 }
 
 # Optional node-factor adjustments (platform level)

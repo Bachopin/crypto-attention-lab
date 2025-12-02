@@ -59,8 +59,6 @@ class Symbol(Base):
     # 关系
     prices = relationship('Price', back_populates='symbol_ref', cascade='all, delete-orphan')
     attention_features = relationship('AttentionFeature', back_populates='symbol_ref', cascade='all, delete-orphan')
-    google_trends = relationship('GoogleTrend', back_populates='symbol_ref', cascade='all, delete-orphan')
-    twitter_volumes = relationship('TwitterVolume', back_populates='symbol_ref', cascade='all, delete-orphan')
     state_snapshots = relationship('StateSnapshot', back_populates='symbol_ref', cascade='all, delete-orphan')
 
 
@@ -238,43 +236,8 @@ class AttentionFeature(Base):
     )
 
 
-class GoogleTrend(Base):
-    """Google Trends time-series samples for each symbol."""
-
-    __tablename__ = 'google_trends'
-
-    id = Column(Integer, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
-    datetime = Column(DateTime(timezone=True), nullable=False)
-    trend_value = Column(Float, nullable=False, default=0.0)
-    keyword_set = Column(String(255))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    symbol_ref = relationship('Symbol', back_populates='google_trends')
-
-    __table_args__ = (
-        UniqueConstraint('symbol_id', 'datetime', name='uq_google_trend_symbol_dt'),
-        Index('ix_google_trend_symbol_datetime', 'symbol_id', 'datetime'),
-    )
-
-
-class TwitterVolume(Base):
-    """Twitter volume time-series samples for each symbol."""
-
-    __tablename__ = 'twitter_volumes'
-
-    id = Column(Integer, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False, index=True)
-    datetime = Column(DateTime(timezone=True), nullable=False)
-    tweet_count = Column(Float, nullable=False, default=0.0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    symbol_ref = relationship('Symbol', back_populates='twitter_volumes')
-
-    __table_args__ = (
-        UniqueConstraint('symbol_id', 'datetime', name='uq_twitter_volume_symbol_dt'),
-        Index('ix_twitter_volume_symbol_datetime', 'symbol_id', 'datetime'),
-    )
+# 已整合：google_trends 与 twitter_volumes 表已合并进 attention_features
+# 删除独立表模型以避免后续引用
 
 
 class NodeAttentionFeature(Base):

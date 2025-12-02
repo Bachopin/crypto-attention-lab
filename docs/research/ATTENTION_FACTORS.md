@@ -115,8 +115,8 @@ Trends、Twitter）与 `composite_attention_score`。
 python scripts/fetch_multi_symbol_google_trends.py --days 365
 ```
 - 根据 `TRACKED_SYMBOLS` 与数据库中的可用币种，批量抓取 Google 搜索热度；
-- 通过 `pytrends` 获取真实 interest-over-time 序列，写入数据库（`google_trends` 表）；
-- `attention_features` 读取数据库，不可用时会记录 warning 并退化为 0，确保生成流程不中断。
+- 通过 `pytrends` 获取真实 interest-over-time 序列；不再写入独立表（`google_trends` 已废弃），
+  直接作为外部通道输入参与 `attention_features` 计算；不可用时记录 warning 并退化为 0。
 
 ### 4. 事件检测
 位置：`src/events/attention_events.py`
@@ -195,7 +195,7 @@ python scripts/demo_multi_symbol_attention_backtest.py
 Google 通道的关键补充：
 - 可执行 `scripts/fetch_multi_symbol_google_trends.py --force-refresh` 强制刷新任意窗口；
 - 如果网络/配额暂不可用，后端会退化为 0 并打印 warning，方便排查；
-- 数据同时缓存在数据库与 CSV，任一层缺失时仍可重建。
+- 不再写入独立表；可选启用 CSV 缓存，或直接实时拉取用于计算。
 
 ### 3c. 数据对齐与服务 (Data Alignment Service)
 位置：`src/services/market_data_service.py`
@@ -216,17 +216,55 @@ Google 通道的关键补充：
 > ⚠️ 若未配置 Google/Twitter 凭证，系统会自动记录 0 并继续执行，确保回测/离线生成流程不被阻塞。
 
 ### 来源权重表
+
+**设计原则**：中文新闻源权重与英文新闻源相当，确保多语言新闻的公平性。
+
 ```python
-SOURCE_WEIGHTS = {
-    "CoinDesk": 1.0,         # 顶级主流媒体
-    "Cointelegraph": 0.9,    # 主流加密媒体
-    "CryptoPanic": 0.8,      # 聚合平台
-    "CryptoCompare": 0.7,    # 数据平台
-    "CryptoSlate": 0.6,      # 垂直媒体
-    "RSS": 0.5,              # RSS 聚合
-    "Unknown": 0.4,          # 未知来源
+SOURCE_BASE_WEIGHTS = {
+    # 顶级新闻源 (权重 1.0)
+    "PANews": 1.0,           # 中文顶级（数据库中 5 万+ 条）
+    "CoinDesk": 1.0,         # 英文顶级
+    
+    # 一线新闻源 (权重 0.92-0.95)
+    "金色财经": 0.95,         # 中文一线
+    "Cointelegraph": 0.95,   # 英文一线
+    "Odaily": 0.92,          # 中文二线
+    "The Block": 0.92,       # 英文二线
+    
+    # 二线新闻源 (权重 0.85-0.88)
+    "巴比特": 0.88,           # 中文
+    "Decrypt": 0.88,         # 英文
+    "链捕手": 0.85,           # 中文
+    "BeInCrypto": 0.85,      # 英文
+    
+    # 三线及聚合源 (权重 0.65-0.80)
+    "CryptoPanic": 0.80,     # 聚合平台
+    "cryptopolitan": 0.75,   # 英文三线
+    "bitcoinist": 0.75,
+    "CryptoCompare": 0.70,   # 数据平台
+    "CryptoSlate": 0.65,
+    
+    # 其他
+    "RSS": 0.55,
+    "Unknown": 0.50,
 }
 ```
+
+**语言权重**：
+- 中文 (`zh`): 1.0
+- 英文 (`en`): 1.0
+- 其他语言: 0.6-0.75
+
+**最终权重计算**：
+```
+effective_weight = source_base_weight × language_weight × node_adjustment (可选)
+```
+
+**示例**：
+- PANews (中文): 1.0 × 1.0 = **1.0**
+- CoinDesk (英文): 1.0 × 1.0 = **1.0**
+- 金色财经 (中文): 0.95 × 1.0 = **0.95**
+- Cointelegraph (英文): 0.95 × 1.0 = **0.95**
 
 ### 情绪关键词
 ```python

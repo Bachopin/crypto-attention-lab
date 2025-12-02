@@ -79,13 +79,24 @@ def recompute_attention_for_symbol(
         
         logger.info(f"  价格数据: {len(price_df)} 条")
         
-        # 获取 Google Trends 数据
-        google_trends_df = db.get_google_trends(symbol, start_date, end_date)
-        logger.info(f"  Google Trends: {len(google_trends_df) if google_trends_df is not None else 0} 条")
-        
-        # 获取 Twitter 数据
-        twitter_df = db.get_twitter_volume(symbol, start_date, end_date)
-        logger.info(f"  Twitter: {len(twitter_df) if twitter_df is not None else 0} 条")
+        # 从 attention_features 提取 Google/Twitter 通道值（旧表已废弃）
+        af_df = db.get_attention_features(symbol, start=start_date, end=end_date, timeframe=freq)
+        if af_df is None:
+            af_df = pd.DataFrame()
+
+        # 提取 Google Trends 值
+        google_trends_df = pd.DataFrame()
+        if not af_df.empty and 'google_trend_value' in af_df.columns:
+            google_trends_df = af_df[['datetime', 'google_trend_value']].copy()
+            google_trends_df = google_trends_df.rename(columns={'google_trend_value': 'value'})
+        logger.info(f"  Google Trends: {len(google_trends_df) if not google_trends_df.empty else 0} 条")
+
+        # 提取 Twitter 讨论量
+        twitter_df = pd.DataFrame()
+        if not af_df.empty and 'twitter_volume' in af_df.columns:
+            twitter_df = af_df[['datetime', 'twitter_volume']].copy()
+            twitter_df = twitter_df.rename(columns={'twitter_volume': 'tweet_count'})
+        logger.info(f"  Twitter: {len(twitter_df) if not twitter_df.empty else 0} 条")
         
         # 重新计算注意力分数
         logger.info(f"  重新计算注意力分数...")

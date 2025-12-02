@@ -2,8 +2,9 @@
  * 回测参数表单组件
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { fetchSymbols } from '@/lib/api';
 import type { BacktestPanelParams, AttentionConditionState, AttentionSource, AttentionConditionSource, AttentionRegime } from './types';
 
 interface BacktestParamsFormProps {
@@ -25,6 +26,29 @@ export function BacktestParamsForm({
   onRunMulti,
   loading,
 }: BacktestParamsFormProps) {
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [symbolsLoading, setSymbolsLoading] = useState(false);
+  const [symbolsError, setSymbolsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setSymbolsLoading(true);
+        const res = await fetchSymbols();
+        if (!mounted) return;
+        const syms = (res.symbols || []).map(s => s.endsWith('USDT') ? s : `${s}USDT`);
+        setAvailableSymbols(syms);
+        // 如果当前选择不在列表，保留现有值但不强制重置
+      } catch (e: any) {
+        if (!mounted) return;
+        setSymbolsError(e?.message || 'Failed to load symbols');
+      } finally {
+        if (mounted) setSymbolsLoading(false);
+      }
+    })();
+    return () => { mounted = false };
+  }, []);
   const updateParam = <K extends keyof BacktestPanelParams>(
     key: K,
     value: BacktestPanelParams[K]
@@ -41,6 +65,37 @@ export function BacktestParamsForm({
 
   return (
     <div className="space-y-4">
+      {/* 代币选择 */}
+      <div className="rounded border bg-background p-3 text-sm">
+        <div className="flex items-center justify-between">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">选择代币</span>
+            <div className="flex items-center gap-2">
+              <select
+                className="px-2 py-1 bg-background border rounded text-sm"
+                value={params.symbol}
+                onChange={e => updateParam('symbol', e.target.value as any)}
+              >
+                {/* 当前值优先显示，避免不在列表时丢失 */}
+                {(!availableSymbols.includes(params.symbol)) && (
+                  <option value={params.symbol}>{params.symbol}</option>
+                )}
+                {availableSymbols.map(sym => (
+                  <option key={sym} value={sym}>{sym}</option>
+                ))}
+              </select>
+              {symbolsLoading && (
+                <span className="text-[10px] text-muted-foreground">加载中…</span>
+              )}
+            </div>
+          </label>
+          {symbolsError && (
+            <span className="text-[10px] text-red-500">{symbolsError}</span>
+          )}
+        </div>
+        <span className="text-xs text-muted-foreground">只显示当前已开启自动更新的代币。</span>
+      </div>
+
       {/* 基础参数 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
         <label className="flex flex-col gap-1 cursor-help">

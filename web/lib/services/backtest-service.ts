@@ -121,18 +121,21 @@ function toApiAttentionCondition(condition: AttentionCondition | null | undefine
  * 将 API 返回的回测结果转换为领域模型
  */
 function transformBacktestResult(apiResult: ApiBacktestResult): BacktestResult {
+  const safeEquity = Array.isArray((apiResult as any).equity_curve) ? (apiResult as any).equity_curve : [];
+  const safeTrades = Array.isArray((apiResult as any).trades) ? (apiResult as any).trades : [];
+
   return {
-    params: apiResult.params,
-    meta: apiResult.meta ? {
-      attentionSource: apiResult.meta.attention_source,
-      signalField: apiResult.meta.signal_field,
-      attentionCondition: apiResult.meta.attention_condition
-        ? transformAttentionCondition(apiResult.meta.attention_condition)
+    params: (apiResult as any).params,
+    meta: (apiResult as any).meta ? {
+      attentionSource: (apiResult as any).meta.attention_source,
+      signalField: (apiResult as any).meta.signal_field,
+      attentionCondition: (apiResult as any).meta.attention_condition
+        ? transformAttentionCondition((apiResult as any).meta.attention_condition)
         : undefined,
     } : undefined,
-    equityCurve: apiResult.equity_curve.map(transformEquityPoint),
-    trades: apiResult.trades.map(transformTrade),
-    summary: transformBacktestSummary(apiResult.summary),
+    equityCurve: safeEquity.map(transformEquityPoint),
+    trades: safeTrades.map(transformTrade),
+    summary: transformBacktestSummary((apiResult as any).summary || {}),
   };
 }
 
@@ -148,9 +151,12 @@ function transformMultiBacktestResult(apiResult: ApiMultiBacktestResult): MultiB
     perSymbolSummary[symbol] = transformBacktestSummary(summary);
   });
 
-  Object.entries(apiResult.per_symbol_trades).forEach(([symbol, trades]) => {
-    perSymbolTrades[symbol] = trades.map(transformTrade);
-  });
+  if (apiResult.per_symbol_trades) {
+    Object.entries(apiResult.per_symbol_trades).forEach(([symbol, trades]) => {
+      const safe = Array.isArray(trades) ? trades : [];
+      perSymbolTrades[symbol] = safe.map(transformTrade);
+    });
+  }
 
   if (apiResult.per_symbol_equity_curves) {
     Object.entries(apiResult.per_symbol_equity_curves).forEach(([symbol, curve]) => {
@@ -163,8 +169,10 @@ function transformMultiBacktestResult(apiResult: ApiMultiBacktestResult): MultiB
     meta: apiResult.meta ? {
       attentionSource: apiResult.meta.attention_source,
     } : undefined,
-    aggregateSummary: transformBacktestSummary(apiResult.aggregate_summary),
-    aggregateEquityCurve: apiResult.aggregate_equity_curve.map(transformEquityPoint),
+    aggregateSummary: transformBacktestSummary((apiResult as any).aggregate_summary || {}),
+    aggregateEquityCurve: Array.isArray((apiResult as any).aggregate_equity_curve)
+      ? (apiResult as any).aggregate_equity_curve.map(transformEquityPoint)
+      : [],
     perSymbolSummary,
     perSymbolTrades,
     perSymbolEquityCurves,

@@ -30,6 +30,9 @@ import {
   Timeframe,
 } from '@/lib/api';
 
+// 轻量级新闻类型：用于 Radar 统计，减少内存占用
+type CompactNewsItem = Pick<NewsItem, 'datetime' | 'source' | 'language' | 'symbols' | 'source_weight' | 'sentiment_score'>;
+
 // 缓存数据结构
 interface CachedData<T> {
   data: T;
@@ -56,8 +59,8 @@ interface TabDataState {
   // Dashboard Tab（代币看板）
   dashboard: DashboardData | null;
   
-  // News Tab
-  newsRadar: CachedData<NewsItem[]> | null;
+  // News Tab - 使用轻量级类型减少内存
+  newsRadar: CachedData<CompactNewsItem[]> | null;
   newsRange: '24h' | '7d' | '14d' | '30d';
   newsSymbolFilter: string;
   
@@ -79,8 +82,8 @@ interface TabDataContextType {
   updateDashboardPartial: (updates: Partial<DashboardData>) => void;
   
   // News Tab
-  setNewsRadar: (data: NewsItem[], range: '24h' | '7d' | '14d' | '30d') => void;
-  getNewsRadar: (range: '24h' | '7d' | '14d' | '30d') => NewsItem[] | null;
+  setNewsRadar: (data: CompactNewsItem[], range: '24h' | '7d' | '14d' | '30d') => void;
+  getNewsRadar: (range: '24h' | '7d' | '14d' | '30d') => CompactNewsItem[] | null;
   setNewsRange: (range: '24h' | '7d' | '14d' | '30d') => void;
   setNewsSymbolFilter: (symbol: string) => void;
   
@@ -165,7 +168,7 @@ export function TabDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // News Tab
-  const setNewsRadar = useCallback((data: NewsItem[], range: '24h' | '7d' | '14d' | '30d') => {
+  const setNewsRadar = useCallback((data: CompactNewsItem[], range: '24h' | '7d' | '14d' | '30d') => {
     setState(prev => ({
       ...prev,
       newsRadar: { data, timestamp: Date.now(), params: range },

@@ -7,6 +7,7 @@ from src.services.market_data_service import MarketDataService
 from src.backtest.strategy_templates import (
     AttentionCondition,
     build_attention_signal_series,
+    ATTENTION_COLUMN_MAP,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class Trade:
 
 
 def run_backtest_basic_attention(
-    symbol: str = "ZECUSDT",
+    symbol: str,
     lookback_days: int = 30,
     attention_quantile: float = 0.8,
     max_daily_return: float = 0.05,
@@ -41,13 +42,19 @@ def run_backtest_basic_attention(
     if source_key not in {"legacy", "composite"}:
         source_key = "legacy"
 
-    # 使用 MarketDataService 获取对齐的数据
-    # 仅加载所需注意力列，减少 IO 与内存
+    # 只加载基础注意力和价格字段，不加载任何预计算特征
     needed_cols = ['bullish_attention', 'bearish_attention']
     signal_column = 'weighted_attention' if source_key == 'legacy' else 'composite_attention_score'
     if signal_column not in needed_cols:
         needed_cols.append(signal_column)
+    # 如果启用了 attention_condition，需要确保对应列加载
+    if attention_condition is not None:
+        cond_source = (attention_condition.source or 'composite').lower()
+        cond_col = ATTENTION_COLUMN_MAP.get(cond_source)
+        if cond_col and cond_col not in needed_cols:
+            needed_cols.append(cond_col)
 
+    # 明确只加载基础字段
     df = MarketDataService.get_aligned_data(
         symbol,
         start=start,
@@ -64,8 +71,10 @@ def run_backtest_basic_attention(
         # 如果 datetime 是索引，重置索引
         df = df.reset_index()
     
-    # 过滤掉没有价格数据的行 (MarketDataService 是 left join on price，所以应该都有价格，但可能有 NaN)
+    # 过滤掉没有价格数据的行
     df = df.dropna(subset=['close'])
+
+    # 不再依赖任何预计算特征，所有 rolling/stats 现算
 
     signal_column = 'weighted_attention' if source_key == 'legacy' else 'composite_attention_score'
 
@@ -77,6 +86,22 @@ def run_backtest_basic_attention(
             source_key,
         )
         return {"error": f"{signal_column} not available", "meta": {"attention_source": source_key}}
+
+    # 验证 Regime 所需列存在（在启用 condition 时）
+    if attention_condition is not None:
+        cond_source = (attention_condition.source or 'composite').lower()
+        cond_col = ATTENTION_COLUMN_MAP.get(cond_source)
+        if cond_col and cond_col not in df.columns:
+            logger.warning(
+                "Attention condition column missing: %s (symbol=%s, condition_source=%s)",
+                cond_col,
+                symbol,
+                cond_source,
+            )
+            return {
+                "error": f"{cond_col} not available for attention_condition",
+                "meta": {"attention_source": source_key, "attention_condition_source": cond_source}
+            }
 
     df['attention_signal'] = df[signal_column].astype(float)
     df['datetime'] = pd.to_datetime(df['datetime'], utc=True)
@@ -111,7 +136,12 @@ def run_backtest_basic_attention(
         min_p = min(lookback_days, 5)
         return s.rolling(lookback_days, min_periods=min_p).apply(lambda x: pd.Series(x).quantile(attention_quantile), raw=False)
 
-    df['w_q'] = rolling_q(df['attention_signal'])
+    # 仅在未启用 attention_condition 时才计算滚动分位阈值（避免误导）
+    if attention_condition is None:
+        df['w_q'] = rolling_q(df['attention_signal'])
+    else:
+        df['w_q'] = pd.Series([None] * len(df))
+    # 现算 rolling/quantile/收益率等
     df['prev_close'] = df['close'].shift(1)
     df['daily_ret'] = (df['close'] / df['prev_close'] - 1.0).fillna(0)
 
@@ -221,7 +251,11 @@ def run_backtest_basic_attention(
         "total_trades": len(trades),
         "win_rate": (wins / len(trades) * 100.0) if trades else 0.0,
         "avg_return": avg_ret,
+        "avg_trade_return": avg_ret,  # 兼容前端字段
         "cumulative_return": cumulative,
+        "total_return": cumulative,   # 兼容前端字段
+        "annualized_return": None,    # 暂未实现年化
+        "sharpe_ratio": None,         # 暂未实现 Sharpe
         "max_drawdown": max_dd,
         "max_consecutive_losses": max_consecutive_losses,
         "monthly_returns": monthly_returns,
@@ -241,11 +275,13 @@ def run_backtest_basic_attention(
         "summary": summary,
         "trades": [
             {
+                "symbol": symbol,
                 "entry_date": t.entry_date.isoformat(),
                 "exit_date": t.exit_date.isoformat(),
                 "entry_price": t.entry_price,
                 "exit_price": t.exit_price,
                 "return_pct": t.return_pct,
+                "holding_days": (t.exit_date - t.entry_date).days + 1,
             } for t in trades
         ],
         "equity_curve": equity,

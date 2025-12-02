@@ -19,6 +19,7 @@ import logging
 from dotenv import load_dotenv
 from src.data.db_storage import get_db, USE_DATABASE
 from src.config.settings import TRACKED_SYMBOLS
+from src.config.attention_channels import DEFAULT_SOURCE_LANGUAGE
 from src.features.news_features import source_weight, sentiment_score, relevance_flag, extract_tags
 from src.database.models import get_session, Symbol
 
@@ -376,9 +377,15 @@ def fetch_rss_feeds() -> List[Dict]:
         "https://beincrypto.com/feed/",
         "https://dailyhodl.com/feed/",
         "https://coingape.com/feed/",
-        # 中文源
-        "https://rss.panewslab.com/zh/gtimg/rss",  # PANews 中文
-        "https://www.odaily.news/v1/openapi/odailyrss",  # Odaily 中文
+        
+        # 中文源 - 官方 RSS
+        "https://rss.panewslab.com/zh/gtimg/rss",  # PANews 官方
+        "https://cn.cointelegraph.com/rss",  # Cointelegraph 中文版
+        
+        # 中文源 - Telegram 频道 RSS (via RSSHub)
+        "https://rsshub.rssforever.com/telegram/channel/theblockbeats",  # 区块律动
+        "https://rsshub.rssforever.com/telegram/channel/foresightnews",  # Foresight News
+        "https://rsshub.rssforever.com/telegram/channel/lianbushou",  # 链捕手
     ]
     
     news_list = []
@@ -388,9 +395,6 @@ def fetch_rss_feeds() -> List[Dict]:
         try:
             logger.info(f"[RSS] Fetching {feed_url}...")
             feed = feedparser.parse(feed_url)
-            
-            # 判断是否为中文源
-            is_chinese = any(cn_domain in feed_url for cn_domain in ['panewslab.com/zh', 'odaily.news'])
             
             for entry in feed.entries[:50]:  # 每个源最多 50 条
                 title = entry.get("title", "")
@@ -413,8 +417,24 @@ def fetch_rss_feeds() -> List[Dict]:
                 
                 source = feed.feed.get("title", feed_url.split("/")[2])
                 
-                # 检测语言
-                language = "zh" if is_chinese else "en"
+                # 使用配置文件推断语言，如果配置中没有则根据 URL 判断
+                language = DEFAULT_SOURCE_LANGUAGE.get(source)
+                if not language:
+                    # 判断是否为中文源（基于 URL 和 Telegram 频道）
+                    chinese_indicators = [
+                        'panewslab.com/zh',
+                        'cn.cointelegraph.com',
+                        'odaily.news',
+                        '/theblockbeats',  # 区块律动
+                        '/foresightnews',  # Foresight News
+                        '/lianbushou',     # 链捕手
+                        '/PANews',
+                        '/TechFlowPost',
+                        '/wublockchain',
+                        '/jinse',
+                    ]
+                    is_chinese = any(indicator in feed_url for indicator in chinese_indicators)
+                    language = "zh" if is_chinese else "en"
                 
                 news_list.append({
                     "timestamp": int(dt.timestamp() * 1000),

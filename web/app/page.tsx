@@ -55,7 +55,7 @@ function Home() {
   const searchParams = useSearchParams()
   const [selectedSymbol, setSelectedSymbol] = useState<string>('ZEC')
   const [availableSymbols, setAvailableSymbols] = useState<string[]>(['ZEC', 'BTC', 'ETH', 'SOL'])
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const [activeTab, setActiveTab] = useState('overview')
   const [mounted, setMounted] = useState(false)
 
   // Only sync with searchParams after mount to avoid hydration mismatch

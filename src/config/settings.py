@@ -45,8 +45,12 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 # 默认使用 SQLite，如果环境变量中有 DATABASE_URL 则使用环境变量
 # 示例 PostgreSQL: "postgresql://user:password@localhost:5432/dbname"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/crypto_attention.db")
-# 新闻数据独立存储（如果未指定，默认使用单独的 SQLite 文件）
-NEWS_DATABASE_URL = os.getenv("NEWS_DATABASE_URL", f"sqlite:///{DATA_DIR}/crypto_news.db")
+"""
+为了统一后端所有增删改查到同一数据库，若未显式提供 NEWS_DATABASE_URL，
+则默认与 DATABASE_URL 一致（推荐都指向 PostgreSQL）。
+仍可通过设置 NEWS_DATABASE_URL 单独指定新闻库（如需分库）。
+"""
+NEWS_DATABASE_URL = os.getenv("NEWS_DATABASE_URL", DATABASE_URL)
 
 # 默认配置
 TRACKED_SYMBOLS = ["ZEC/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT"]

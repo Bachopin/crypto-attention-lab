@@ -53,13 +53,27 @@ NEWS_API_KEY=your_api_key_here
 - **费用**: 完全免费
 - **API Key**: ❌ 不需要
 - **来源**: 
-  - CoinDesk RSS
-  - CryptoSlate RSS
-  - CoinTelegraph RSS
+  - **英文源** (13个):
+    - CoinDesk, CryptoSlate, CoinTelegraph
+    - Decrypt, Bitcoin Magazine, Bitcoin.com
+    - The Defiant, Blockworks, U.Today
+    - NewsBTC, BeInCrypto, Daily Hodl, CoinGape
+  - **中文源** (5个):
+    - PANews (官方 RSS) - 权威中文加密货币资讯
+    - CoinTelegraph 中文版 - 国际资讯中文化
+    - 区块律动 BlockBeats (via Telegram)
+    - Foresight News (via Telegram)
+    - 链捕手 ChainCatcher (via Telegram)
 - **限制**: 无，但需要爬取解析
-- **覆盖**: 仅最近几天的新闻
+- **覆盖**: 最近 60 天的新闻
+- **更新**: 每次运行脚本自动拉取
 
 **配置**: 无需配置，作为 fallback 自动启用
+
+**中文源说明**:
+- **PANews**: 中文加密货币领域最权威的新闻平台之一，提供深度报道和快讯
+- **Telegram RSS**: 通过 RSSHub 服务订阅 Telegram 频道，实时性强
+- **总量**: 5 个中文源可提供约 140+ 条最新中文加密货币新闻
 
 ---
 
@@ -133,7 +147,16 @@ NEWS_API_KEY=your_newsapi_key
 - `source`: 来源名称
 - `url`: 原文链接
 - `relevance`: 相关性（`direct`=直接提及ZEC，`related`=隐私币相关）
-- `language`: 语言代码（如 `en`），默认为 `en`
+- `language`: 语言代码（`en`=英文, `zh`=中文），默认为 `en`
+- `symbols`: 关联的加密货币符号（逗号分隔）
+- `source_weight`: 来源权重（0-1，基于配置文件）
+- `sentiment_score`: 情绪分数（-1 到 1）
+
+### 语言分布
+基于实际数据（2025年12月）：
+- **英文新闻**: ~92.6% (主要来源)
+- **中文新闻**: ~7.4% (PANews, Telegram频道等)
+- **自动推断**: 系统会根据来源自动推断语言，确保无 `None` 值
 
 ---
 
@@ -208,9 +231,20 @@ curl "http://localhost:8000/api/news?symbol=ZEC" | jq '.[0:5]'
 
 1. **Twitter/X API**: 实时推文监控（需要付费）
 2. **Reddit API**: r/zcash 子版块监控（免费）
-3. **Telegram**: Zcash 官方频道监控（需要爬虫）
+3. **Telegram**: Zcash 官方频道监控（已部分支持通过 RSSHub）
 4. **Google News**: 通过 RSS 或自定义搜索 API
 5. **CoinGecko**: 虽无专门新闻 API，但有事件日历
+6. **更多中文源**: 
+   - 金色财经（需解决访问限制）
+   - 巴比特（需解决 SSL 问题）
+   - 深潮 TechFlow（Telegram 频道）
+   - 吴说区块链（Twitter/Telegram）
+
+### 中文源技术说明
+- **RSSHub**: 开源 RSS 生成器，可将 Telegram/Twitter 等转为 RSS
+- **公共实例**: 使用 `rsshub.rssforever.com`（可能有限流）
+- **自建方案**: 可自建 RSSHub 实例避免限流
+- **备选服务**: morss.it, rss.nodeseek.com 等
 
 ---
 
@@ -220,10 +254,18 @@ curl "http://localhost:8000/api/news?symbol=ZEC" | jq '.[0:5]'
 - ✅ 使用 CryptoCompare（免费，无 key，稳定）
 - ✅ 可选添加 CryptoPanic（提升质量）
 - ❌ 避免依赖 NewsAPI（限制太多）
-- ✅ RSS 作为 fallback 保底
+- ✅ RSS 作为 fallback 保底（18个源：13英文 + 5中文）
 
 **当前状态**:
 - ✅ 已集成 CryptoCompare
 - ✅ 支持 60 天历史数据
 - ✅ 每 5 分钟自动更新
 - ✅ 本地持久化存储
+- ✅ 多语言支持（英文 + 中文）
+- ✅ 自动语言推断（无 None 值）
+
+**中文新闻覆盖** (2025年12月2日更新):
+- ✅ 5个中文 RSS 源已集成
+- ✅ 实时 Telegram 频道监控（区块律动、Foresight News、链捕手）
+- ✅ 约 140+ 条最新中文加密货币新闻可用
+- ✅ 语言自动识别和分类

@@ -63,7 +63,7 @@
 
 ---
 ## 数据库结构要点
-- 主库: `symbols`, `prices`, `attention_features`, `google_trends`, `twitter_volume`, `state_snapshots`。
+- 主库: `symbols`, `prices`, `attention_features`, `state_snapshots`。
 - 新闻库: `news`, `news_stats`。
 - 唯一约束建议: `attention_features(symbol_id, datetime, timeframe)`（已在迁移中确保）避免多频率冲突。
 
