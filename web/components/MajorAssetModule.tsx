@@ -164,7 +164,7 @@ function MajorAssetModuleComponent({
           symbol,
           // start: dateRange.start,  // 移除：避免过滤掉早期的中文新闻事件
           // end: dateRange.end,      // 移除：让后端返回所有历史事件
-          lookback_days: 30,
+          lookback_days: settings.eventDetectionLookbackDays,
           min_quantile: settings.eventDetectionQuantile, // Use setting
         }).catch(err => {
           console.warn(`[MajorAssetModule] Failed to load events for ${symbol}:`, err)
@@ -215,7 +215,7 @@ function MajorAssetModuleComponent({
         error: err instanceof Error ? err.message : 'Failed to load data',
       }))
     }
-  }, [symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile])
+  }, [symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile, settings.eventDetectionLookbackDays])
 
   // 使用 ref 跟踪是否已经加载过数据
   const hasLoadedRef = useRef(false)
@@ -224,7 +224,7 @@ function MajorAssetModuleComponent({
   // 加载数据 - 首次加载或参数变化时才执行
   useEffect(() => {
     // 构建参数签名用于比较 - 加入 quantile 以便设置变更时重新加载
-    const currentParams = `${symbol}-${timeframe}-${dateRange.start || 'all'}-${dateRange.end || 'now'}-${settings.eventDetectionQuantile}`
+    const currentParams = `${symbol}-${timeframe}-${dateRange.start || 'all'}-${dateRange.end || 'now'}-${settings.eventDetectionQuantile}-${settings.eventDetectionLookbackDays}`
     
     // 如果参数没变，不重新加载
     if (prevParamsRef.current === currentParams) {
@@ -238,7 +238,7 @@ function MajorAssetModuleComponent({
     const isFirstLoad = !hasLoadedRef.current
     loadData(isFirstLoad) // isFirstLoad=true 显示 loading, false 静默更新
     hasLoadedRef.current = true
-  }, [loadData, symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile])
+  }, [loadData, symbol, timeframe, dateRange.start, dateRange.end, settings.eventDetectionQuantile, settings.eventDetectionLookbackDays])
 
   // 自动刷新：每 5 分钟静默更新数据（与后端价格更新频率同步）
   // 创建一个稳定的刷新引用，避免频繁重建 interval
@@ -459,8 +459,12 @@ function SingleSymbolRegimeAnalysis({ symbol, regimeData }: SingleSymbolRegimeAn
   const generateAnalysisReport = (regimes: any[]) => {
     if (!regimes || regimes.length < 2) return null
     
-    const low = regimes[0]
-    const high = regimes[regimes.length - 1]
+    // 找到 q1 (低关注度) 和 q3/q4 (高关注度) 进行对比，跳过 extreme
+    const normalRegimes = regimes.filter((r: any) => r.name !== 'extreme')
+    if (normalRegimes.length < 2) return null
+    
+    const low = normalRegimes[0] // q1 - 低关注度
+    const high = normalRegimes[normalRegimes.length - 1] // q3 or q4 - 高关注度
     
     return (
       <div className="mt-3 p-3 bg-muted/50 rounded text-xs space-y-2 border border-border/50">

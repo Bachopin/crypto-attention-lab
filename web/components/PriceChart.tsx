@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useImperativeHandle, forwardRef, useState, us
 import { createChart, ColorType, IChartApi, ISeriesApi, Range, Time } from 'lightweight-charts'
 import type { PriceCandle, AttentionEvent } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { useSettings } from '@/components/SettingsProvider'
+import type { EventTypeVisibility } from '@/lib/settings'
 
 interface PriceChartProps {
   priceData: PriceCandle[]
@@ -19,6 +21,8 @@ interface PriceChartProps {
   onCrosshairMove?: (time: Time | null) => void
   // Hide controls (for MarketOverview page)
   hideControls?: boolean
+  // Optional: override event visibility from settings
+  eventTypeVisibility?: EventTypeVisibility
 }
 
 export interface PriceChartRef {
@@ -37,8 +41,10 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     showEventMarkers = true,
     onShowEventMarkersChange,
     onCrosshairMove,
-    hideControls = false
+    hideControls = false,
+    eventTypeVisibility: propEventTypeVisibility,
   }, ref) => {
+    const { settings } = useSettings()
     const chartContainerRef = useRef<HTMLDivElement>(null)
     const chartRef = useRef<IChartApi | null>(null)
     const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -46,6 +52,9 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const isDisposedRef = useRef(false)
     // 用于防止循环：标记是否是程序内部设置的 range
     const isSettingRangeRef = useRef(false)
+    
+    // 使用 prop 或全局设置的事件类型可见性
+    const eventTypeVisibility = propEventTypeVisibility ?? settings.eventTypeVisibility
 
     // 数据是否为空
     const hasData = priceData && priceData.length > 0
@@ -270,6 +279,12 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const sortedPriceData = [...priceData].sort((a, b) => a.timestamp - b.timestamp)
     
     events.forEach((e) => {
+      // Filter by event type visibility settings
+      const eventTypeKey = e.event_type as keyof typeof eventTypeVisibility
+      if (eventTypeVisibility && !eventTypeVisibility[eventTypeKey]) {
+        return // Skip this event if its type is disabled
+      }
+      
       const dt = new Date(e.datetime)
       const eventTime = Math.floor(dt.getTime() / 1000)
       
@@ -357,7 +372,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
     const finalMarkers = markers.sort((a: any, b: any) => a.time - b.time)
     // 标记已生成
     return finalMarkers
-  }, [events, showEventMarkers, priceData])
+  }, [events, showEventMarkers, priceData, eventTypeVisibility])
 
   // Update data & markers
   useEffect(() => {

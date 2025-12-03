@@ -97,8 +97,12 @@ export default function AttentionRegimePanel({ defaultSymbols = ['ZEC','BTC','ET
   const generateAnalysisReport = (regimes: Regime[], lookaheadDays: number[]) => {
     if (!regimes || regimes.length < 2) return null;
     
-    const low = regimes[0];
-    const high = regimes[regimes.length - 1];
+    // 找到 q1 (低关注度) 和 q3/q4 (高关注度) 进行对比，跳过 extreme
+    const normalRegimes = regimes.filter(r => r.name !== 'extreme');
+    if (normalRegimes.length < 2) return null;
+    
+    const low = normalRegimes[0]; // q1 - 低关注度
+    const high = normalRegimes[normalRegimes.length - 1]; // q3 or q4 - 高关注度
     
     return (
       <div className="mt-3 p-3 bg-muted/50 rounded text-xs space-y-2 border border-border/50">

@@ -1,31 +1,59 @@
 #!/usr/bin/env python3
 """
 全量重新计算数据库特征
-1. 更新 News 表的情感分数 (sentiment_score) 和标签 (tags)
-2. 更新 AttentionFeature 表的所有注意力特征
-3. 更新 StateSnapshot 表
+
+完整更新 AttentionFeature 表的所有字段，包括：
+1. 基础注意力特征 (news_count, attention_score, weighted_attention, etc.)
+2. 事件检测 (detected_events)
+3. 价格快照 (close_price, open_price, etc.)
+4. 滚动收益率 (return_1d, return_7d, etc.)
+5. 滚动波动率 (volatility_7d, etc.)
+6. 成交量统计 (volume_zscore_7d, etc.)
+7. 价格极值 (high_30d, low_30d, etc.)
+8. State Features (feat_ret_zscore_7d, etc.)
+9. Forward Returns (forward_return_3d, etc.)
+10. 最大回撤 (max_drawdown_7d, etc.)
+
+使用方法:
+    python scripts/recompute_all_features.py [--symbol ZEC] [--skip-news] [--skip-snapshots]
+
+参数:
+    --symbol: 指定币种，默认处理所有活跃币种
+    --skip-news: 跳过新闻特征更新
+    --skip-snapshots: 跳过状态快照更新
+    --force-gt: 强制重新获取 Google Trends 数据
 """
 import sys
 import logging
-import pandas as pd
+import argparse
 from pathlib import Path
-from sqlalchemy import func
 from datetime import datetime, timezone
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.db_storage import get_db
-from src.database.models import News, Symbol, Price, AttentionFeature, get_session, get_engine
+from src.database.models import News, Symbol, get_session
 from src.features.news_features import sentiment_score, extract_tags, relevance_flag
-from src.features.calculators import calculate_composite_attention
+from src.services.attention_service import AttentionService
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def recompute_news_scores(batch_size=1000):
-    """重新计算新闻的情感分数和标签"""
-    logger.info("开始重新计算新闻特征 (Sentiment & Tags)...")
+
+def recompute_news_scores(batch_size: int = 1000):
+    """
+    重新计算新闻的情感分数和标签
+    
+    更新 News 表的:
+    - sentiment_score: 情感分数
+    - tags: 关键词标签
+    - relevance: 相关性
+    """
+    logger.info("=" * 60)
+    logger.info("步骤 1/3: 重新计算新闻特征 (Sentiment & Tags)")
+    logger.info("=" * 60)
+    
     db = get_db()
     session = get_session(db.news_engine)
     
@@ -53,8 +81,7 @@ def recompute_news_scores(batch_size=1000):
             new_tags_set = existing_tags | set(extracted)
             new_tags_str = ','.join(sorted(new_tags_set))
             
-            # 3. 更新 Relevance (简单逻辑：如果标题包含 symbols 中的任意一个，则为 direct)
-            # 注意：这里只是更新 DB 中的默认值，实际计算 Attention 时会针对具体 Symbol 再次计算
+            # 3. 更新 Relevance
             old_relevance = news.relevance
             new_relevance = 'related'
             if news.symbols:
@@ -84,185 +111,255 @@ def recompute_news_scores(batch_size=1000):
         
         session.commit()
         processed += len(news_list)
-        logger.info(f"进度: {processed}/{total} (已更新 {updated})")
+        if processed % 5000 == 0 or processed == total:
+            logger.info(f"进度: {processed}/{total} (已更新 {updated})")
         
     session.close()
-    logger.info("新闻特征更新完成！")
+    logger.info(f"✅ 新闻特征更新完成！共更新 {updated} 条记录")
+    return updated
 
-def recompute_attention_features():
-    """重新计算所有币种的注意力特征"""
-    logger.info("开始重新计算 Attention Features...")
+
+def recompute_attention_features(symbol_filter: str = None, force_google_trends: bool = False):
+    """
+    重新计算所有币种的注意力特征
+    
+    使用 AttentionService.update_attention_features() 完整计算：
+    - 基础注意力特征 (17个字段)
+    - 事件检测 (detected_events)
+    - 预计算字段 (价格派生指标、State Features、Forward Returns 等)
+    
+    Args:
+        symbol_filter: 指定币种，None 表示所有活跃币种
+        force_google_trends: 是否强制重新获取 Google Trends
+    """
+    logger.info("=" * 60)
+    logger.info("步骤 2/3: 重新计算 Attention Features (完整)")
+    logger.info("=" * 60)
+    
     db = get_db()
     session = get_session(db.engine)
     
-    # 获取所有活跃币种
-    symbols = session.query(Symbol).filter(Symbol.is_active == True).all()
+    # 获取要处理的币种
+    query = session.query(Symbol).filter(Symbol.is_active == True)
+    if symbol_filter:
+        query = query.filter(Symbol.symbol == symbol_filter.upper())
+    
+    symbols = query.all()
     logger.info(f"待处理币种数: {len(symbols)}")
     
-    for symbol_obj in symbols:
+    if not symbols:
+        logger.warning("未找到需要处理的币种")
+        return 0
+    
+    session.close()
+    
+    success_count = 0
+    fail_count = 0
+    
+    for idx, symbol_obj in enumerate(symbols, 1):
         symbol = symbol_obj.symbol
-        logger.info(f"正在处理: {symbol}")
+        logger.info(f"\n[{idx}/{len(symbols)}] 处理 {symbol}...")
         
-        # 1. 获取价格数据
-        prices = session.query(Price).filter(
-            Price.symbol_id == symbol_obj.id,
-            Price.timeframe == '1d'  # 目前主要计算日线
-        ).order_by(Price.datetime).all()
-        
-        if not prices:
-            logger.warning(f"{symbol} 无价格数据，跳过")
-            continue
-            
-        price_df = pd.DataFrame([{
-            'datetime': p.datetime,
-            'open': p.open,
-            'high': p.high,
-            'low': p.low,
-            'close': p.close,
-            'volume': p.volume
-        } for p in prices])
-        
-        # 2. 获取相关新闻
-        # 注意：这里需要模糊匹配 symbols 字段
-        news_items = session.query(News).filter(
-            News.symbols.like(f'%{symbol}%')
-        ).all()
-        
-        news_df = None
-        if news_items:
-            news_df = pd.DataFrame([{
-                'datetime': n.datetime,
-                'title': n.title,
-                'source': n.source,
-                'sentiment_score': n.sentiment_score,
-                'relevance': n.relevance, # 这里使用 DB 中的值，或者重新计算
-                'tags': n.tags,
-                'language': n.language,
-                'node_id': n.node_id,
-                'platform': n.platform,
-                'node': n.node
-            } for n in news_items])
-            
-            # 重新计算针对该 symbol 的 relevance (更准确)
-            news_df['relevance'] = news_df['title'].apply(lambda t: relevance_flag(str(t), symbol))
-        
-        # 3. 计算特征 (目前暂不包含 Google Trends / Twitter，除非 DB 里有)
-        # 这里简化处理，假设 Google Trends / Twitter 数据暂缺或已在 DB 中但这里未加载
-        # 如果需要完整数据，需要从 AttentionFeature 表反查或加载原始数据表
-        # 鉴于目前主要是更新新闻影响，我们主要关注 News 部分
-        
-        # 为了保留 Google Trends / Twitter 数据，我们应该先读取现有的 AttentionFeature
-        # 但这样比较复杂。如果之前没有 GT/Twitter 数据，或者数据量不大，我们可以先忽略，
-        # 或者假设 calculate_composite_attention 会处理缺失值。
-        
-        # 更好的做法是：如果 calculate_composite_attention 支持增量更新就好了。
-        # 但它是全量计算。
-        # 我们假设目前没有 Google Trends / Twitter 数据，或者接受它们被重置为 0 (如果未提供)
-        # 这是一个潜在风险点。用户说 "记得检查计算逻辑... 不要出错"。
-        # 如果我们覆盖了 GT/Twitter 数据，那就是出错了。
-        
-        # 检查是否有 GT/Twitter 数据源？
-        # 项目结构中有 `google_trends_fetcher.py`，数据可能在 `AttentionFeature` 表中。
-        # `AttentionFeature` 表混合了所有特征。
-        # 如果我们重新计算，必须提供所有输入，否则会丢失。
-        
-        # 尝试从现有的 AttentionFeature 中提取 GT/Twitter 数据
-        existing_features = session.query(AttentionFeature).filter(
-            AttentionFeature.symbol_id == symbol_obj.id,
-            AttentionFeature.timeframe == 'D'
-        ).all()
-        
-        gt_df = None
-        tw_df = None
-        
-        if existing_features:
-            ef_df = pd.DataFrame([{
-                'datetime': f.datetime,
-                'google_trend_value': f.google_trend_value,
-                'twitter_volume': f.twitter_volume
-            } for f in existing_features])
-            
-            if not ef_df.empty:
-                gt_df = ef_df[['datetime', 'google_trend_value']].rename(columns={'google_trend_value': 'value'})
-                tw_df = ef_df[['datetime', 'twitter_volume']].rename(columns={'twitter_volume': 'value'})
-        
-        # 4. 执行计算
         try:
-            result_df = calculate_composite_attention(
+            # 使用 AttentionService 完整计算
+            # 这会调用:
+            # 1. calculate_composite_attention() - 基础注意力特征
+            # 2. detect_events_per_row() - 事件检测
+            # 3. compute_all_precomputed_fields() - 价格派生指标、State Features、Forward Returns
+            result_df = AttentionService.update_attention_features(
                 symbol=symbol,
-                price_df=price_df,
-                news_df=news_df,
-                google_trends_df=gt_df,
-                twitter_volume_df=tw_df,
-                freq='D'
+                freq='D',
+                save_to_db=True
             )
             
-            if result_df is None or result_df.empty:
-                continue
+            if result_df is not None and not result_df.empty:
+                # 检查关键字段是否存在
+                key_fields = [
+                    'news_count', 'attention_score', 'weighted_attention',
+                    'detected_events', 'close_price', 'return_7d',
+                    'volatility_7d', 'feat_ret_zscore_7d'
+                ]
+                missing = [f for f in key_fields if f not in result_df.columns]
                 
-            # 5. 保存回数据库
-            # 逐行更新或批量插入
-            # 为了效率，我们先删除旧记录？不，这样会丢失其他字段（如 forward_returns 如果有的话）
-            # 应该执行 Upsert。
-            
-            for _, row in result_df.iterrows():
-                dt = row['datetime']
-                # 查找现有记录
-                af = session.query(AttentionFeature).filter(
-                    AttentionFeature.symbol_id == symbol_obj.id,
-                    AttentionFeature.datetime == dt,
-                    AttentionFeature.timeframe == 'D'
-                ).first()
+                if missing:
+                    logger.warning(f"  ⚠️ {symbol}: 缺少字段 {missing}")
                 
-                if not af:
-                    af = AttentionFeature(
-                        symbol_id=symbol_obj.id,
-                        datetime=dt,
-                        timeframe='D'
-                    )
-                    session.add(af)
+                # 统计事件
+                if 'detected_events' in result_df.columns:
+                    events_count = result_df['detected_events'].notna().sum()
+                    logger.info(f"  ✅ {symbol}: {len(result_df)} 条记录, {events_count} 条有事件")
+                else:
+                    logger.info(f"  ✅ {symbol}: {len(result_df)} 条记录")
                 
-                # 更新字段
-                af.news_count = int(row['news_count'])
-                af.attention_score = float(row['attention_score'])
-                af.weighted_attention = float(row['weighted_attention'])
-                af.bullish_attention = float(row['bullish_attention'])
-                af.bearish_attention = float(row['bearish_attention'])
-                af.event_intensity = int(row['event_intensity'])
-                af.news_channel_score = float(row['news_channel_score'])
+                success_count += 1
+            else:
+                logger.warning(f"  ⚠️ {symbol}: 无数据返回")
+                fail_count += 1
                 
-                # 恢复/更新 GT/Twitter
-                af.google_trend_value = float(row['google_trend_value'])
-                af.google_trend_zscore = float(row['google_trend_zscore'])
-                af.google_trend_change_7d = float(row['google_trend_change_7d'])
-                af.google_trend_change_30d = float(row['google_trend_change_30d'])
-                
-                af.twitter_volume = float(row['twitter_volume'])
-                af.twitter_volume_zscore = float(row['twitter_volume_zscore'])
-                af.twitter_volume_change_7d = float(row['twitter_volume_change_7d'])
-                
-                af.composite_attention_score = float(row['composite_attention_score'])
-                af.composite_attention_zscore = float(row['composite_attention_zscore'])
-                af.composite_attention_spike_flag = int(row['composite_attention_spike_flag'])
-                
-            session.commit()
-            logger.info(f"{symbol} 更新完成: {len(result_df)} 条记录")
-            
         except Exception as e:
-            logger.error(f"{symbol} 计算失败: {e}")
-            session.rollback()
+            logger.error(f"  ❌ {symbol} 失败: {e}")
+            fail_count += 1
+    
+    logger.info(f"\n✅ Attention Features 更新完成！成功 {success_count}, 失败 {fail_count}")
+    return success_count
+
+
+def recompute_state_snapshots(symbol_filter: str = None):
+    """
+    重新计算状态快照
+    
+    调用 recompute_state_snapshots.py 的逻辑
+    """
+    logger.info("=" * 60)
+    logger.info("步骤 3/3: 重新计算 State Snapshots")
+    logger.info("=" * 60)
+    
+    try:
+        from src.database.models import Symbol, AttentionFeature
+        from src.research.state_snapshot import compute_state_snapshot
+        from src.database.models import StateSnapshot as SnapshotModel
+        from src.config.settings import DATABASE_URL
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        import json
+        
+        engine = create_engine(DATABASE_URL)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        
+        # 获取活跃币种
+        query = session.query(Symbol).filter(Symbol.is_active == True)
+        if symbol_filter:
+            query = query.filter(Symbol.symbol == symbol_filter.upper())
+        symbols = [s.symbol for s in query.all()]
+        
+        if not symbols:
+            logger.warning("未找到活跃币种")
+            return 0
+        
+        logger.info(f"将为 {len(symbols)} 个币种计算状态快照...")
+        
+        updated = 0
+        
+        for symbol in symbols:
+            sym_row = session.query(Symbol).filter(Symbol.symbol == symbol).first()
+            if not sym_row:
+                continue
             
-    session.close()
+            # 获取所有特征时间点
+            rows = (
+                session.query(AttentionFeature.datetime)
+                .filter(AttentionFeature.symbol_id == sym_row.id)
+                .filter(AttentionFeature.timeframe == 'D')
+                .order_by(AttentionFeature.datetime.asc())
+                .all()
+            )
+            datetimes = [r[0] for r in rows]
+            
+            if not datetimes:
+                logger.warning(f"  ⚠️ {symbol} 无特征数据，跳过")
+                continue
+            
+            count = 0
+            batch = 0
+            
+            for dt in datetimes:
+                snap = compute_state_snapshot(
+                    symbol=symbol,
+                    as_of=dt,
+                    timeframe='1d',
+                    window_days=30,
+                )
+                if not snap:
+                    continue
+                
+                # Upsert
+                existing = (
+                    session.query(SnapshotModel)
+                    .filter(
+                        SnapshotModel.symbol_id == sym_row.id,
+                        SnapshotModel.datetime == snap.as_of,
+                        SnapshotModel.timeframe == '1d',
+                        SnapshotModel.window_days == 30,
+                    )
+                    .first()
+                )
+                
+                if existing:
+                    existing.features = json.dumps(snap.features, ensure_ascii=False)
+                    existing.raw_stats = json.dumps(snap.raw_stats, ensure_ascii=False) if snap.raw_stats else None
+                else:
+                    sm = SnapshotModel.from_computed(
+                        symbol_id=sym_row.id,
+                        dt=snap.as_of,
+                        timeframe='1d',
+                        features=snap.features,
+                        raw_stats=snap.raw_stats,
+                        window_days=30,
+                    )
+                    session.add(sm)
+                
+                updated += 1
+                count += 1
+                batch += 1
+                
+                if batch % 500 == 0:
+                    session.commit()
+                    batch = 0
+            
+            session.commit()
+            logger.info(f"  ✅ {symbol}: 更新 {count} 条快照")
+        
+        session.close()
+        logger.info(f"\n✅ State Snapshots 更新完成！共 {updated} 条")
+        return updated
+        
+    except Exception as e:
+        logger.error(f"State Snapshots 更新失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
 
 def main():
+    parser = argparse.ArgumentParser(description='全量重新计算数据库特征')
+    parser.add_argument('--symbol', type=str, help='指定币种（默认所有活跃币种）')
+    parser.add_argument('--skip-news', action='store_true', help='跳过新闻特征更新')
+    parser.add_argument('--skip-snapshots', action='store_true', help='跳过状态快照更新')
+    parser.add_argument('--force-gt', action='store_true', help='强制重新获取 Google Trends')
+    args = parser.parse_args()
+    
+    print("\n" + "=" * 60)
+    print("全量重新计算数据库特征")
+    print("=" * 60)
+    print(f"时间: {datetime.now(timezone.utc).isoformat()}")
+    print(f"币种: {args.symbol or '所有活跃币种'}")
+    print(f"跳过新闻: {args.skip_news}")
+    print(f"跳过快照: {args.skip_snapshots}")
+    print("=" * 60)
+    
     # 1. 更新新闻特征
-    # recompute_news_scores()
+    if not args.skip_news:
+        recompute_news_scores()
+    else:
+        logger.info("跳过新闻特征更新")
     
-    # 2. 更新注意力特征
-    recompute_attention_features()
+    # 2. 更新注意力特征（完整计算）
+    recompute_attention_features(
+        symbol_filter=args.symbol,
+        force_google_trends=args.force_gt
+    )
     
-    # 3. 更新状态快照 (调用现有脚本逻辑，这里简单打印提示)
-    logger.info("请运行 scripts/recompute_state_snapshots.py 来更新状态快照")
+    # 3. 更新状态快照
+    if not args.skip_snapshots:
+        recompute_state_snapshots(symbol_filter=args.symbol)
+    else:
+        logger.info("跳过状态快照更新")
+    
+    print("\n" + "=" * 60)
+    print("✅ 全量重新计算完成！")
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

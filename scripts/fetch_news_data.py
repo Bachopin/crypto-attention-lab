@@ -471,6 +471,56 @@ def aggregate_and_deduplicate(all_news: List[Dict]) -> pd.DataFrame:
     return df
 
 
+# 低质量/高重复度的英文新闻源黑名单
+# 这些来源主要是转载站、聚合站，内容重复度高
+EXCLUDED_EN_SOURCES = {
+    # 高产量转载站
+    "coinotag",           # ~170/天，内容重复度极高
+    "bitcoinworld",       # ~84/天，多为转载
+    "timestabloid",       # ~24/天，非核心加密媒体
+    "cointurken",         # ~22/天，土耳其转载站
+    "coinquora",          # ~21/天，聚合内容
+    "coinpaper",          # ~17/天，转载为主
+    "bitcoinsistemi",     # ~14/天，土耳其转载站
+    "bitdegree",          # ~9/天，教育站非新闻
+    "bitzo",              # ~4/天，小站
+    "thecryptobasic",     # ~20/天，低质量
+    "cryptodaily",        # ~13/天，内容重复
+}
+
+
+def filter_low_quality_sources(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    过滤低质量英文新闻源
+    - 只过滤英文新闻，中文新闻全部保留
+    - 在去重后、保存前执行
+    """
+    if df.empty:
+        return df
+    
+    before_count = len(df)
+    
+    # 只过滤英文来源
+    mask_keep = ~(
+        (df['language'] == 'en') & 
+        (df['source'].str.lower().isin([s.lower() for s in EXCLUDED_EN_SOURCES]))
+    )
+    
+    df_filtered = df[mask_keep].copy()
+    
+    filtered_count = before_count - len(df_filtered)
+    if filtered_count > 0:
+        logger.info(f"[Filter] Removed {filtered_count} articles from low-quality EN sources")
+        
+        # 统计过滤详情
+        filtered_df = df[~mask_keep]
+        if not filtered_df.empty:
+            source_counts = filtered_df['source'].value_counts().head(5).to_dict()
+            logger.info(f"[Filter] Top filtered sources: {source_counts}")
+    
+    return df_filtered
+
+
 def detect_symbols(text: str) -> str:
     """检测文本中包含的关注币种"""
     found = set()
@@ -574,6 +624,7 @@ def run_news_fetch_pipeline(days: int = 1):
     # 去重并保存
     if all_news:
         df = aggregate_and_deduplicate(all_news)
+        df = filter_low_quality_sources(df)  # 过滤低质量英文源
         save_news_data(df)
         logger.info(f"Scheduled update completed: {len(df)} items processed")
     else:
@@ -606,8 +657,9 @@ if __name__ == "__main__":
     logger.info("[RSS] Fetching RSS feeds...")
     all_news.extend(fetch_rss_feeds())
     
-    # 去重并保存
+    # 去重并过滤
     df = aggregate_and_deduplicate(all_news)
+    df = filter_low_quality_sources(df)  # 过滤低质量英文源
     save_news_data(df)
     
     logger.info("\n" + "="*60)

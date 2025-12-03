@@ -48,8 +48,15 @@ export class DashboardService {
 
   /**
    * Fetches secondary data (Attention, News, Events) that can be loaded after the main chart.
+   * @param symbol - The trading symbol
+   * @param startDate - Optional start date for data range
+   * @param eventOptions - Optional event detection options (quantile, lookback_days)
    */
-  async fetchSecondaryData(symbol: string, startDate?: string): Promise<{ attention: AttentionPoint[]; news: NewsItem[]; events: AttentionEvent[] }> {
+  async fetchSecondaryData(
+    symbol: string, 
+    startDate?: string,
+    eventOptions?: { min_quantile?: number; lookback_days?: number }
+  ): Promise<{ attention: AttentionPoint[]; news: NewsItem[]; events: AttentionEvent[] }> {
     try {
       const [attention, news, events] = await Promise.all([
         fetchAttention({ symbol, granularity: '1d', start: startDate }).catch(e => { 
@@ -64,7 +71,13 @@ export class DashboardService {
         // - 使用与价格数据相同的 startDate，确保事件时间范围与 K 线完全匹配
         // - 这样可以保证当前可见 K 线上的所有事件标注都能被拿到（包括早期的中文新闻事件）
         // - 不传 end 参数，让后端返回从 startDate 到现在的所有事件
-        fetchAttentionEvents({ symbol, start: startDate }).catch(e => { 
+        // - 使用传入的 eventOptions 或默认值
+        fetchAttentionEvents({ 
+          symbol, 
+          start: startDate,
+          min_quantile: eventOptions?.min_quantile ?? 0.9,
+          lookback_days: eventOptions?.lookback_days ?? 30,
+        }).catch(e => { 
           console.warn('[DashboardService] Events fetch failed', e); 
           return []; 
         }),

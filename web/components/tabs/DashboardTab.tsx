@@ -8,6 +8,7 @@ import { BarChart3, TrendingUp } from 'lucide-react'
 import { useAsync } from '@/lib/hooks'
 import { dashboardService, newsService } from '@/lib/services'
 import { AsyncBoundary } from '@/components/ui/async-boundary'
+import { useSettings } from '@/components/SettingsProvider'
 import type { Timeframe } from '@/lib/api'
 import type { Time } from 'lightweight-charts'
 import type { PriceChartRef } from '@/components/PriceChart'
@@ -41,6 +42,9 @@ interface DashboardTabProps {
 }
 
 export default function DashboardTab({ symbol, availableSymbols, onSymbolChange }: DashboardTabProps) {
+  // Settings
+  const { settings } = useSettings()
+  
   // State
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   
@@ -71,9 +75,12 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
     async () => {
       if (!criticalData.data?.price?.[0]?.datetime) return null;
       const startDate = criticalData.data.price[0].datetime;
-      return dashboardService.fetchSecondaryData(symbol, startDate);
+      return dashboardService.fetchSecondaryData(symbol, startDate, {
+        min_quantile: settings.eventDetectionQuantile,
+        lookback_days: settings.eventDetectionLookbackDays,
+      });
     },
-    [symbol, criticalData.data?.price?.[0]?.datetime],
+    [symbol, criticalData.data?.price?.[0]?.datetime, settings.eventDetectionQuantile, settings.eventDetectionLookbackDays],
     { enabled: !!criticalData.data?.price?.length }
   );
 
