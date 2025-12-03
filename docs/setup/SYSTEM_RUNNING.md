@@ -28,10 +28,14 @@ cd web && npm run dev
 
 ## 后台任务与数据流
 
-系统启动后，FastAPI 会自动管理以下后台任务：
-- **实时价格更新**: 每 5 分钟从 Binance/Coingecko 拉取最新价格。
-- **新闻数据抓取**: 每 30 分钟检查一次新闻源更新。
+系统启动后，FastAPI 会自动管理以下后台任务（频率可通过 `.env` 覆盖）：
+- **价格轮询**: 每 10 分钟（`PRICE_UPDATE_INTERVAL=600`）从 Binance 拉取最新价格。
+- **新闻聚合**: 每 1 小时（`NEWS_UPDATE_INTERVAL=3600`）检查新闻源更新。
+- **注意力特征**: 冷却期 1 小时（`FEATURE_UPDATE_COOLDOWN=3600`）后增量更新。
+- **Google Trends**: 冷却期 12 小时（`GOOGLE_TRENDS_COOLDOWN=43200`）。
 - **WebSocket 推送**: 当数据更新时，自动通过 WebSocket 推送给前端。
+
+> 详细更新链路见 [AUTO_UPDATE_PIPELINE.md](../backend/AUTO_UPDATE_PIPELINE.md)。
 
 ## 端口说明
 

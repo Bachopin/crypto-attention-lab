@@ -43,13 +43,14 @@
 ### 🏁 入门指南 (Setup)
 - [**快速开始 (Quickstart)**](docs/setup/QUICKSTART.md): 环境配置与详细启动步骤。
 - [**系统运行 (System Running)**](docs/setup/SYSTEM_RUNNING.md): 常见运行模式与故障排除。
-- [**Dev Container 指南**](docs/setup/DEV_CONTAINER.md): 使用 Docker 开发环境。
+- [**权重更新指南**](docs/setup/WEIGHT_UPDATE_GUIDE.md): 新闻源权重更新后的数据重算流程。
 
 ### ⚙️ 后端与数据 (Backend)
 - [**架构概览 (Architecture)**](docs/backend/ARCHITECTURE.md): 系统设计与数据流向。
 - [**API 参考 (API Reference)**](docs/backend/API_REFERENCE.md): 核心 API 端点说明。
-- [**数据管道 (Data Pipeline)**](docs/backend/DATA_PIPELINE.md): 真实数据获取、自动更新机制与数据库迁移。
-- [**自动更新机制**](docs/backend/AUTO_UPDATE_MECHANISM.md): 后台任务调度详解。
+- [**数据管道 (Data Pipeline)**](docs/backend/DATA_PIPELINE.md): 真实数据获取与数据库迁移。
+- [**自动更新机制**](docs/backend/AUTO_UPDATE_PIPELINE.md): 后台任务调度详解（价格/新闻/特征增量更新）。
+- [**内存优化**](docs/backend/MEMORY_OPTIMIZATION.md): 内存泄露修复与监控工具。
 
 ### 🖥️ 前端开发 (Frontend)
 - [**前端概览 (Overview)**](docs/frontend/OVERVIEW.md): Next.js 架构与组件集成。
