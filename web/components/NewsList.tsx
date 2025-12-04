@@ -11,20 +11,24 @@ interface NewsListProps {
   news: NewsItem[]
   maxItems?: number
   title?: string
+  containerHeight?: number
 }
 
-export default function NewsList({ news, maxItems = 10, title = "Recent News" }: NewsListProps) {
+export default function NewsList({ news, maxItems = 10, title = "Recent News", containerHeight }: NewsListProps) {
   // Sort by datetime desc to ensure most recent first
   const displayNews = [...news]
     .sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime())
     .slice(0, maxItems)
 
+  // Calculate content area height: containerHeight - header padding (24px top + 16px bottom) - title height (~28px) - content padding (24px)
+  const contentMaxHeight = containerHeight ? containerHeight - 92 : 400
+
   return (
-    <Card className="h-full">
-      <CardHeader>
+    <Card className={containerHeight ? '' : 'h-full'} style={containerHeight ? { height: containerHeight } : undefined}>
+      <CardHeader className="pb-3">
         <CardTitle>{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 max-h-[500px] overflow-y-auto">
+      <CardContent className="space-y-3 overflow-y-auto" style={{ maxHeight: contentMaxHeight }}>
         {displayNews.map((item, index) => (
           <div key={index}>
             {index > 0 && <Separator className="my-3" />}

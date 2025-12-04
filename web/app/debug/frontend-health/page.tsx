@@ -504,7 +504,7 @@ export default function FrontendHealthPage() {
             <Link href="/debug/api-test">
               <Button variant="outline" size="sm">API 测试</Button>
             </Link>
-            <Link href="/?tab=settings">
+            <Link href="/">
               <Button variant="outline" size="sm">返回设置</Button>
             </Link>
             <Button onClick={runAllChecks} disabled={isChecking} size="sm" className="gap-1">

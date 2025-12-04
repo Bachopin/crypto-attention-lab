@@ -24,7 +24,7 @@ const AttentionChart = dynamic(() => import('@/components/AttentionChart'), {
   ssr: false
 })
 const PriceOverview = dynamic(() => import('@/components/PriceOverview'), {
-  loading: () => <div className="h-[192px] w-full bg-muted/10 animate-pulse rounded-lg" />,
+  loading: () => <div className="h-[250px] w-full bg-muted/10 animate-pulse rounded-lg" />,
   ssr: false
 })
 const NewsList = dynamic(() => import('@/components/NewsList'), {
@@ -199,12 +199,12 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
             loading={overviewData.loading && !overviewPriceData.length}
             error={overviewData.error}
             data={overviewPriceData}
-            loadingHeight={192}
+            loadingHeight={250}
           >
-            {(data) => <PriceOverview priceData={data} height={192} />}
+            {(data) => <PriceOverview priceData={data} height={250} />}
           </AsyncBoundary>
         </div>
-        <NewsList news={news} maxItems={5} title={`${symbol} RECENT NEWS`} />
+        <NewsList news={news} maxItems={20} title={`${symbol} RECENT NEWS`} containerHeight={250 + 56} />
       </section>
 
       {/* Section 3: Main Price Action Chart */}

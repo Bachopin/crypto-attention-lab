@@ -326,7 +326,7 @@ export default function ApiTestPage() {
             <Link href="/debug/frontend-health">
               <Button variant="outline" size="sm">前端健康</Button>
             </Link>
-            <Link href="/?tab=settings">
+            <Link href="/">
               <Button variant="outline" size="sm">返回设置</Button>
             </Link>
             <Button onClick={runAllTests} disabled={testing.size > 0} size="sm" className="gap-1">
