@@ -101,42 +101,42 @@ function ScenarioCard({ scenario }: { scenario: ScenarioSummary }) {
 
   return (
     <div
-      className={`rounded-lg border ${config.borderColor} ${config.bgColor} p-4 transition-all hover:shadow-md`}
+      className={`rounded-lg border ${config.borderColor} ${config.bgColor} p-3 sm:p-4 transition-all hover:shadow-md min-w-0 flex flex-col`}
     >
       {/* 头部：标签和概率 */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className={config.color}>{config.icon}</span>
-          <span className={`font-semibold ${config.color}`}>{config.label}</span>
+      <div className="flex items-center justify-between mb-2 sm:mb-3 gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+          <span className={`${config.color} flex-shrink-0`}>{config.icon}</span>
+          <span className={`font-semibold ${config.color} text-sm sm:text-base`}>{config.label}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold">{(scenario.probability * 100).toFixed(0)}%</span>
-          <span className="text-xs text-muted-foreground">概率</span>
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+          <span className="text-lg sm:text-2xl font-bold whitespace-nowrap">{(scenario.probability * 100).toFixed(0)}%</span>
+          <span className="text-xs text-muted-foreground hidden sm:inline whitespace-nowrap">概率</span>
         </div>
       </div>
 
       {/* 样本数 */}
-      <div className="text-xs text-muted-foreground mb-3">
+      <div className="text-xs text-muted-foreground mb-2 sm:mb-3 flex-shrink-0">
         基于 {scenario.sample_count} 个历史相似样本
       </div>
 
       {/* 收益统计 */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="text-center">
-          <div className="text-xs text-muted-foreground mb-1">3日收益</div>
-          <div className={`text-sm font-semibold ${getReturnColorClass(scenario.avg_return_3d)}`}>
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2 sm:mb-3 flex-shrink-0">
+        <div className="text-center min-w-[50px] px-1">
+          <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1 leading-tight whitespace-nowrap">3日</div>
+          <div className={`text-[10px] sm:text-xs font-semibold ${getReturnColorClass(scenario.avg_return_3d)} leading-tight whitespace-nowrap`}>
             {formatPercent(scenario.avg_return_3d)}
           </div>
         </div>
-        <div className="text-center">
-          <div className="text-xs text-muted-foreground mb-1">7日收益</div>
-          <div className={`text-sm font-semibold ${getReturnColorClass(scenario.avg_return_7d)}`}>
+        <div className="text-center min-w-[50px] px-1">
+          <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1 leading-tight whitespace-nowrap">7日</div>
+          <div className={`text-[10px] sm:text-xs font-semibold ${getReturnColorClass(scenario.avg_return_7d)} leading-tight whitespace-nowrap`}>
             {formatPercent(scenario.avg_return_7d)}
           </div>
         </div>
-        <div className="text-center">
-          <div className="text-xs text-muted-foreground mb-1">30日收益</div>
-          <div className={`text-sm font-semibold ${getReturnColorClass(scenario.avg_return_30d)}`}>
+        <div className="text-center min-w-[50px] px-1">
+          <div className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1 leading-tight whitespace-nowrap">30日</div>
+          <div className={`text-[10px] sm:text-xs font-semibold ${getReturnColorClass(scenario.avg_return_30d)} leading-tight whitespace-nowrap`}>
             {formatPercent(scenario.avg_return_30d)}
           </div>
         </div>
@@ -145,7 +145,7 @@ function ScenarioCard({ scenario }: { scenario: ScenarioSummary }) {
       {/* 展开/收起按钮 */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-center"
+        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-center mt-auto pt-2 flex-shrink-0"
       >
         {expanded ? (
           <>
@@ -337,7 +337,7 @@ export default function ScenarioPanel({
           {data && !loading && (
             <div className="h-full flex flex-col">
               {data.scenarios.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 h-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-3 h-full auto-rows-fr">
                   {data.scenarios.slice(0, maxScenarios).map((scenario) => (
                     <ScenarioCard key={scenario.label} scenario={scenario} />
                   ))}

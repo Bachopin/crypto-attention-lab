@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useCallback, lazy, Suspense } from 'react'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { StatCard, SummaryCard } from '@/components/StatCards'
 import { BarChart3, TrendingUp } from 'lucide-react'
 import { useAsync } from '@/lib/hooks'
@@ -128,9 +129,15 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-          <p className="text-muted-foreground">Loading {symbol} data...</p>
+        <div className="flex flex-col items-center gap-6">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary/20 border-t-primary"></div>
+            <div className="absolute inset-0 animate-ping rounded-full h-16 w-16 border-2 border-primary/30"></div>
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-lg font-semibold gradient-text">Loading {symbol} data...</p>
+            <p className="text-sm text-muted-foreground animate-pulse">Please wait</p>
+          </div>
         </div>
       </div>
     );
@@ -139,10 +146,14 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   // Error state
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 space-y-4">
-        <div className="text-destructive text-lg font-semibold">Error Loading Data</div>
-        <p className="text-muted-foreground">{error.message}</p>
-        <Button onClick={handleRefresh} variant="outline">Retry</Button>
+      <div className="flex flex-col items-center justify-center h-96 space-y-6">
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-6 max-w-md text-center">
+          <div className="text-destructive text-xl font-semibold mb-2">Error Loading Data</div>
+          <p className="text-muted-foreground mb-4">{error.message}</p>
+          <Button onClick={handleRefresh} variant="outline" className="w-full">
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }
@@ -159,7 +170,7 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 fade-in">
       {/* Section 1: Top Summary */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
@@ -189,21 +200,25 @@ export default function DashboardTab({ symbol, availableSymbols, onSymbolChange 
       </section>
 
       {/* Section 2: Middle Panels */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-lg border p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Price Overview {overviewDays > 0 && <span className="text-sm font-normal text-muted-foreground">({overviewDays} 天)</span>}
-          </h2>
-          <AsyncBoundary
-            loading={overviewData.loading && !overviewPriceData.length}
-            error={overviewData.error}
-            data={overviewPriceData}
-            loadingHeight={250}
-          >
-            {(data) => <PriceOverview priceData={data} height={250} />}
-          </AsyncBoundary>
-        </div>
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <Card className="h-full">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary" />
+              Price Overview {overviewDays > 0 && <span className="text-sm font-normal text-muted-foreground">({overviewDays} 天)</span>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AsyncBoundary
+              loading={overviewData.loading && !overviewPriceData.length}
+              error={overviewData.error}
+              data={overviewPriceData}
+              loadingHeight={250}
+            >
+              {(data) => <PriceOverview priceData={data} height={250} />}
+            </AsyncBoundary>
+          </CardContent>
+        </Card>
         <NewsList news={news} maxItems={20} title={`${symbol} RECENT NEWS`} containerHeight={250 + 56} />
       </section>
 

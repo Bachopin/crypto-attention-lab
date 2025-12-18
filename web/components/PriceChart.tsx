@@ -399,16 +399,16 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
   }, [candleData, volumeData, eventMarkers])
 
   return (
-    <div className="relative w-full" style={{ height }}>
+    <div className="relative w-full bg-card/30 backdrop-blur-sm rounded-lg border border-border/50 p-4 shadow-lg" style={{ minHeight: height }}>
       {/* Controls - hidden when hideControls is true */}
       {!hideControls && (
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs text-muted-foreground">成交量窗格:</span>
+        <div className="flex items-center gap-2 mb-4 p-2 bg-muted/30 rounded-md backdrop-blur-sm">
+          <span className="text-xs text-muted-foreground font-medium">成交量窗格:</span>
           <Button
             variant={volumeRatio === 0.2 ? 'default' : 'outline'}
             size="sm"
             onClick={() => onVolumeRatioChange?.(0.2)}
-            className="text-xs h-6 px-2"
+            className="text-xs h-7 px-3"
           >
             1/5
           </Button>
@@ -416,7 +416,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
             variant={volumeRatio === 0.25 ? 'default' : 'outline'}
             size="sm"
             onClick={() => onVolumeRatioChange?.(0.25)}
-            className="text-xs h-6 px-2"
+            className="text-xs h-7 px-3"
           >
             1/4
           </Button>
@@ -424,17 +424,17 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
             variant={volumeRatio === 0.33 ? 'default' : 'outline'}
             size="sm"
             onClick={() => onVolumeRatioChange?.(0.33)}
-            className="text-xs h-6 px-2"
+            className="text-xs h-7 px-3"
           >
             1/3
           </Button>
-          <div className="mx-2 h-4 w-px bg-border" />
-          <span className="text-xs text-muted-foreground">事件标注:</span>
+          <div className="mx-2 h-4 w-px bg-border/50" />
+          <span className="text-xs text-muted-foreground font-medium">事件标注:</span>
           <Button
             variant={showEventMarkers ? 'default' : 'outline'}
             size="sm"
             onClick={() => onShowEventMarkersChange?.(true)}
-            className="text-xs h-6 px-2"
+            className="text-xs h-7 px-3"
           >
             开
           </Button>
@@ -442,7 +442,7 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
             variant={!showEventMarkers ? 'default' : 'outline'}
             size="sm"
             onClick={() => onShowEventMarkersChange?.(false)}
-            className="text-xs h-6 px-2"
+            className="text-xs h-7 px-3"
           >
             关
           </Button>
@@ -451,13 +451,16 @@ const PriceChart = forwardRef<PriceChartRef, PriceChartProps>(
       {/* 如果没有数据，显示占位符 */}
       {!hasData ? (
         <div 
-          className="relative w-full flex items-center justify-center text-muted-foreground bg-card/50 rounded"
+          className="relative w-full flex items-center justify-center text-muted-foreground bg-muted/20 rounded-lg border border-dashed border-border/50"
           style={{ height }}
         >
-          <span className="text-sm">No price data available</span>
+          <div className="text-center space-y-2">
+            <span className="text-sm font-medium">No price data available</span>
+            <p className="text-xs text-muted-foreground">Please select a different time range</p>
+          </div>
         </div>
       ) : (
-        <div ref={chartContainerRef} className="w-full h-full" />
+        <div ref={chartContainerRef} className="w-full h-full rounded-lg overflow-hidden" style={{ height }} />
       )}
     </div>
   )
