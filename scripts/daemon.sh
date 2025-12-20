@@ -4,10 +4,11 @@
 # Crypto Attention Lab - 守护进程启动脚本
 # ============================================
 # 功能：
-# 1. 后台启动后端和前端，退出终端/VSCode 后继续运行
-# 2. 前端崩溃自动重启（每 30 秒检查一次）
-# 3. 日志记录到 logs/ 目录
-# 4. 支持 start/stop/restart/status 命令
+# 1. 自动检查并启动 PostgreSQL 数据库
+# 2. 后台启动后端和前端，退出终端/VSCode 后继续运行
+# 3. 前端崩溃自动重启（每 30 秒检查一次）
+# 4. 日志记录到 logs/ 目录
+# 5. 支持 start/stop/restart/status 命令
 # ============================================
 
 set -e
@@ -32,6 +33,9 @@ DAEMON_LOG="$LOG_DIR/daemon.log"
 API_PID_FILE="$LOG_DIR/api.pid"
 WEB_PID_FILE="$LOG_DIR/web.pid"
 MONITOR_PID_FILE="$LOG_DIR/monitor.pid"
+
+# 数据库服务名称 (根据之前的排查结果设定)
+DB_SERVICE_NAME="postgresql@16"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -80,6 +84,33 @@ is_running() {
         fi
     fi
     return 1
+}
+
+# [新增] 检查并启动数据库
+start_db() {
+    # 检查 5432 端口是否被监听
+    if lsof -i :5432 >/dev/null 2>&1; then
+        success "数据库 (PostgreSQL) 运行正常 (Port 5432)"
+        return
+    fi
+
+    warn "检测到数据库未运行，正在尝试启动 $DB_SERVICE_NAME ..."
+    
+    # 尝试通过 brew 启动
+    if brew services start $DB_SERVICE_NAME; then
+        log "等待数据库初始化 (5秒)..."
+        sleep 5
+        
+        # 再次检查
+        if lsof -i :5432 >/dev/null 2>&1; then
+            success "数据库启动成功！"
+        else
+            error "数据库启动指令已发送，但端口 5432 仍未响应。请检查 'brew services list' 或日志。"
+            # 这里不退出，尝试继续，也许只是启动慢
+        fi
+    else
+        error "无法通过 Homebrew 启动数据库。请手动检查环境。"
+    fi
 }
 
 # 启动后端 API
@@ -209,7 +240,7 @@ stop_process() {
     fi
 }
 
-# 停止所有服务
+# 停止所有服务 (注意：这里故意不停止数据库，因为数据库通常作为系统服务常驻)
 stop_all() {
     log "停止所有服务..."
     stop_process "$MONITOR_PID_FILE" "监控进程"
@@ -224,6 +255,13 @@ status() {
     echo "  Crypto Attention Lab - 服务状态"
     echo "========================================="
     
+    # [新增] 数据库状态显示
+    if lsof -i :5432 >/dev/null 2>&1; then
+        echo -e "数据库:      ${GREEN}运行中${NC} (Port 5432)"
+    else
+        echo -e "数据库:      ${RED}未运行${NC} (PostgreSQL)"
+    fi
+
     if is_running "$API_PID_FILE"; then
         echo -e "后端 API:    ${GREEN}运行中${NC} (PID: $(cat $API_PID_FILE))"
         echo "             http://localhost:8000"
@@ -251,6 +289,8 @@ status() {
 # 启动所有服务
 start_all() {
     log "启动 Crypto Attention Lab 守护服务..."
+    start_db       # [修改] 最先启动数据库
+    sleep 1
     start_api
     sleep 3
     start_web
@@ -318,8 +358,8 @@ case "${1:-start}" in
         echo "用法: $0 {start|stop|restart|status|logs [api|web|monitor|daemon]}"
         echo ""
         echo "命令说明:"
-        echo "  start   - 启动所有服务（后台运行，退出终端后继续）"
-        echo "  stop    - 停止所有服务"
+        echo "  start   - 启动所有服务（含数据库检查）"
+        echo "  stop    - 停止所有服务（不停止数据库）"
         echo "  restart - 重启所有服务"
         echo "  status  - 查看服务状态"
         echo "  logs    - 查看日志（可选: api, web, monitor, daemon）"
