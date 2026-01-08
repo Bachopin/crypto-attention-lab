@@ -74,6 +74,38 @@ kill_port() {
     fi
 }
 
+# [新增] 预检查并修复数据库相关问题
+check_and_fix_db() {
+    local pg_data_dir="/opt/homebrew/var/postgresql@16"
+    local postmaster_pid_file="$pg_data_dir/postmaster.pid"
+    
+    # 如果数据目录不存在，说明 PostgreSQL 还没初始化，直接返回
+    if [ ! -d "$pg_data_dir" ]; then
+        return 0
+    fi
+    
+    # 检查是否有 postmaster.pid 文件
+    if [ -f "$postmaster_pid_file" ]; then
+        local stored_pid=$(head -n 1 "$postmaster_pid_file" 2>/dev/null || echo "")
+        
+        # 如果 PID 文件为空，直接删除
+        if [ -z "$stored_pid" ]; then
+            warn "清理空的数据库 lock 文件..."
+            rm -f "$postmaster_pid_file"
+            return 0
+        fi
+        
+        # 检查 PID 是否真的在运行
+        if ! ps -p "$stored_pid" > /dev/null 2>&1; then
+            warn "检测到数据库僵尸进程 (PID: $stored_pid)，正在清理..."
+            rm -f "$postmaster_pid_file"
+            return 0
+        fi
+    fi
+    
+    return 0
+}
+
 # 检查进程是否运行
 is_running() {
     local pid_file=$1
@@ -86,7 +118,7 @@ is_running() {
     return 1
 }
 
-# [新增] 检查并启动数据库
+# [新增] 检查并启动数据库（包含自动修复机制）
 start_db() {
     # 检查 5432 端口是否被监听
     if lsof -i :5432 >/dev/null 2>&1; then
@@ -96,21 +128,59 @@ start_db() {
 
     warn "检测到数据库未运行，正在尝试启动 $DB_SERVICE_NAME ..."
     
-    # 尝试通过 brew 启动
-    if brew services start $DB_SERVICE_NAME; then
-        log "等待数据库初始化 (5秒)..."
-        sleep 5
+    # 清理过期的数据库 lock 文件（自动修复机制）
+    local pg_data_dir="/opt/homebrew/var/postgresql@16"
+    local postmaster_pid_file="$pg_data_dir/postmaster.pid"
+    
+    if [ -f "$postmaster_pid_file" ]; then
+        local old_pid=$(head -n 1 "$postmaster_pid_file" 2>/dev/null || echo "")
         
-        # 再次检查
-        if lsof -i :5432 >/dev/null 2>&1; then
-            success "数据库启动成功！"
-        else
-            error "数据库启动指令已发送，但端口 5432 仍未响应。请检查 'brew services list' 或日志。"
-            # 这里不退出，尝试继续，也许只是启动慢
+        # 检查 lock 文件中的 PID 是否真的在运行
+        if [ -n "$old_pid" ] && ! ps -p "$old_pid" > /dev/null 2>&1; then
+            warn "检测到过期的数据库 lock 文件 (PID: $old_pid)，正在清理..."
+            rm -f "$postmaster_pid_file"
+            log "过期 lock 文件已清理"
+        elif [ -n "$old_pid" ]; then
+            warn "检测到数据库进程 (PID: $old_pid) 可能僵死，尝试重新启动..."
+            kill -9 "$old_pid" 2>/dev/null || true
+            rm -f "$postmaster_pid_file"
+            sleep 1
         fi
-    else
-        error "无法通过 Homebrew 启动数据库。请手动检查环境。"
     fi
+    
+    # 尝试通过 brew 启动（最多重试 3 次）
+    local retry_count=0
+    local max_retries=3
+    
+    while [ $retry_count -lt $max_retries ]; do
+        retry_count=$((retry_count + 1))
+        
+        log "启动数据库 (尝试 $retry_count/$max_retries)..."
+        
+        if brew services start $DB_SERVICE_NAME 2>/dev/null; then
+            log "等待数据库初始化..."
+            sleep 3
+            
+            # 检查数据库是否真的在运行
+            if lsof -i :5432 >/dev/null 2>&1; then
+                success "数据库启动成功！"
+                return 0
+            fi
+        fi
+        
+        # 如果启动失败，等一下再重试
+        if [ $retry_count -lt $max_retries ]; then
+            warn "数据库启动未成功，${retry_count}秒后重试..."
+            sleep 1
+        fi
+    done
+    
+    # 所有重试都失败了
+    error "无法启动数据库！请手动检查："
+    error "  1. 运行: brew services list"
+    error "  2. 查看错误日志: log show --predicate 'eventMessage contains \"postgresql\"' --last 5m"
+    error "  3. 如果问题持续，尝试: rm -f /opt/homebrew/var/postgresql@16/postmaster.pid"
+    error "  4. 然后重新运行: brew services restart postgresql@16"
 }
 
 # 启动后端 API
@@ -289,6 +359,7 @@ status() {
 # 启动所有服务
 start_all() {
     log "启动 Crypto Attention Lab 守护服务..."
+    check_and_fix_db    # [新增] 预检查并修复数据库问题
     start_db       # [修改] 最先启动数据库
     sleep 1
     start_api
