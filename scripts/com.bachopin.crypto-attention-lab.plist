@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 唯一标识符，必须与文件名一致 -->
+    <key>Label</key>
+    <string>com.bachopin.crypto-attention-lab</string>
+    
+    <!-- 程序启动命令 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/mextrel/VSCode/crypto-attention-lab && ./scripts/daemon.sh start</string>
+    </array>
+    
+    <!-- 工作目录 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/mextrel/VSCode/crypto-attention-lab</string>
+    
+    <!-- 标准输出日志 -->
+    <key>StandardOutPath</key>
+    <string>/Users/mextrel/VSCode/crypto-attention-lab/logs/launchd.log</string>
+    
+    <!-- 错误输出日志 -->
+    <key>StandardErrorPath</key>
+    <string>/Users/mextrel/VSCode/crypto-attention-lab/logs/launchd-error.log</string>
+    
+    <!-- 启动时机：开机后自动运行 -->
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <!-- 如果进程崩溃，自动重启 (可选) -->
+    <key>KeepAlive</key>
+    <false/>
+    
+    <!-- 环境变量 (如果需要) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

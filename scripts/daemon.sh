@@ -106,15 +106,28 @@ check_and_fix_db() {
     return 0
 }
 
-# 检查进程是否运行
+# 检查进程是否运行，并可选校验命令关键字防止 PID 复用
 is_running() {
     local pid_file=$1
+    local pattern=${2:-}
+
     if [ -f "$pid_file" ]; then
         local pid=$(cat "$pid_file")
+
+        # 进程存在且（若指定 pattern）命令行包含预期关键字
         if ps -p "$pid" > /dev/null 2>&1; then
+            if [ -n "$pattern" ]; then
+                local cmd
+                cmd=$(ps -p "$pid" -o command= 2>/dev/null | tr -d '\n')
+                if [[ "$cmd" == *"$pattern"* ]]; then
+                    return 0
+                fi
+                return 1
+            fi
             return 0
         fi
     fi
+
     return 1
 }
 
@@ -185,7 +198,7 @@ start_db() {
 
 # 启动后端 API
 start_api() {
-    if is_running "$API_PID_FILE"; then
+    if is_running "$API_PID_FILE" "uvicorn"; then
         warn "后端 API 已在运行 (PID: $(cat $API_PID_FILE))"
         return
     fi
@@ -197,7 +210,8 @@ start_api() {
     nohup uvicorn src.api.main:app \
         --host 0.0.0.0 \
         --port 8000 \
-        > "$API_LOG" 2>&1 &
+        --log-level warning \
+        >> "$API_LOG" 2>&1 &
     
     echo $! > "$API_PID_FILE"
     sleep 2
@@ -214,7 +228,7 @@ start_api() {
 
 # 启动前端
 start_web() {
-    if is_running "$WEB_PID_FILE"; then
+    if is_running "$WEB_PID_FILE" "npm run dev"; then
         warn "前端服务已在运行 (PID: $(cat $WEB_PID_FILE))"
         return
     fi
@@ -231,12 +245,12 @@ start_web() {
         npm install
     fi
     
-    nohup npm run dev > "$WEB_LOG" 2>&1 &
+    nohup npm run dev >> "$WEB_LOG" 2>&1 &
     echo $! > "$WEB_PID_FILE"
     cd "$PROJECT_ROOT"
     sleep 3
     
-    if is_running "$WEB_PID_FILE"; then
+    if is_running "$WEB_PID_FILE" "npm run dev"; then
         success "前端服务已启动 (PID: $(cat $WEB_PID_FILE))"
         success "访问地址: http://localhost:3000"
     else
@@ -253,14 +267,14 @@ monitor_web() {
         sleep 30
         
         # 检查后端是否运行
-        if ! is_running "$API_PID_FILE"; then
+        if ! is_running "$API_PID_FILE" "uvicorn"; then
             warn "后端未运行，跳过前端检查"
             continue
         fi
         
         # 检查前端是否运行
-        if ! is_running "$WEB_PID_FILE"; then
-            error "检测到前端已崩溃，自动重启..."
+        if ! is_running "$WEB_PID_FILE" "npm run dev"; then
+            error "检测到前端已崩溃或 PID 异常，自动重启..."
             start_web
         fi
     done
@@ -268,7 +282,7 @@ monitor_web() {
 
 # 启动监控
 start_monitor() {
-    if is_running "$MONITOR_PID_FILE"; then
+    if is_running "$MONITOR_PID_FILE" "monitor_web"; then
         warn "监控进程已在运行 (PID: $(cat $MONITOR_PID_FILE))"
         return
     fi
@@ -291,8 +305,9 @@ start_monitor() {
 stop_process() {
     local pid_file=$1
     local name=$2
+    local pattern=${3:-}
     
-    if is_running "$pid_file"; then
+    if is_running "$pid_file" "$pattern"; then
         local pid=$(cat "$pid_file")
         log "停止 $name (PID: $pid)..."
         kill "$pid" 2>/dev/null || true
@@ -306,16 +321,21 @@ stop_process() {
         rm -f "$pid_file"
         success "$name 已停止"
     else
-        warn "$name 未运行"
+        if [ -f "$pid_file" ]; then
+            warn "$name 未运行（清理过期 PID 文件）"
+            rm -f "$pid_file"
+        else
+            warn "$name 未运行"
+        fi
     fi
 }
 
 # 停止所有服务 (注意：这里故意不停止数据库，因为数据库通常作为系统服务常驻)
 stop_all() {
     log "停止所有服务..."
-    stop_process "$MONITOR_PID_FILE" "监控进程"
-    stop_process "$WEB_PID_FILE" "前端服务"
-    stop_process "$API_PID_FILE" "后端 API"
+    stop_process "$MONITOR_PID_FILE" "监控进程" "monitor_web"
+    stop_process "$WEB_PID_FILE" "前端服务" "npm run dev"
+    stop_process "$API_PID_FILE" "后端 API" "uvicorn"
 }
 
 # 查看状态
@@ -332,21 +352,21 @@ status() {
         echo -e "数据库:      ${RED}未运行${NC} (PostgreSQL)"
     fi
 
-    if is_running "$API_PID_FILE"; then
+    if is_running "$API_PID_FILE" "uvicorn"; then
         echo -e "后端 API:    ${GREEN}运行中${NC} (PID: $(cat $API_PID_FILE))"
         echo "             http://localhost:8000"
     else
         echo -e "后端 API:    ${RED}未运行${NC}"
     fi
     
-    if is_running "$WEB_PID_FILE"; then
+    if is_running "$WEB_PID_FILE" "npm run dev"; then
         echo -e "前端服务:    ${GREEN}运行中${NC} (PID: $(cat $WEB_PID_FILE))"
         echo "             http://localhost:3000"
     else
         echo -e "前端服务:    ${RED}未运行${NC}"
     fi
     
-    if is_running "$MONITOR_PID_FILE"; then
+    if is_running "$MONITOR_PID_FILE" "monitor_web"; then
         echo -e "监控进程:    ${GREEN}运行中${NC} (PID: $(cat $MONITOR_PID_FILE))"
     else
         echo -e "监控进程:    ${RED}未运行${NC}"
@@ -359,6 +379,12 @@ status() {
 # 启动所有服务
 start_all() {
     log "启动 Crypto Attention Lab 守护服务..."
+    
+    # 日志轮转检查（防止日志文件过大）
+    if [ -x "$PROJECT_ROOT/scripts/rotate_logs.sh" ]; then
+        "$PROJECT_ROOT/scripts/rotate_logs.sh" >> "$DAEMON_LOG" 2>&1 || true
+    fi
+    
     check_and_fix_db    # [新增] 预检查并修复数据库问题
     start_db       # [修改] 最先启动数据库
     sleep 1
