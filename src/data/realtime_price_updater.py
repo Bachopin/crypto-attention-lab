@@ -128,7 +128,8 @@ class RealtimePriceUpdater:
             days: 检查的最大天数
         
         Returns:
-            {'has_gaps': bool, 'missing_days': int, 'earliest_date': datetime, 'latest_date': datetime}
+            {'has_gaps': bool, 'missing_days': int, 'earliest_date': datetime, 'latest_date': datetime,
+             'recent_gaps': list, 'max_gap_days': int}
         """
         from src.data.db_storage import load_price_data
         import pandas as pd
@@ -144,7 +145,9 @@ class RealtimePriceUpdater:
                 'missing_days': days,
                 'earliest_date': None,
                 'latest_date': None,
-                'needs_full_fetch': True
+                'needs_full_fetch': True,
+                'recent_gaps': [],
+                'max_gap_days': 0
             }
         
         # 确保 datetime 列存在
@@ -152,12 +155,14 @@ class RealtimePriceUpdater:
             price_df['datetime'] = pd.to_datetime(price_df['timestamp'], unit='ms', utc=True)
         
         price_df['datetime'] = pd.to_datetime(price_df['datetime'], utc=True)
+        price_df = price_df.sort_values('datetime').reset_index(drop=True)
         earliest_data = price_df['datetime'].min()
         latest_data = price_df['datetime'].max()
         
         # 计算预期的数据点数量
         interval_hours = {'1d': 24, '4h': 4, '1h': 1, '15m': 0.25}
         hours_per_point = interval_hours.get(timeframe, 24)
+        expected_interval = timedelta(hours=hours_per_point)
         
         # 检查是否有足够的历史数据
         data_span_days = (latest_data - earliest_data).days
@@ -171,13 +176,43 @@ class RealtimePriceUpdater:
         # 检查是否需要补充早期数据
         needs_backfill = earliest_data > earliest_expected + timedelta(days=7)
         
+        # ===== 新增：检测最近 45 天内的中间缺口 =====
+        recent_gaps = []
+        max_gap_days = 0
+        recent_window = now - timedelta(days=45)
+        recent_df = price_df[price_df['datetime'] >= recent_window].copy()
+        
+        if len(recent_df) > 1:
+            recent_df = recent_df.sort_values('datetime').reset_index(drop=True)
+            for i in range(1, len(recent_df)):
+                time_diff = recent_df.loc[i, 'datetime'] - recent_df.loc[i-1, 'datetime']
+                # 如果时间差超过预期间隔的 1.5 倍，认为是缺口
+                if time_diff > expected_interval * 1.5:
+                    gap_periods = int(time_diff / expected_interval) - 1
+                    gap_days = time_diff.total_seconds() / 86400
+                    recent_gaps.append({
+                        'from': recent_df.loc[i-1, 'datetime'],
+                        'to': recent_df.loc[i, 'datetime'],
+                        'missing_periods': gap_periods,
+                        'gap_days': gap_days
+                    })
+                    max_gap_days = max(max_gap_days, gap_days)
+        
+        # 检查尾部缺口（latest_data 到现在的差距）
+        tail_gap = now - latest_data
+        if tail_gap > expected_interval * 1.5:
+            tail_gap_days = tail_gap.total_seconds() / 86400
+            max_gap_days = max(max_gap_days, tail_gap_days)
+        
         return {
-            'has_gaps': has_gaps or needs_backfill,
+            'has_gaps': has_gaps or needs_backfill or len(recent_gaps) > 0,
             'missing_days': max(0, (earliest_data - earliest_expected).days) if needs_backfill else 0,
             'earliest_date': earliest_data,
             'latest_date': latest_data,
             'needs_full_fetch': needs_backfill,
-            'completeness_ratio': completeness_ratio
+            'completeness_ratio': completeness_ratio,
+            'recent_gaps': recent_gaps,
+            'max_gap_days': int(max_gap_days) + 1  # 向上取整，确保覆盖
         }
     
     def should_check_completeness(self, symbol: str, last_update: datetime = None) -> bool:
@@ -260,19 +295,30 @@ class RealtimePriceUpdater:
                     if force_full:
                         # 强制全量抓取（仅在用户手动触发时使用）
                         days = 500
-                        logger.info(f"[Updater] {symbol} {timeframe}: forced full fetch (500 days)")
+                        reason = "forced full fetch"
                     elif completeness.get('earliest_date') is None:
                         # 首次抓取该 symbol/timeframe，需要全量
                         days = 500
-                        logger.info(f"[Updater] {symbol} {timeframe}: initial fetch (500 days)")
+                        reason = "initial fetch"
                     elif completeness['needs_full_fetch'] and completeness.get('completeness_ratio', 1) < 0.5:
                         # 数据严重缺失（<50%），才考虑全量抓取
                         days = 500
-                        logger.info(f"[Updater] {symbol} {timeframe}: severe data gaps (ratio={completeness.get('completeness_ratio', 0):.2f}), refetching")
+                        reason = f"severe data gaps (ratio={completeness.get('completeness_ratio', 0):.2f})"
+                    elif completeness.get('recent_gaps') or completeness.get('max_gap_days', 0) > 1:
+                        # 检测到中间缺口，扩大抓取范围以覆盖缺口
+                        max_gap = completeness.get('max_gap_days', 0)
+                        # 抓取范围 = max(缺口天数+缓冲, 常规增量范围)，上限 45 天
+                        range_info = self.calculate_fetch_range(last_update)
+                        days = min(max(max_gap + 3, range_info['days'], 7), 45)
+                        gap_count = len(completeness.get('recent_gaps', []))
+                        reason = f"recent gaps detected ({gap_count} gaps, max={max_gap}d)"
                     else:
                         # 数据基本完整，正常增量更新（只抓最近几天）
                         range_info = self.calculate_fetch_range(last_update)
                         days = min(range_info['days'], 7)  # 增量更新最多 7 天
+                        reason = "incremental"
+                    
+                    logger.info(f"[Updater] {symbol} {timeframe}: {reason} ({days} days)")
                 else:
                     # 跳过完整性检查，直接增量更新（常规定时更新）
                     range_info = self.calculate_fetch_range(last_update)
